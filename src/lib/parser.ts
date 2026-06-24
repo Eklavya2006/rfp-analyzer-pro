@@ -57,6 +57,22 @@ function isBinaryJunk(text: string): boolean {
   return nonPrint / text.length > 0.2;
 }
 
+/**
+ * Detects raw PDF stream content — catches cases where file.text() or pdf-parse
+ * returns the raw binary header/xref table before sanitization can help.
+ * Looks for telltale PDF structure markers in the first 512 chars.
+ */
+function isRawPDFContent(text: string): boolean {
+  const head = text.slice(0, 512);
+  // Raw PDF always starts with %PDF-  or has %PDF somewhere near the top
+  if (/^%PDF-/m.test(head)) return true;
+  // Linearized / xref early markers
+  if (/\bLinearized\b/.test(head) || /<<\/L\s+\d+/.test(head)) return true;
+  // Binary comment line with 4 high-byte chars (common in PDF headers)
+  if (/%[^\x20-\x7E]{3,}/.test(head)) return true;
+  return false;
+}
+
 // ── Main extraction entry point ───────────────────────────────
 export async function extractFromFile(
   file: File,
@@ -85,20 +101,32 @@ export async function extractFromFile(
       const pageCount = parsed.numpages > 0 ? parsed.numpages : estimatePageCount(rawText);
       onProgress?.('rendering', 80);
       const text = sanitizeText(rawText);
-      if (text.length > 50 && !isBinaryJunk(text)) {
+      // Guard: reject raw PDF structure masquerading as text
+      if (text.length > 50 && !isBinaryJunk(text) && !isRawPDFContent(text)) {
         onProgress?.('done', 100);
         return { text, pageCount };
       }
-      // Fallback — text too short or still junk
-      const fallback = sanitizeText(await file.text().catch(() => ''));
+      // pdf-parse returned usable but short text — that is fine if not junk
+      if (text.length > 20 && !isBinaryJunk(text) && !isRawPDFContent(text)) {
+        onProgress?.('done', 100);
+        return { text, pageCount };
+      }
+      // Fallback — still junk/raw; do NOT use file.text() on a PDF (binary)
       onProgress?.('done', 100);
-      return { text: fallback || '[PDF text extraction yielded no readable content]', pageCount };
+      return {
+        text: text.length > 20 ? text : '[PDF text extraction yielded no readable content — the PDF may be image-only or encrypted]',
+        pageCount,
+      };
     } catch (err) {
       console.warn('[parser] pdf-parse failed:', err);
     }
-    const fallback = sanitizeText(await file.text().catch(() => ''));
+    // pdf-parse itself threw — do NOT fall back to file.text() for PDFs
+    // as that returns raw binary bytes
     onProgress?.('done', 100);
-    return { text: fallback || '[PDF could not be read — try uploading as DOCX or TXT]', pageCount: estimatePageCount(fallback) };
+    return {
+      text: '[PDF could not be read — try uploading as DOCX or TXT]',
+      pageCount: 1,
+    };
   }
 
   // ── DOCX / DOC ───────────────────────────────────────────────

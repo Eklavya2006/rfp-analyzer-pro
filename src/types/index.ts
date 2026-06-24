@@ -114,6 +114,17 @@ export interface IBMBandInfo {
   defaultHourlyRate: number;
 }
 
+// ── Monthly utilisation category ─────────────────────────────
+// Drives the correct hrs/month cap per the IBM rate-card methodology:
+//   Mainline Domestic / Nearshore / Landed INDIA  →  140 hrs/month (all timelines)
+//   Offshore CIC Primary INDIA (≤ 12 months)      →  180 hrs/month
+//   Offshore CIC Primary INDIA (> 12 months)      →  172.5 hrs/month
+export type DeployCategory =
+  | 'Mainline Domestic'   // onshore US/EU primary resource
+  | 'Nearshore'           // nearshore primary (140 h/mo always)
+  | 'Offshore CIC'        // offshore CIC primary – India (180 / 172.5)
+  | 'Landed India';       // landed India resource (140 h/mo always)
+
 export interface StaffingRole {
   id: string;
   roleName: string;
@@ -126,6 +137,8 @@ export interface StaffingRole {
   totalCost: number;
   phase?: string;
   weeklyHours?: number;
+  /** Optional: overrides the deploy-type in the Staffing table for utilisation calc */
+  deployCategory?: DeployCategory;
 }
 
 export interface StaffingPlan {

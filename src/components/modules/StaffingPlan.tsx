@@ -1,6 +1,10 @@
 'use client';
 // StaffingPlan — Nearshore/Geo/Offshore toggles per row · Utilization fix
 //               Phases column · Role icons · Band dropdown · Count stepper
+//               Monthly utilisation uses IBM rate-card methodology:
+//                 Mainline Domestic / Nearshore / Landed India  → 140 h/mo (all timelines)
+//                 Offshore CIC Primary India (≤12 mo project)   → 180 h/mo
+//                 Offshore CIC Primary India (>12 mo project)   → 172.5 h/mo
 import React, { useState, useMemo } from 'react';
 import {
   Plus, Trash2, Edit3, Check, X,
@@ -17,7 +21,7 @@ import {
 import { useRFPStore } from '@/lib/store';
 import { T } from '@/lib/theme';
 import { v4 as uuid } from 'uuid';
-import type { IBMBand, StaffingRole } from '@/types';
+import type { IBMBand, StaffingRole, DeployCategory } from '@/types';
 
 // ── Constants ─────────────────────────────────────────────────
 const ROLE_COLORS = ['#6366f1','#06b6d4','#10b981','#f59e0b','#ef4444','#8b5cf6','#ec4899','#14b8a6'];
@@ -34,13 +38,43 @@ const BAND_DESC: Record<IBMBand, string> = {
   '10': 'Senior','Executive': 'Sr. Executive','D': 'Distinguished',
 };
 
-// Deployment types — Nearshore / Geo / Offshore
+// ── Deployment types — Nearshore / Geo / Offshore ────────────
 const DEPLOY_TYPES = ['Nearshore', 'Geo', 'Offshore'] as const;
 type DeployType = typeof DEPLOY_TYPES[number];
-// Hours per week per deploy type
+
+// Effective working hours per week shown in the "Eff H/Wk" column
 const DEPLOY_HRS: Record<DeployType, number> = { Nearshore: 40, Geo: 40, Offshore: 45 };
-// Monthly available hours = hrs/wk × 4 weeks per FTE
-const MONTHLY_AVAIL_HRS = 160; // standard constant for utilization calc
+
+// ── IBM Rate-Card monthly utilisation hours ───────────────────
+// Maps each UI deploy-type to its IBM rate-card DeployCategory:
+//   Nearshore  → Nearshore Primary    → 140 h/mo  (all timelines)
+//   Geo        → Mainline Domestic    → 140 h/mo  (all timelines)
+//   Offshore   → Offshore CIC India   → 180 h/mo (≤12 mo) | 172.5 h/mo (>12 mo)
+//
+// Formula:  Utilisation % = totalHours / (count × monthlyAvailHrs × projectMonths) × 100
+//
+const DEPLOY_CATEGORY: Record<DeployType, DeployCategory> = {
+  Nearshore: 'Nearshore',
+  Geo:       'Mainline Domestic',
+  Offshore:  'Offshore CIC',
+};
+
+/**
+ * Returns the correct monthly available hours per FTE for a given
+ * deploy category and project timeline (in calendar months).
+ *
+ * Rule table (IBM methodology):
+ *   Mainline Domestic / Nearshore / Landed India  →  140 h/mo (regardless of timeline)
+ *   Offshore CIC Primary India, timeline ≤ 12 mo  →  180 h/mo
+ *   Offshore CIC Primary India, timeline > 12 mo  →  172.5 h/mo
+ */
+function getMonthlyAvailHrs(category: DeployCategory, projectMonths: number): number {
+  if (category === 'Offshore CIC') {
+    return projectMonths <= 12 ? 180 : 172.5;
+  }
+  // Mainline Domestic, Nearshore, Landed India
+  return 140;
+}
 
 // Project phases
 const PROJECT_PHASES = ['Prepare', 'Explore', 'Realize - Build', 'Realize - Test', 'Training - Deploy - Hypercare'] as const;
@@ -101,6 +135,13 @@ function utilColor(pct: number): string {
 export default function StaffingPlanModule() {
   const { activeDocumentId, analysisResults, updateStaffingRole, addStaffingRole, removeStaffingRole } = useRFPStore();
   const result = activeDocumentId ? analysisResults[activeDocumentId] : null;
+
+  // ── Project duration in months (drives offshore monthly-hrs threshold) ──
+  // totalDurationWeeks ÷ 4.33 ≈ calendar months; fallback to 12 if unknown
+  const projectMonths = useMemo(() => {
+    const weeks = result?.projectPlan?.totalDurationWeeks ?? 0;
+    return weeks > 0 ? Math.round(weeks / 4.33) : 12;
+  }, [result?.projectPlan?.totalDurationWeeks]);
 
   // Row overrides — persist across tab switches (component state)
   const [overrides, setOverrides] = useState<Record<string, RowOverride>>({});
@@ -188,14 +229,25 @@ export default function StaffingPlanModule() {
 
   // ── Derived totals from overrides ──────────────────────────────
   const derivedRoles = plan.roles.map((r, idx) => {
-    const ov = getOverride(r, idx);
-    const effHrs = DEPLOY_HRS[ov.deployType];
+    const ov       = getOverride(r, idx);
+    const effHrs   = DEPLOY_HRS[ov.deployType];
     const totalHrs = ov.count * r.hoursPerResource;
-    const availHrs = ov.count * MONTHLY_AVAIL_HRS;
-    const utilPct = availHrs > 0 ? +((totalHrs / availHrs) * 100).toFixed(1) : 0;
-    const rate = BAND_RATES[ov.band];
+
+    // IBM rate-card: monthly available hours depends on deploy category + project length
+    const deployCategory = DEPLOY_CATEGORY[ov.deployType];
+    const monthlyAvailHrs = getMonthlyAvailHrs(deployCategory, projectMonths);
+    // Total available = count × monthlyAvailHrs × projectMonths
+    const availHrs = ov.count * monthlyAvailHrs * projectMonths;
+    const utilPct  = availHrs > 0 ? +((totalHrs / availHrs) * 100).toFixed(1) : 0;
+
+    const rate      = BAND_RATES[ov.band];
     const totalCost = totalHrs * rate;
-    return { ...r, ov, effHrs, totalHrs, utilPct, totalCost, resolvedBand: ov.band, resolvedCount: ov.count };
+    return {
+      ...r, ov, effHrs, totalHrs, utilPct, totalCost,
+      resolvedBand: ov.band, resolvedCount: ov.count,
+      monthlyAvailHrs,   // expose so tooltip can show which rate was applied
+      deployCategory,
+    };
   });
 
   const totalLaborCost = derivedRoles.reduce((a, r) => a + r.totalCost, 0);
@@ -399,7 +451,8 @@ export default function StaffingPlanModule() {
                 <th className="px-4 py-3 text-center font-semibold uppercase tracking-wider" style={{ minWidth: 180 }}>Location Type</th>
                 <th className="px-4 py-3 text-center font-semibold uppercase tracking-wider" style={{ minWidth: 80 }}>Band</th>
                 <th className="px-4 py-3 text-center font-semibold uppercase tracking-wider" style={{ minWidth: 100 }}>Count</th>
-                <th className="px-4 py-3 text-center font-semibold uppercase tracking-wider" style={{ minWidth: 80 }}>Util %</th>
+                <th className="px-4 py-3 text-center font-semibold uppercase tracking-wider" style={{ minWidth: 100 }}>Util %</th>
+                <th className="px-4 py-3 text-center font-semibold uppercase tracking-wider" style={{ minWidth: 80 }}>h/mo cap</th>
                 <th className="px-4 py-3 text-center font-semibold uppercase tracking-wider" style={{ minWidth: 60 }}>Eff H/Wk</th>
                 <th className="px-4 py-3 text-right font-semibold uppercase tracking-wider" style={{ minWidth: 100 }}>Cost</th>
                 <th className="px-4 py-3 text-left font-semibold uppercase tracking-wider" style={{ minWidth: 320 }}>Phases</th>
@@ -486,7 +539,7 @@ export default function StaffingPlanModule() {
                       </div>
                     </td>
 
-                    {/* Utilization % — formula: (totalHours / (count × 160)) × 100 */}
+                    {/* Utilization % — formula: totalHours / (count × monthlyAvailHrs × projectMonths) × 100 */}
                     <td className="px-4 py-3 text-center">
                       <div className="inline-flex flex-col items-center gap-0.5">
                         <span className="kpi-value text-xs font-bold" style={{ color: utilColor(role.utilPct) }}>
@@ -494,6 +547,16 @@ export default function StaffingPlanModule() {
                         </span>
                         {role.utilPct > 100 && <span className="text-[9px] text-red-500 font-semibold">Over</span>}
                         {role.utilPct < 70  && <span className="text-[9px] text-amber-500 font-semibold">Under</span>}
+                      </div>
+                    </td>
+
+                    {/* Monthly hrs cap column — shows which rate card was applied */}
+                    <td className="px-4 py-3 text-center">
+                      <div className="inline-flex flex-col items-center gap-0.5">
+                        <span className="text-xs font-bold tabular-nums" style={{ color: role.deployCategory === 'Offshore CIC' ? '#6366f1' : '#06b6d4' }}>
+                          {role.monthlyAvailHrs}h
+                        </span>
+                        <span className="text-[9px]" style={{ color: '#94a3b8' }}>/ mo</span>
                       </div>
                     </td>
 
@@ -554,11 +617,11 @@ export default function StaffingPlanModule() {
             </tbody>
             <tfoot>
               <tr style={{ background: '#F8FAFC', borderTop: `2px solid ${T.gold}` }}>
-                <td colSpan={6} className="px-4 py-3 font-bold" style={{ color: T.navy, fontSize: 13 }}>Totals</td>
+                <td colSpan={7} className="px-4 py-3 font-bold" style={{ color: T.navy, fontSize: 13 }}>Totals</td>
                 <td className="px-4 py-3 text-right font-bold kpi-value" style={{ color: T.gold, fontSize: 14 }}>
                   {fmt(totalLaborCost)}
                 </td>
-                <td colSpan={2} className="px-4 py-3 text-xs" style={{ color: T.textMuted }}>
+                <td colSpan={3} className="px-4 py-3 text-xs" style={{ color: T.textMuted }}>
                   {totalHours.toLocaleString()} total hours
                 </td>
               </tr>
@@ -579,6 +642,8 @@ interface DerivedRole extends StaffingRole {
   ov: { deployType: DeployType; phases: Set<ProjectPhase>; count: number; band: IBMBand };
   effHrs: number; totalHrs: number; utilPct: number; totalCost: number;
   resolvedBand: IBMBand; resolvedCount: number;
+  monthlyAvailHrs: number;
+  deployCategory: DeployCategory;
 }
 
 function PhaseAllocationSummary({ derivedRoles }: { derivedRoles: DerivedRole[] }) {

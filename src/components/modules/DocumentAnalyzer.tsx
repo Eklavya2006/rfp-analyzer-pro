@@ -9,8 +9,23 @@ import {
 } from 'lucide-react';
 import { useRFPStore } from '@/lib/store';
 import { runFullAnalysis } from '@/lib/mockEngine';
-import { extractFromFile, generateSummary, type ParseStep } from '@/lib/parser';
+import { extractFromFile, generateSummary, sanitizeText, type ParseStep } from '@/lib/parser';
 import { v4 as uuid } from 'uuid';
+
+// Guard: detect if a string is still raw PDF structure (should never be shown)
+function isRawPDF(text: string): boolean {
+  const head = text.slice(0, 256);
+  return /^%PDF-/m.test(head) || /\bLinearized\b/.test(head) || /<<\/L\s+\d+/.test(head);
+}
+
+// Return a display-safe version of rawText — re-sanitize and strip any PDF remnants
+function safePreviewText(raw: string | undefined): string {
+  if (!raw) return '';
+  if (isRawPDF(raw)) return '[Raw PDF content detected — text extraction failed. Try re-uploading as DOCX or TXT.]';
+  const cleaned = sanitizeText(raw);
+  if (isRawPDF(cleaned)) return '[PDF binary content could not be fully sanitized. Try re-uploading as DOCX or TXT.]';
+  return cleaned;
+}
 
 // ── Dark palette ──────────────────────────────────────────────
 const INDIGO = '#6366F1';

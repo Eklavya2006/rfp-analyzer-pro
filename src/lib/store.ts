@@ -691,13 +691,17 @@ function recalcEstimationFromStaffing(
     cost: Math.round(applied.adjustedTotalCost * (p.hours / totalHours)),
   }));
 
+  // Use IBM rate-card baseline (140 h/mo for Domestic/Nearshore primary)
+  // consistent with mockEngine.ts — the Staffing Plan table shows per-role
+  // utilisation using the live deploy-type selected there.
+  const PERSON_MONTH_HRS = 140;
   return {
     ...existing.estimation,
     ...applied,
     totalHours,
     phaseSubtotals,
     personDays: Math.round(totalHours / 8),
-    personMonths: Math.round(totalHours / 160),
+    personMonths: Math.round(totalHours / PERSON_MONTH_HRS),
     lastUpdated: new Date().toISOString(),
   };
 }

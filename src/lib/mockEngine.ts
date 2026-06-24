@@ -233,6 +233,19 @@ export function runFullAnalysis(docId: string, text: string): AnalysisResult {
 
   const applied = applyAssumptions(totalLaborCost, baseRows, DEFAULT_COST_ASSUMPTIONS);
 
+  // ── Person-months — use IBM rate-card monthly hours, not the legacy 160 ──
+  // We apply the IBM methodology:
+  //   Domestic / Nearshore / Landed India  → 140 h/mo
+  //   Offshore CIC India, ≤12 mo           → 180 h/mo
+  //   Offshore CIC India, >12 mo           → 172.5 h/mo
+  //
+  // At generation time we don't yet know each role's deploy-type override
+  // (that is stored in StaffingPlan UI state), so we use a conservative
+  // blended benchmark of 140 h/mo (the Domestic/Nearshore baseline) for the
+  // top-level summary displayed in the Estimation and Dashboard tiles.
+  // The Staffing Plan table recalculates per-role utilisation live using the
+  // actual deploy-type selected there.
+  const PERSON_MONTH_HRS = 140; // IBM Domestic/Nearshore primary baseline
   const estimation: EstimationSummary = {
     id: uuid(), documentId: docId,
     rows: applied.rows,
@@ -240,7 +253,7 @@ export function runFullAnalysis(docId: string, text: string): AnalysisResult {
     adjustedTotalCost: applied.adjustedTotalCost,
     costBreakdown: applied.costBreakdown,
     personDays: Math.round(totalHours / 8),
-    personMonths: Math.round(totalHours / 160),
+    personMonths: Math.round(totalHours / PERSON_MONTH_HRS),
     phaseSubtotals,
     lastUpdated: new Date().toISOString(),
   };
