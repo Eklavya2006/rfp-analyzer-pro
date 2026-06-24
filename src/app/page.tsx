@@ -9,7 +9,8 @@ import ProjectPlanModule from "@/components/modules/ProjectPlan";
 import StaffingPlanModule from "@/components/modules/StaffingPlan";
 import TestingModule from "@/components/modules/Testing";
 import EstimationModule from "@/components/modules/Estimation";
-import AIImpactModule from "@/components/modules/AIImpact";
+import AgenticImpactModule from "@/components/modules/AIImpact";
+import CreateProposalModule from "@/components/modules/CreateProposal";
 import { useRFPStore } from "@/lib/store";
 
 function ActiveModule() {
@@ -23,7 +24,8 @@ function ActiveModule() {
     case "staffing":          return <StaffingPlanModule />;
     case "testing":           return <TestingModule />;
     case "estimation":        return <EstimationModule />;
-    case "ai-impact":         return <AIImpactModule />;
+    case "agentic-impact":    return <AgenticImpactModule />;
+    case "proposal":          return <CreateProposalModule />;
     default:                  return <DocumentAnalyzer />;
   }
 }

@@ -1,23 +1,83 @@
 'use client';
+// ============================================================
+// ScopeDeliverables — S3: Hyperlinked page references with tooltip
+// ============================================================
 import React, { useState } from 'react';
-import { Plus, Trash2, Search } from 'lucide-react';
+import { Plus, Trash2, Search, ExternalLink } from 'lucide-react';
 import { useRFPStore } from '@/lib/store';
 import { v4 as uuid } from 'uuid';
 import type { ScopeItem, DeliverableItem } from '@/types';
 
-const IBM_BLUE = '#0F62FE';
+const ACCENT = '#1E3A5F';
+const TEAL   = '#0D7377';
 
 const CAT_COLORS = {
-  'in-scope': { bg: '#defbe6', text: '#0e6027', border: '#a7f0ba' },
+  'in-scope':     { bg: '#defbe6', text: '#0e6027', border: '#a7f0ba' },
   'out-of-scope': { bg: '#fff1f1', text: '#a2191f', border: '#ffb3b8' },
-  'assumption': { bg: '#fdf6dd', text: '#8a3800', border: '#f8d671' },
+  'assumption':   { bg: '#fdf6dd', text: '#8a3800', border: '#f8d671' },
 };
 
 const PRIO_COLORS = {
-  high: { bg: '#fff1f1', text: '#a2191f' },
+  high:   { bg: '#fff1f1', text: '#a2191f' },
   medium: { bg: '#fdf6dd', text: '#8a3800' },
-  low: { bg: '#defbe6', text: '#0e6027' },
+  low:    { bg: '#defbe6', text: '#0e6027' },
 };
+
+// ── Reference link with tooltip ───────────────────────────────
+function RefLink({ section, page }: { section: string; page: string }) {
+  const [show, setShow] = useState(false);
+  const pageNum = page.replace(/\D/g, '');
+  const href = pageNum ? `#page=${pageNum}` : '#';
+
+  return (
+    <div className="relative inline-flex items-center gap-1">
+      <a
+        href={href}
+        onClick={(e) => e.preventDefault()}
+        onMouseEnter={() => setShow(true)}
+        onMouseLeave={() => setShow(false)}
+        className="inline-flex items-center gap-1 text-xs underline underline-offset-2 font-medium transition-colors hover:opacity-80"
+        style={{ color: TEAL }}
+        title={`Go to Section: ${section}, ${page}`}
+      >
+        {section}
+        <ExternalLink size={10} />
+      </a>
+      {show && (
+        <div className="absolute left-0 bottom-full mb-1 z-20 bg-gray-800 text-white text-[10px] rounded-lg px-2.5 py-1.5 whitespace-nowrap shadow-xl pointer-events-none">
+          Go to Section: <span className="font-semibold">{section}</span>, {page}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function PageLink({ page, section }: { page: string; section: string }) {
+  const [show, setShow] = useState(false);
+  const pageNum = page.replace(/\D/g, '');
+  const href = pageNum ? `#page=${pageNum}` : '#';
+
+  return (
+    <div className="relative inline-flex items-center gap-1">
+      <a
+        href={href}
+        onClick={(e) => e.preventDefault()}
+        onMouseEnter={() => setShow(true)}
+        onMouseLeave={() => setShow(false)}
+        className="inline-flex items-center gap-1 text-xs underline underline-offset-2 font-medium transition-colors hover:opacity-80"
+        style={{ color: ACCENT }}
+      >
+        {page}
+        <ExternalLink size={10} />
+      </a>
+      {show && (
+        <div className="absolute left-0 bottom-full mb-1 z-20 bg-gray-800 text-white text-[10px] rounded-lg px-2.5 py-1.5 whitespace-nowrap shadow-xl pointer-events-none">
+          Go to Section: <span className="font-semibold">{section}</span>, {page}
+        </div>
+      )}
+    </div>
+  );
+}
 
 export default function ScopeDeliverables() {
   const { activeDocumentId, analysisResults, setAnalysisResult } = useRFPStore();
@@ -41,27 +101,18 @@ export default function ScopeDeliverables() {
     const newItem: ScopeItem = { id: uuid(), description: 'New scope item', referenceSection: 'Section TBD', pageNumber: 'Page TBD', category: 'in-scope' };
     setAnalysisResult(activeDocumentId!, { ...result, scopeItems: [...scopeItems, newItem] });
   };
-
   const removeScope = (id: string) =>
     setAnalysisResult(activeDocumentId!, { ...result, scopeItems: scopeItems.filter((i) => i.id !== id) });
-
   const addDeliverable = () => {
     const newItem: DeliverableItem = { id: uuid(), description: 'New deliverable', referenceSection: 'Section TBD', pageNumber: 'Page TBD', phase: 'Development', priority: 'medium' };
     setAnalysisResult(activeDocumentId!, { ...result, deliverableItems: [...deliverableItems, newItem] });
   };
-
   const removeDeliverable = (id: string) =>
     setAnalysisResult(activeDocumentId!, { ...result, deliverableItems: deliverableItems.filter((i) => i.id !== id) });
-
   const updateScope = (id: string, field: keyof ScopeItem, value: string) =>
-    setAnalysisResult(activeDocumentId!, {
-      ...result, scopeItems: scopeItems.map((i) => i.id === id ? { ...i, [field]: value } : i)
-    });
-
+    setAnalysisResult(activeDocumentId!, { ...result, scopeItems: scopeItems.map((i) => i.id === id ? { ...i, [field]: value } : i) });
   const updateDeliverable = (id: string, field: keyof DeliverableItem, value: string) =>
-    setAnalysisResult(activeDocumentId!, {
-      ...result, deliverableItems: deliverableItems.map((i) => i.id === id ? { ...i, [field]: value } : i)
-    });
+    setAnalysisResult(activeDocumentId!, { ...result, deliverableItems: deliverableItems.map((i) => i.id === id ? { ...i, [field]: value } : i) });
 
   return (
     <div className="p-6 max-w-7xl mx-auto space-y-4">
@@ -71,7 +122,7 @@ export default function ScopeDeliverables() {
           {(['scope', 'deliverables'] as const).map((t) => (
             <button key={t} onClick={() => setTab(t)}
               className="px-4 py-1.5 rounded-lg text-sm font-semibold transition-all"
-              style={tab === t ? { background: IBM_BLUE, color: '#fff' } : { color: '#555' }}>
+              style={tab === t ? { background: ACCENT, color: '#fff' } : { color: '#555' }}>
               {t === 'scope' ? `Scope Items (${scopeItems.length})` : `Deliverables (${deliverableItems.length})`}
             </button>
           ))}
@@ -84,21 +135,21 @@ export default function ScopeDeliverables() {
           </div>
           <button onClick={tab === 'scope' ? addScope : addDeliverable}
             className="flex items-center gap-1.5 text-sm font-semibold px-3 py-1.5 rounded-xl text-white transition-colors"
-            style={{ background: IBM_BLUE }}>
+            style={{ background: ACCENT }}>
             <Plus size={14} /> Add
           </button>
         </div>
       </div>
 
-      {/* Table */}
+      {/* Scope table */}
       {tab === 'scope' ? (
-        <div className="bg-white rounded-2xl border border-gray-200 overflow-hidden">
+        <div className="bg-white rounded-2xl border overflow-hidden" style={{ borderColor: '#E2E8F0' }}>
           <table className="w-full text-sm">
             <thead>
-              <tr className="text-xs font-semibold text-gray-500 uppercase tracking-wider" style={{ background: '#f4f8ff' }}>
+              <tr className="text-xs font-semibold text-gray-500 uppercase tracking-wider" style={{ background: '#F8FAFC' }}>
                 <th className="px-4 py-3 text-left">Description</th>
-                <th className="px-4 py-3 text-left">Reference Section</th>
-                <th className="px-4 py-3 text-left">Page</th>
+                <th className="px-4 py-3 text-left">Reference Section ↗</th>
+                <th className="px-4 py-3 text-left">Page ↗</th>
                 <th className="px-4 py-3 text-left">Category</th>
                 <th className="px-4 py-3 text-center">Actions</th>
               </tr>
@@ -110,15 +161,21 @@ export default function ScopeDeliverables() {
                   <tr key={item.id} className={`border-t border-gray-100 ${idx % 2 === 0 ? '' : 'bg-gray-50/50'}`}>
                     <td className="px-4 py-3">
                       <input value={item.description} onChange={(e) => updateScope(item.id, 'description', e.target.value)}
-                        className="w-full text-sm outline-none bg-transparent border-b border-transparent focus:border-blue-400 transition-colors" />
+                        className="w-full text-sm outline-none bg-transparent border-b border-transparent focus:border-teal-400 transition-colors" />
                     </td>
-                    <td className="px-4 py-3 text-gray-500 text-xs">
-                      <input value={item.referenceSection} onChange={(e) => updateScope(item.id, 'referenceSection', e.target.value)}
-                        className="w-full text-xs outline-none bg-transparent" />
+                    <td className="px-4 py-3">
+                      <div className="flex flex-col gap-1">
+                        <RefLink section={item.referenceSection} page={item.pageNumber} />
+                        <input value={item.referenceSection} onChange={(e) => updateScope(item.id, 'referenceSection', e.target.value)}
+                          className="text-[10px] outline-none bg-transparent text-gray-400 w-full" placeholder="Edit section…" />
+                      </div>
                     </td>
-                    <td className="px-4 py-3 text-gray-500 text-xs">
-                      <input value={item.pageNumber} onChange={(e) => updateScope(item.id, 'pageNumber', e.target.value)}
-                        className="w-full text-xs outline-none bg-transparent" />
+                    <td className="px-4 py-3">
+                      <div className="flex flex-col gap-1">
+                        <PageLink page={item.pageNumber} section={item.referenceSection} />
+                        <input value={item.pageNumber} onChange={(e) => updateScope(item.id, 'pageNumber', e.target.value)}
+                          className="text-[10px] outline-none bg-transparent text-gray-400 w-full" placeholder="Edit page…" />
+                      </div>
                     </td>
                     <td className="px-4 py-3">
                       <select value={item.category} onChange={(e) => updateScope(item.id, 'category', e.target.value)}
@@ -130,9 +187,7 @@ export default function ScopeDeliverables() {
                       </select>
                     </td>
                     <td className="px-4 py-3 text-center">
-                      <button onClick={() => removeScope(item.id)} className="text-gray-300 hover:text-red-500 transition-colors">
-                        <Trash2 size={14} />
-                      </button>
+                      <button onClick={() => removeScope(item.id)} className="text-gray-300 hover:text-red-500 transition-colors"><Trash2 size={14} /></button>
                     </td>
                   </tr>
                 );
@@ -142,13 +197,13 @@ export default function ScopeDeliverables() {
           {filteredScope.length === 0 && <div className="p-8 text-center text-gray-400 text-sm">No scope items found</div>}
         </div>
       ) : (
-        <div className="bg-white rounded-2xl border border-gray-200 overflow-hidden">
+        <div className="bg-white rounded-2xl border overflow-hidden" style={{ borderColor: '#E2E8F0' }}>
           <table className="w-full text-sm">
             <thead>
-              <tr className="text-xs font-semibold text-gray-500 uppercase tracking-wider" style={{ background: '#f4f8ff' }}>
+              <tr className="text-xs font-semibold text-gray-500 uppercase tracking-wider" style={{ background: '#F8FAFC' }}>
                 <th className="px-4 py-3 text-left">Description</th>
-                <th className="px-4 py-3 text-left">Reference Section</th>
-                <th className="px-4 py-3 text-left">Page</th>
+                <th className="px-4 py-3 text-left">Reference Section ↗</th>
+                <th className="px-4 py-3 text-left">Page ↗</th>
                 <th className="px-4 py-3 text-left">Phase</th>
                 <th className="px-4 py-3 text-left">Priority</th>
                 <th className="px-4 py-3 text-center">Actions</th>
@@ -161,15 +216,21 @@ export default function ScopeDeliverables() {
                   <tr key={item.id} className={`border-t border-gray-100 ${idx % 2 === 0 ? '' : 'bg-gray-50/50'}`}>
                     <td className="px-4 py-3">
                       <input value={item.description} onChange={(e) => updateDeliverable(item.id, 'description', e.target.value)}
-                        className="w-full text-sm outline-none bg-transparent border-b border-transparent focus:border-blue-400 transition-colors" />
+                        className="w-full text-sm outline-none bg-transparent border-b border-transparent focus:border-teal-400 transition-colors" />
                     </td>
-                    <td className="px-4 py-3 text-gray-500 text-xs">
-                      <input value={item.referenceSection} onChange={(e) => updateDeliverable(item.id, 'referenceSection', e.target.value)}
-                        className="w-full text-xs outline-none bg-transparent" />
+                    <td className="px-4 py-3">
+                      <div className="flex flex-col gap-1">
+                        <RefLink section={item.referenceSection} page={item.pageNumber} />
+                        <input value={item.referenceSection} onChange={(e) => updateDeliverable(item.id, 'referenceSection', e.target.value)}
+                          className="text-[10px] outline-none bg-transparent text-gray-400 w-full" placeholder="Edit section…" />
+                      </div>
                     </td>
-                    <td className="px-4 py-3 text-gray-500 text-xs">
-                      <input value={item.pageNumber} onChange={(e) => updateDeliverable(item.id, 'pageNumber', e.target.value)}
-                        className="w-full text-xs outline-none bg-transparent" />
+                    <td className="px-4 py-3">
+                      <div className="flex flex-col gap-1">
+                        <PageLink page={item.pageNumber} section={item.referenceSection} />
+                        <input value={item.pageNumber} onChange={(e) => updateDeliverable(item.id, 'pageNumber', e.target.value)}
+                          className="text-[10px] outline-none bg-transparent text-gray-400 w-full" placeholder="Edit page…" />
+                      </div>
                     </td>
                     <td className="px-4 py-3 text-gray-600 text-xs">
                       <input value={item.phase} onChange={(e) => updateDeliverable(item.id, 'phase', e.target.value)}
@@ -185,9 +246,7 @@ export default function ScopeDeliverables() {
                       </select>
                     </td>
                     <td className="px-4 py-3 text-center">
-                      <button onClick={() => removeDeliverable(item.id)} className="text-gray-300 hover:text-red-500 transition-colors">
-                        <Trash2 size={14} />
-                      </button>
+                      <button onClick={() => removeDeliverable(item.id)} className="text-gray-300 hover:text-red-500 transition-colors"><Trash2 size={14} /></button>
                     </td>
                   </tr>
                 );

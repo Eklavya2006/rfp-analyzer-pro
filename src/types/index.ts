@@ -1,5 +1,5 @@
 // ============================================================
-// RFP Analyzer Pro — Core Type Definitions (v3 — IBM Blue)
+// RFP Analyzer Pro — Core Type Definitions (v4)
 // ============================================================
 
 export type DocumentStatus = 'uploading' | 'processing' | 'ready' | 'error';
@@ -13,10 +13,20 @@ export type TabId =
   | 'staffing'
   | 'testing'
   | 'estimation'
-  | 'ai-impact';
+  | 'agentic-impact'
+  | 'proposal';
 
 // IBM Band levels
 export type IBMBand = '6A' | '6B' | '6G' | '7A' | '7B' | '8' | '9' | '10' | 'Executive' | 'D';
+
+// Service Line for Offerings
+export type ServiceLine =
+  | 'Cloud & Platform Services'
+  | 'Data & AI'
+  | 'Security Services'
+  | 'Application Modernization'
+  | 'Managed Services'
+  | 'General Consulting';
 
 export interface RFPDocument {
   id: string;
@@ -89,6 +99,7 @@ export interface IBMOffering {
   id: string;
   name: string;
   category: OfferingCategory;
+  serviceLine: ServiceLine;
   description: string;
   relevanceScore: number; // 0-100
   tags: string[];
@@ -113,6 +124,8 @@ export interface StaffingRole {
   totalHours: number;
   hourlyRate: number;
   totalCost: number;
+  phase?: string;
+  weeklyHours?: number;
 }
 
 export interface StaffingPlan {
@@ -132,6 +145,9 @@ export interface StaffingPlan {
 export interface ProjectPhase {
   id: string;
   name: string;
+  description?: string;
+  owner?: string;
+  milestones?: string[];
   startWeek: number;
   durationWeeks: number;
   endWeek: number;
@@ -174,17 +190,16 @@ export interface TestingStrategy {
 }
 
 // ============================================================
-// Estimation + Cost Assumptions (NEW — for sliders)
+// Estimation + Cost Assumptions
 // ============================================================
 
-/** Multipliers and add-ons applied on top of base labor cost */
 export interface CostAssumptions {
-  rateMultiplier: number;       // 0.50 – 2.00 (default 1.00) — scales all hourly rates
-  contingencyPct: number;       // 0 – 30 %   (default 10)
-  infrastructurePct: number;    // 0 – 20 %   (default 8)
-  overheadPct: number;          // 0 – 25 %   (default 12)
-  travelPct: number;            // 0 – 10 %   (default 3)
-  licensingFlatUSD: number;     // 0 – 500000 (default 0)
+  rateMultiplier: number;
+  contingencyPct: number;
+  infrastructurePct: number;
+  overheadPct: number;
+  travelPct: number;
+  licensingFlatUSD: number;
 }
 
 export const DEFAULT_COST_ASSUMPTIONS: CostAssumptions = {
@@ -211,13 +226,9 @@ export interface EstimationSummary {
   id: string;
   documentId: string;
   rows: EstimationRow[];
-  /** Base labor hours (pre-assumption adjustments) */
   totalHours: number;
-  /** Base labor cost (pre-assumption adjustments) */
   totalCost: number;
-  /** Adjusted total after applying CostAssumptions */
   adjustedTotalCost: number;
-  /** Breakdown of each cost add-on */
   costBreakdown: CostBreakdown;
   personDays: number;
   personMonths: number;
@@ -236,7 +247,7 @@ export interface CostBreakdown {
 }
 
 // ============================================================
-// AI Impact
+// Agentic Impact (formerly AI Impact)
 // ============================================================
 export interface AIPhaseRow {
   id: string;
@@ -259,6 +270,10 @@ export interface AIRoleRow {
   reworkReductionPct: number;
   accelerationFactor: number;
   toolUsed: string;
+  agentName?: string;
+  modelName?: string;
+  tokenUsage?: number;
+  costPerRun?: number;
 }
 
 export interface AIImpact {

@@ -11,6 +11,7 @@ import type {
   CostAssumptions,
   EstimationSummary,
   CostBreakdown,
+  ProjectPhase,
 } from '@/types';
 import { DEFAULT_COST_ASSUMPTIONS } from '@/types';
 
@@ -110,6 +111,12 @@ interface RFPStore {
   toggleTestSection: (docId: string, sectionId: string, enabled: boolean) => void;
   addTestSection: (docId: string, section: TestSection) => void;
   removeTestSection: (docId: string, sectionId: string) => void;
+  updateTestCriteria: (docId: string, sectionId: string, type: 'entry' | 'exit', index: number, value: string) => void;
+  addTestCriterion: (docId: string, sectionId: string, type: 'entry' | 'exit') => void;
+  removeTestCriterion: (docId: string, sectionId: string, type: 'entry' | 'exit', index: number) => void;
+
+  // Project plan edits
+  updateProjectPhase: (docId: string, phaseId: string, updates: Partial<ProjectPhase>) => void;
 }
 
 const initialState = {
@@ -415,6 +422,106 @@ export const useRFPStore = create<RFPStore>()(
           pendingUpdate: performUpdate,
         });
       },
+
+      updateTestCriteria: (docId, sectionId, type, index, value) => {
+        set((s) => {
+          const existing = s.analysisResults[docId];
+          if (!existing?.testingStrategy) return s;
+          const sections = existing.testingStrategy.sections.map((sec) => {
+            if (sec.id !== sectionId) return sec;
+            if (type === 'entry') {
+              const entryCriteria = [...sec.entryCriteria];
+              entryCriteria[index] = value;
+              return { ...sec, entryCriteria };
+            } else {
+              const exitCriteria = [...sec.exitCriteria];
+              exitCriteria[index] = value;
+              return { ...sec, exitCriteria };
+            }
+          });
+          return {
+            analysisResults: {
+              ...s.analysisResults,
+              [docId]: { ...existing, testingStrategy: { ...existing.testingStrategy, sections } },
+            },
+          };
+        });
+      },
+
+      addTestCriterion: (docId, sectionId, type) => {
+        set((s) => {
+          const existing = s.analysisResults[docId];
+          if (!existing?.testingStrategy) return s;
+          const sections = existing.testingStrategy.sections.map((sec) => {
+            if (sec.id !== sectionId) return sec;
+            if (type === 'entry') return { ...sec, entryCriteria: [...sec.entryCriteria, ''] };
+            return { ...sec, exitCriteria: [...sec.exitCriteria, ''] };
+          });
+          return {
+            analysisResults: {
+              ...s.analysisResults,
+              [docId]: { ...existing, testingStrategy: { ...existing.testingStrategy, sections } },
+            },
+          };
+        });
+      },
+
+      removeTestCriterion: (docId, sectionId, type, index) => {
+        set((s) => {
+          const existing = s.analysisResults[docId];
+          if (!existing?.testingStrategy) return s;
+          const sections = existing.testingStrategy.sections.map((sec) => {
+            if (sec.id !== sectionId) return sec;
+            if (type === 'entry') {
+              const entryCriteria = sec.entryCriteria.filter((_, i) => i !== index);
+              return { ...sec, entryCriteria };
+            } else {
+              const exitCriteria = sec.exitCriteria.filter((_, i) => i !== index);
+              return { ...sec, exitCriteria };
+            }
+          });
+          return {
+            analysisResults: {
+              ...s.analysisResults,
+              [docId]: { ...existing, testingStrategy: { ...existing.testingStrategy, sections } },
+            },
+          };
+        });
+      },
+
+      updateProjectPhase: (docId, phaseId, updates) => {
+        set((s) => {
+          const existing = s.analysisResults[docId];
+          if (!existing?.projectPlan) return s;
+          const phases = existing.projectPlan.phases.map((p) => {
+            if (p.id !== phaseId) return p;
+            const merged = { ...p, ...updates };
+            merged.endWeek = merged.startWeek + merged.durationWeeks - 1;
+            return merged;
+          });
+          // Recalculate cumulative start weeks if duration changed
+          let cursor = 1;
+          const recalcPhases = phases.map((ph) => {
+            const out = { ...ph, startWeek: cursor, endWeek: cursor + ph.durationWeeks - 1 };
+            cursor += ph.durationWeeks;
+            return out;
+          });
+          return {
+            analysisResults: {
+              ...s.analysisResults,
+              [docId]: {
+                ...existing,
+                projectPlan: {
+                  ...existing.projectPlan,
+                  phases: recalcPhases,
+                  totalDurationWeeks: cursor - 1,
+                  lastUpdated: new Date().toISOString(),
+                },
+              },
+            },
+          };
+        });
+      },
     }),
     {
       name: 'rfp-analyzer-pro-store', // localStorage key
@@ -436,6 +543,7 @@ export const useRFPStore = create<RFPStore>()(
 // ── Pure recalc helpers ──────────────────────────────────────
 
 import type { StaffingPlan, ProjectPlan } from '@/types';
+// ProjectPhase is already imported at top — no re-import needed
 
 function recalcStaffingTotals(plan: StaffingPlan): StaffingPlan {
   const totalHours = plan.roles.reduce((a, r) => a + r.totalHours, 0);

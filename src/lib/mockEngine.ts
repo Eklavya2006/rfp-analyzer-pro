@@ -52,18 +52,18 @@ export function runFullAnalysis(docId: string, text: string): AnalysisResult {
 
   // ── IBM Offerings ─────────────────────────────────────────
   const offerings: IBMOffering[] = [
-    { id: uuid(), name: 'IBM Cloud', category: 'Cloud', description: 'Scalable hybrid cloud platform for enterprise workloads', relevanceScore: lower.includes('cloud') ? 92 : 75, tags: ['IaaS', 'PaaS', 'Hybrid'] },
-    { id: uuid(), name: 'IBM Watson AI', category: 'AI/ML', description: 'Enterprise AI for NLP, vision, and decision automation', relevanceScore: lower.includes('ai') || lower.includes('ml') ? 95 : 70, tags: ['NLP', 'ML', 'Automation'] },
-    { id: uuid(), name: 'IBM watsonx.data', category: 'Data & Analytics', description: 'Open, hybrid, governed data lakehouse', relevanceScore: lower.includes('data') ? 90 : 65, tags: ['Data Lake', 'Governance', 'Analytics'] },
-    { id: uuid(), name: 'IBM Security QRadar', category: 'Security', description: 'AI-powered SIEM for threat detection and response', relevanceScore: lower.includes('security') ? 88 : 60, tags: ['SIEM', 'Threat Detection'] },
-    { id: uuid(), name: 'IBM DataStage', category: 'Integration', description: 'Enterprise ETL and data integration at scale', relevanceScore: lower.includes('integration') || lower.includes('etl') ? 85 : 58, tags: ['ETL', 'DataOps'] },
-    { id: uuid(), name: 'IBM Consulting', category: 'Consulting', description: 'End-to-end transformation services with IBM expertise', relevanceScore: 80, tags: ['Strategy', 'Transformation'] },
-    { id: uuid(), name: 'IBM Sterling', category: 'Integration', description: 'Supply chain and B2B integration solutions', relevanceScore: 62, tags: ['Supply Chain', 'B2B'] },
-    { id: uuid(), name: 'IBM Garage', category: 'Consulting', description: 'Co-creation methodology for rapid innovation', relevanceScore: 72, tags: ['Agile', 'Innovation', 'Design Thinking'] },
-    { id: uuid(), name: 'IBM OpenPages', category: 'Data & Analytics', description: 'GRC and regulatory compliance management', relevanceScore: lower.includes('compliance') ? 78 : 50, tags: ['GRC', 'Compliance'] },
-    { id: uuid(), name: 'IBM Turbonomic', category: 'Cloud', description: 'AI-driven resource management for hybrid cloud', relevanceScore: 65, tags: ['FinOps', 'Resource Mgmt'] },
-    { id: uuid(), name: 'IBM MQ', category: 'Integration', description: 'Reliable enterprise messaging middleware', relevanceScore: 60, tags: ['Messaging', 'Middleware'] },
-    { id: uuid(), name: 'IBM Cognos Analytics', category: 'Data & Analytics', description: 'Self-service BI and reporting', relevanceScore: lower.includes('reporting') || lower.includes('analytics') ? 82 : 55, tags: ['BI', 'Reporting', 'Self-service'] },
+    { id: uuid(), name: 'IBM Cloud', category: 'Cloud', serviceLine: 'Cloud & Platform Services', description: 'Scalable hybrid cloud platform for enterprise workloads', relevanceScore: lower.includes('cloud') ? 92 : 75, tags: ['IaaS', 'PaaS', 'Hybrid'] },
+    { id: uuid(), name: 'IBM Watson AI', category: 'AI/ML', serviceLine: 'Data & AI', description: 'Enterprise AI for NLP, vision, and decision automation', relevanceScore: lower.includes('ai') || lower.includes('ml') ? 95 : 70, tags: ['NLP', 'ML', 'Automation'] },
+    { id: uuid(), name: 'IBM watsonx.data', category: 'Data & Analytics', serviceLine: 'Data & AI', description: 'Open, hybrid, governed data lakehouse', relevanceScore: lower.includes('data') ? 90 : 65, tags: ['Data Lake', 'Governance', 'Analytics'] },
+    { id: uuid(), name: 'IBM Security QRadar', category: 'Security', serviceLine: 'Security Services', description: 'AI-powered SIEM for threat detection and response', relevanceScore: lower.includes('security') ? 88 : 60, tags: ['SIEM', 'Threat Detection'] },
+    { id: uuid(), name: 'IBM DataStage', category: 'Integration', serviceLine: 'Application Modernization', description: 'Enterprise ETL and data integration at scale', relevanceScore: lower.includes('integration') || lower.includes('etl') ? 85 : 58, tags: ['ETL', 'DataOps'] },
+    { id: uuid(), name: 'IBM Consulting', category: 'Consulting', serviceLine: 'General Consulting', description: 'End-to-end transformation services with IBM expertise', relevanceScore: 80, tags: ['Strategy', 'Transformation'] },
+    { id: uuid(), name: 'IBM Sterling', category: 'Integration', serviceLine: 'Application Modernization', description: 'Supply chain and B2B integration solutions', relevanceScore: 62, tags: ['Supply Chain', 'B2B'] },
+    { id: uuid(), name: 'IBM Garage', category: 'Consulting', serviceLine: 'General Consulting', description: 'Co-creation methodology for rapid innovation', relevanceScore: 72, tags: ['Agile', 'Innovation', 'Design Thinking'] },
+    { id: uuid(), name: 'IBM OpenPages', category: 'Data & Analytics', serviceLine: 'Managed Services', description: 'GRC and regulatory compliance management', relevanceScore: lower.includes('compliance') ? 78 : 50, tags: ['GRC', 'Compliance'] },
+    { id: uuid(), name: 'IBM Turbonomic', category: 'Cloud', serviceLine: 'Cloud & Platform Services', description: 'AI-driven resource management for hybrid cloud', relevanceScore: 65, tags: ['FinOps', 'Resource Mgmt'] },
+    { id: uuid(), name: 'IBM MQ', category: 'Integration', serviceLine: 'Application Modernization', description: 'Reliable enterprise messaging middleware', relevanceScore: 60, tags: ['Messaging', 'Middleware'] },
+    { id: uuid(), name: 'IBM Cognos Analytics', category: 'Data & Analytics', serviceLine: 'Data & AI', description: 'Self-service BI and reporting', relevanceScore: lower.includes('reporting') || lower.includes('analytics') ? 82 : 55, tags: ['BI', 'Reporting', 'Self-service'] },
   ];
 
   // ── Staffing Plan ─────────────────────────────────────────
