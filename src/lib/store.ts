@@ -1,10 +1,64 @@
 import { create } from 'zustand';
+import { persist, createJSONStorage } from 'zustand/middleware';
+import { v4 as uuid } from 'uuid';
 import type {
   RFPDocument,
   AnalysisResult,
-  CostAssumptions,
   TabId,
+  StaffingRole,
+  TestSection,
+  ChangeNotification,
+  CostAssumptions,
+  EstimationSummary,
+  CostBreakdown,
 } from '@/types';
+import { DEFAULT_COST_ASSUMPTIONS } from '@/types';
+
+// ── Cost recalculation helper ─────────────────────────────────
+export function applyAssumptions(
+  baseLaborCost: number,
+  baseRows: EstimationSummary['rows'],
+  assumptions: CostAssumptions
+): Pick<EstimationSummary, 'rows' | 'totalCost' | 'adjustedTotalCost' | 'costBreakdown'> {
+  // Re-price rows by rateMultiplier
+  const rows = baseRows.map((r) => ({
+    ...r,
+    ratePerHour: Math.round(r.ratePerHour * assumptions.rateMultiplier),
+    cost: Math.round(r.hours * r.ratePerHour * assumptions.rateMultiplier),
+  }));
+  const scaledLaborCost = rows.reduce((a, r) => a + r.cost, 0);
+
+  const contingencyAmount = Math.round(scaledLaborCost * (assumptions.contingencyPct / 100));
+  const infrastructureAmount = Math.round(scaledLaborCost * (assumptions.infrastructurePct / 100));
+  const overheadAmount = Math.round(scaledLaborCost * (assumptions.overheadPct / 100));
+  const travelAmount = Math.round(scaledLaborCost * (assumptions.travelPct / 100));
+  const licensingAmount = assumptions.licensingFlatUSD;
+
+  const totalAdjustedCost =
+    scaledLaborCost +
+    contingencyAmount +
+    infrastructureAmount +
+    overheadAmount +
+    travelAmount +
+    licensingAmount;
+
+  const costBreakdown: CostBreakdown = {
+    baseLaborCost: scaledLaborCost,
+    contingencyAmount,
+    infrastructureAmount,
+    overheadAmount,
+    travelAmount,
+    licensingAmount,
+    totalAdjustedCost,
+  };
+
+  return {
+    rows,
+    totalCost: baseLaborCost,          // original unscaled base preserved
+    adjustedTotalCost: totalAdjustedCost,
+    costBreakdown,
+  };
+}
 
 interface RFPStore {
   // Documents
@@ -15,121 +69,436 @@ interface RFPStore {
   // Analysis results keyed by documentId
   analysisResults: Record<string, AnalysisResult>;
 
+  // ── NEW: Cost assumption sliders per document ─────────────
+  costAssumptions: Record<string, CostAssumptions>;
+
   // UI state
   isProcessing: boolean;
   processingMessage: string;
   error: string | null;
   sidebarOpen: boolean;
 
-  /**
-   * Global AI Productivity % (0–100).
-   * Formula: FTEs_with_AI = FTEs_baseline × (1 − aiProductivityPct / 100)
-   * A change here propagates instantly to every module that consumes it.
-   * Default: 30
-   */
-  aiProductivityPct: number;
+  // Cross-module notification queue
+  pendingNotification: ChangeNotification | null;
 
-  /**
-   * Flash counter incremented on every aiProductivityPct change so
-   * consuming modules can detect the recalculation event via useEffect.
-   */
-  aiRecalcFlash: number;
-
-  // Actions
+  // Actions — documents
   addDocument: (doc: RFPDocument) => void;
   updateDocument: (id: string, updates: Partial<RFPDocument>) => void;
-  removeDocument: (id: string) => void;
   setActiveDocument: (id: string | null) => void;
   setActiveTab: (tab: TabId) => void;
   setAnalysisResult: (documentId: string, result: AnalysisResult) => void;
-  updateCostAssumptions: (documentId: string, assumptions: Partial<CostAssumptions>) => void;
   setProcessing: (isProcessing: boolean, message?: string) => void;
   setError: (error: string | null) => void;
   toggleSidebar: () => void;
   reset: () => void;
-  /** Update the global AI productivity percentage and bump the flash counter */
-  setAiProductivityPct: (pct: number) => void;
+
+  // Cross-module notification
+  showNotification: (n: Omit<ChangeNotification, 'id'>) => void;
+  confirmNotification: () => void;
+  cancelNotification: () => void;
+
+  // ── NEW: Cost assumption update ────────────────────────────
+  updateCostAssumptions: (docId: string, assumptions: Partial<CostAssumptions>) => void;
+  resetCostAssumptions: (docId: string) => void;
+
+  // Staffing edits (propagate to estimation + project plan)
+  updateStaffingRole: (docId: string, roleId: string, updates: Partial<StaffingRole>) => void;
+  addStaffingRole: (docId: string, role: StaffingRole) => void;
+  removeStaffingRole: (docId: string, roleId: string) => void;
+
+  // Testing edits (propagate to staffing + estimation + project plan)
+  toggleTestSection: (docId: string, sectionId: string, enabled: boolean) => void;
+  addTestSection: (docId: string, section: TestSection) => void;
+  removeTestSection: (docId: string, sectionId: string) => void;
 }
 
 const initialState = {
   documents: [],
   activeDocumentId: null,
-  activeTab: 'dashboard' as TabId,
+  activeTab: 'document-analyzer' as TabId,
   analysisResults: {},
+  costAssumptions: {},
   isProcessing: false,
   processingMessage: '',
   error: null,
   sidebarOpen: true,
-  aiProductivityPct: 30,
-  aiRecalcFlash: 0,
+  pendingNotification: null,
 };
 
-export const useRFPStore = create<RFPStore>((set) => ({
-  ...initialState,
+export const useRFPStore = create<RFPStore>()(
+  persist(
+    (set, get) => ({
+      ...initialState,
 
-  addDocument: (doc) =>
-    set((state) => ({ documents: [...state.documents, doc] })),
+      addDocument: (doc) =>
+        set((state) => ({ documents: [...state.documents, doc] })),
 
-  updateDocument: (id, updates) =>
-    set((state) => ({
-      documents: state.documents.map((d) =>
-        d.id === id ? { ...d, ...updates } : d
-      ),
-    })),
+      updateDocument: (id, updates) =>
+        set((state) => ({
+          documents: state.documents.map((d) => (d.id === id ? { ...d, ...updates } : d)),
+        })),
 
-  removeDocument: (id) =>
-    set((state) => ({
-      documents: state.documents.filter((d) => d.id !== id),
-      activeDocumentId:
-        state.activeDocumentId === id ? null : state.activeDocumentId,
-    })),
+      setActiveDocument: (id) => set({ activeDocumentId: id }),
+      setActiveTab: (tab) => set({ activeTab: tab }),
 
-  setActiveDocument: (id) => set({ activeDocumentId: id }),
+      setAnalysisResult: (documentId, result) =>
+        set((state) => {
+          // When a new result is set, initialise default cost assumptions if not present
+          const existingAssumptions = state.costAssumptions[documentId] ?? { ...DEFAULT_COST_ASSUMPTIONS };
+          // Patch in adjustedTotalCost + costBreakdown if estimation present and not yet computed
+          let patchedResult = result;
+          if (result.estimation) {
+            const applied = applyAssumptions(
+              result.estimation.totalCost,
+              result.estimation.rows,
+              existingAssumptions
+            );
+            patchedResult = {
+              ...result,
+              estimation: { ...result.estimation, ...applied },
+            };
+          }
+          return {
+            analysisResults: { ...state.analysisResults, [documentId]: patchedResult },
+            costAssumptions: { ...state.costAssumptions, [documentId]: existingAssumptions },
+          };
+        }),
 
-  setActiveTab: (tab) => set({ activeTab: tab }),
+      setProcessing: (isProcessing, message = '') =>
+        set({ isProcessing, processingMessage: message }),
 
-  setAnalysisResult: (documentId, result) =>
-    set((state) => ({
-      analysisResults: {
-        ...state.analysisResults,
-        [documentId]: result,
+      setError: (error) => set({ error }),
+
+      toggleSidebar: () => set((state) => ({ sidebarOpen: !state.sidebarOpen })),
+
+      reset: () => set(initialState),
+
+      // ── Notification system ─────────────────────────────────
+      showNotification: (n) =>
+        set({ pendingNotification: { ...n, id: uuid() } }),
+
+      confirmNotification: () => {
+        const n = get().pendingNotification;
+        if (n) {
+          n.pendingUpdate();
+          set({ pendingNotification: null });
+        }
       },
-    })),
 
-  updateCostAssumptions: (documentId, assumptions) =>
-    set((state) => {
-      const existing = state.analysisResults[documentId];
-      if (!existing?.costBreakdown) return state;
-      return {
-        analysisResults: {
-          ...state.analysisResults,
-          [documentId]: {
-            ...existing,
-            costBreakdown: {
-              ...existing.costBreakdown,
-              assumptions: {
-                ...existing.costBreakdown.assumptions,
-                ...assumptions,
+      cancelNotification: () => set({ pendingNotification: null }),
+
+      // ── NEW: Cost assumptions ───────────────────────────────
+      updateCostAssumptions: (docId, partial) => {
+        const state = get();
+        const current = state.costAssumptions[docId] ?? { ...DEFAULT_COST_ASSUMPTIONS };
+        const updated = { ...current, ...partial };
+        const result = state.analysisResults[docId];
+
+        if (!result?.estimation) {
+          set((s) => ({
+            costAssumptions: { ...s.costAssumptions, [docId]: updated },
+          }));
+          return;
+        }
+
+        // Re-apply assumptions to estimation rows immediately (live recalc)
+        const applied = applyAssumptions(result.estimation.totalCost, result.estimation.rows, updated);
+
+        // Recompute phaseSubtotals with new adjusted costs proportionally
+        const ratio = applied.adjustedTotalCost / (result.estimation.adjustedTotalCost || result.estimation.totalCost || 1);
+        const phaseSubtotals = result.estimation.phaseSubtotals.map((p) => ({
+          ...p,
+          cost: Math.round(p.cost * ratio),
+        }));
+
+        const updatedEstimation: EstimationSummary = {
+          ...result.estimation,
+          ...applied,
+          phaseSubtotals,
+          lastUpdated: new Date().toISOString(),
+        };
+        const updatedResult: AnalysisResult = { ...result, estimation: updatedEstimation };
+        set((s) => ({
+          costAssumptions: { ...s.costAssumptions, [docId]: updated },
+          analysisResults: { ...s.analysisResults, [docId]: updatedResult },
+        }));
+      },
+
+      resetCostAssumptions: (docId) => {
+        get().updateCostAssumptions(docId, { ...DEFAULT_COST_ASSUMPTIONS });
+      },
+
+      // ── Staffing edits ──────────────────────────────────────
+      updateStaffingRole: (docId, roleId, updates) => {
+        const state = get();
+        const result = state.analysisResults[docId];
+        if (!result?.staffingPlan) return;
+
+        const newRoles = result.staffingPlan.roles.map((r) => {
+          if (r.id !== roleId) return r;
+          const merged = { ...r, ...updates };
+          merged.totalHours = merged.numberOfResources * merged.hoursPerResource;
+          merged.totalCost = merged.totalHours * merged.hourlyRate;
+          return merged;
+        });
+
+        const performUpdate = () => {
+          set((s) => {
+            const existing = s.analysisResults[docId];
+            if (!existing?.staffingPlan) return s;
+            const updatedPlan = recalcStaffingTotals({ ...existing.staffingPlan, roles: newRoles });
+            const assumptions = s.costAssumptions[docId] ?? { ...DEFAULT_COST_ASSUMPTIONS };
+            const updatedEstimation = recalcEstimationFromStaffing(existing, updatedPlan, assumptions);
+            const updatedProjectPlan = recalcProjectPlanFromStaffing(existing, updatedPlan);
+            return {
+              analysisResults: {
+                ...s.analysisResults,
+                [docId]: {
+                  ...existing,
+                  staffingPlan: updatedPlan,
+                  estimation: updatedEstimation,
+                  projectPlan: updatedProjectPlan,
+                },
               },
-            },
-          },
-        },
-      };
+            };
+          });
+        };
+
+        get().showNotification({
+          sourceModule: 'Staffing Plan',
+          affectedModules: ['Project Plan → Timeline', 'Estimation → Cost & Effort'],
+          message: 'This change will also update: Project Plan → Timeline, Estimation → Cost & Effort.',
+          pendingUpdate: performUpdate,
+        });
+      },
+
+      addStaffingRole: (docId, role) => {
+        const state = get();
+        const result = state.analysisResults[docId];
+        if (!result?.staffingPlan) return;
+
+        const newRoles = [...result.staffingPlan.roles, role];
+        const performUpdate = () => {
+          set((s) => {
+            const existing = s.analysisResults[docId];
+            if (!existing?.staffingPlan) return s;
+            const updatedPlan = recalcStaffingTotals({ ...existing.staffingPlan, roles: newRoles });
+            const assumptions = s.costAssumptions[docId] ?? { ...DEFAULT_COST_ASSUMPTIONS };
+            const updatedEstimation = recalcEstimationFromStaffing(existing, updatedPlan, assumptions);
+            const updatedProjectPlan = recalcProjectPlanFromStaffing(existing, updatedPlan);
+            return {
+              analysisResults: {
+                ...s.analysisResults,
+                [docId]: { ...existing, staffingPlan: updatedPlan, estimation: updatedEstimation, projectPlan: updatedProjectPlan },
+              },
+            };
+          });
+        };
+
+        get().showNotification({
+          sourceModule: 'Staffing Plan',
+          affectedModules: ['Project Plan → Timeline', 'Estimation → Cost & Effort'],
+          message: 'Adding a new role will also update: Project Plan → Timeline, Estimation → Cost & Effort.',
+          pendingUpdate: performUpdate,
+        });
+      },
+
+      removeStaffingRole: (docId, roleId) => {
+        const state = get();
+        const result = state.analysisResults[docId];
+        if (!result?.staffingPlan) return;
+
+        const newRoles = result.staffingPlan.roles.filter((r) => r.id !== roleId);
+        const performUpdate = () => {
+          set((s) => {
+            const existing = s.analysisResults[docId];
+            if (!existing?.staffingPlan) return s;
+            const updatedPlan = recalcStaffingTotals({ ...existing.staffingPlan, roles: newRoles });
+            const assumptions = s.costAssumptions[docId] ?? { ...DEFAULT_COST_ASSUMPTIONS };
+            const updatedEstimation = recalcEstimationFromStaffing(existing, updatedPlan, assumptions);
+            const updatedProjectPlan = recalcProjectPlanFromStaffing(existing, updatedPlan);
+            return {
+              analysisResults: {
+                ...s.analysisResults,
+                [docId]: { ...existing, staffingPlan: updatedPlan, estimation: updatedEstimation, projectPlan: updatedProjectPlan },
+              },
+            };
+          });
+        };
+
+        get().showNotification({
+          sourceModule: 'Staffing Plan',
+          affectedModules: ['Project Plan → Timeline', 'Estimation → Cost & Effort'],
+          message: 'Removing this role will also update: Project Plan → Timeline, Estimation → Cost & Effort.',
+          pendingUpdate: performUpdate,
+        });
+      },
+
+      // ── Testing edits ────────────────────────────────────────
+      toggleTestSection: (docId, sectionId, enabled) => {
+        const performUpdate = () => {
+          set((s) => {
+            const existing = s.analysisResults[docId];
+            if (!existing?.testingStrategy) return s;
+            const sections = existing.testingStrategy.sections.map((sec) =>
+              sec.id === sectionId ? { ...sec, enabled } : sec
+            );
+            const totalQAHours = sections.filter((s) => s.enabled).reduce((a, b) => a + b.estimatedHours, 0);
+            return {
+              analysisResults: {
+                ...s.analysisResults,
+                [docId]: {
+                  ...existing,
+                  testingStrategy: { ...existing.testingStrategy, sections, totalQAHours },
+                },
+              },
+            };
+          });
+        };
+
+        get().showNotification({
+          sourceModule: 'Testing',
+          affectedModules: ['Staffing Plan → Headcount', 'Project Plan → Duration', 'Estimation → Total Cost'],
+          message: 'This change will also update: Staffing Plan → Headcount, Project Plan → Duration, Estimation → Total Cost.',
+          pendingUpdate: performUpdate,
+        });
+      },
+
+      addTestSection: (docId, section) => {
+        const performUpdate = () => {
+          set((s) => {
+            const existing = s.analysisResults[docId];
+            if (!existing?.testingStrategy) return s;
+            const sections = [...existing.testingStrategy.sections, section];
+            const totalQAHours = sections.filter((s) => s.enabled).reduce((a, b) => a + b.estimatedHours, 0);
+            return {
+              analysisResults: {
+                ...s.analysisResults,
+                [docId]: {
+                  ...existing,
+                  testingStrategy: { ...existing.testingStrategy, sections, totalQAHours },
+                },
+              },
+            };
+          });
+        };
+        get().showNotification({
+          sourceModule: 'Testing',
+          affectedModules: ['Staffing Plan → Headcount', 'Project Plan → Duration', 'Estimation → Total Cost'],
+          message: 'Adding a test type will also update: Staffing Plan → Headcount, Project Plan → Duration, Estimation → Total Cost.',
+          pendingUpdate: performUpdate,
+        });
+      },
+
+      removeTestSection: (docId, sectionId) => {
+        const performUpdate = () => {
+          set((s) => {
+            const existing = s.analysisResults[docId];
+            if (!existing?.testingStrategy) return s;
+            const sections = existing.testingStrategy.sections.filter((sec) => sec.id !== sectionId);
+            const totalQAHours = sections.filter((s) => s.enabled).reduce((a, b) => a + b.estimatedHours, 0);
+            return {
+              analysisResults: {
+                ...s.analysisResults,
+                [docId]: {
+                  ...existing,
+                  testingStrategy: { ...existing.testingStrategy, sections, totalQAHours },
+                },
+              },
+            };
+          });
+        };
+        get().showNotification({
+          sourceModule: 'Testing',
+          affectedModules: ['Staffing Plan → Headcount', 'Project Plan → Duration', 'Estimation → Total Cost'],
+          message: 'Removing this test type will also update: Staffing Plan → Headcount, Project Plan → Duration, Estimation → Total Cost.',
+          pendingUpdate: performUpdate,
+        });
+      },
     }),
+    {
+      name: 'rfp-analyzer-pro-store', // localStorage key
+      storage: createJSONStorage(() => localStorage),
+      // Persist documents, results, assumptions, sidebar, and active IDs
+      // Exclude transient UI state (notifications, processing flags)
+      partialize: (state) => ({
+        documents: state.documents,
+        activeDocumentId: state.activeDocumentId,
+        activeTab: state.activeTab,
+        analysisResults: state.analysisResults,
+        costAssumptions: state.costAssumptions,
+        sidebarOpen: state.sidebarOpen,
+      }),
+    }
+  )
+);
 
-  setProcessing: (isProcessing, message = '') =>
-    set({ isProcessing, processingMessage: message }),
+// ── Pure recalc helpers ──────────────────────────────────────
 
-  setError: (error) => set({ error }),
+import type { StaffingPlan, ProjectPlan } from '@/types';
 
-  toggleSidebar: () =>
-    set((state) => ({ sidebarOpen: !state.sidebarOpen })),
+function recalcStaffingTotals(plan: StaffingPlan): StaffingPlan {
+  const totalHours = plan.roles.reduce((a, r) => a + r.totalHours, 0);
+  const totalLaborCost = plan.roles.reduce((a, r) => a + r.totalCost, 0);
+  const totalHeadcount = plan.roles.reduce((a, r) => a + r.numberOfResources, 0);
+  return { ...plan, totalHours, totalLaborCost, totalHeadcount, peakHeadcount: totalHeadcount, lastUpdated: new Date().toISOString() };
+}
 
-  setAiProductivityPct: (pct) =>
-    set((state) => ({
-      aiProductivityPct: Math.max(0, Math.min(100, pct)),
-      aiRecalcFlash: state.aiRecalcFlash + 1,
-    })),
+function recalcEstimationFromStaffing(
+  existing: AnalysisResult,
+  staffing: StaffingPlan,
+  assumptions: CostAssumptions
+): EstimationSummary | undefined {
+  if (!existing.estimation) return existing.estimation;
 
-  reset: () => set(initialState),
-}));
+  const baseRows = staffing.roles.map((r) => ({
+    id: r.id,
+    activity: r.roleName,
+    role: r.roleName,
+    band: r.band,
+    hours: r.totalHours,
+    ratePerHour: r.hourlyRate,
+    cost: r.totalCost,
+    phase: 'All Phases',
+  }));
+
+  const totalHours = baseRows.reduce((a, r) => a + r.hours, 0);
+  const baseLaborCost = baseRows.reduce((a, r) => a + r.cost, 0);
+  const applied = applyAssumptions(baseLaborCost, baseRows, assumptions);
+
+  const phaseSubtotals = existing.estimation.phaseSubtotals.map((p) => ({
+    ...p,
+    cost: Math.round(applied.adjustedTotalCost * (p.hours / totalHours)),
+  }));
+
+  return {
+    ...existing.estimation,
+    ...applied,
+    totalHours,
+    phaseSubtotals,
+    personDays: Math.round(totalHours / 8),
+    personMonths: Math.round(totalHours / 160),
+    lastUpdated: new Date().toISOString(),
+  };
+}
+
+function recalcProjectPlanFromStaffing(existing: AnalysisResult, staffing: StaffingPlan): ProjectPlan | undefined {
+  if (!existing.projectPlan) return existing.projectPlan;
+  const scaleFactor = staffing.totalHours > 0 ? staffing.totalHours / 4000 : 1;
+  const phases = existing.projectPlan.phases.map((p) => ({
+    ...p,
+    durationWeeks: Math.max(1, Math.round(p.durationWeeks * scaleFactor)),
+  }));
+  let cursor = 1;
+  const recalcPhases = phases.map((p) => {
+    const ph = { ...p, startWeek: cursor, endWeek: cursor + p.durationWeeks - 1 };
+    cursor += p.durationWeeks;
+    return ph;
+  });
+  return {
+    ...existing.projectPlan,
+    phases: recalcPhases,
+    totalDurationWeeks: cursor - 1,
+    lastUpdated: new Date().toISOString(),
+  };
+}

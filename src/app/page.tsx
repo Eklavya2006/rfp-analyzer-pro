@@ -1,26 +1,30 @@
 "use client";
 
 import AppLayout from "@/components/layout/AppLayout";
+import DocumentAnalyzer from "@/components/modules/DocumentAnalyzer";
 import Dashboard from "@/components/modules/Dashboard";
-import DocumentUpload from "@/components/modules/DocumentUpload";
-import CostEstimation from "@/components/modules/CostEstimation";
-import ProjectPlan from "@/components/modules/ProjectPlan";
-import StaffingPlan from "@/components/modules/StaffingPlan";
-import TestingStrategy from "@/components/modules/TestingStrategy";
-import AIComparison from "@/components/modules/AIComparison";
+import ScopeDeliverables from "@/components/modules/ScopeDeliverables";
+import OfferingsTechnology from "@/components/modules/OfferingsTechnology";
+import ProjectPlanModule from "@/components/modules/ProjectPlan";
+import StaffingPlanModule from "@/components/modules/StaffingPlan";
+import TestingModule from "@/components/modules/Testing";
+import EstimationModule from "@/components/modules/Estimation";
+import AIImpactModule from "@/components/modules/AIImpact";
 import { useRFPStore } from "@/lib/store";
 
 function ActiveModule() {
   const activeTab = useRFPStore((s) => s.activeTab);
   switch (activeTab) {
-    case "dashboard":      return <Dashboard />;
-    case "upload":         return <DocumentUpload />;
-    case "cost":           return <CostEstimation />;
-    case "plan":           return <ProjectPlan />;
-    case "staffing":       return <StaffingPlan />;
-    case "testing":        return <TestingStrategy />;
-    case "ai-comparison":  return <AIComparison />;
-    default:               return <Dashboard />;
+    case "document-analyzer": return <DocumentAnalyzer />;
+    case "dashboard":         return <Dashboard />;
+    case "scope":             return <ScopeDeliverables />;
+    case "offerings":         return <OfferingsTechnology />;
+    case "project-plan":      return <ProjectPlanModule />;
+    case "staffing":          return <StaffingPlanModule />;
+    case "testing":           return <TestingModule />;
+    case "estimation":        return <EstimationModule />;
+    case "ai-impact":         return <AIImpactModule />;
+    default:                  return <DocumentAnalyzer />;
   }
 }
 

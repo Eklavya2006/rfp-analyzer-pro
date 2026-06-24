@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { runFullAnalysis } from '@/lib/orchestrator';
+import { runFullAnalysis } from '@/lib/mockEngine';
 import { getSampleRFPText } from '@/lib/parser';
 
 export async function POST(req: NextRequest) {
@@ -17,7 +17,7 @@ export async function POST(req: NextRequest) {
     // Simulate processing delay for UX
     await new Promise((resolve) => setTimeout(resolve, 1200));
 
-    const result = await runFullAnalysis(documentId, text, filename);
+    const result = runFullAnalysis(documentId, text);
 
     return NextResponse.json({ result }, { status: 200 });
   } catch (error) {

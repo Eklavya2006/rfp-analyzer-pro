@@ -1,7 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { generateId } from '@/lib/utils';
 import { extractTextFromFile, generateSummary, extractSections } from '@/lib/parser';
-import { runFullAnalysis } from '@/lib/orchestrator';
 import type { RFPDocument } from '@/types';
 
 // Accepted file types

@@ -1,264 +1,237 @@
 // ============================================================
-// RFP Document Parser — Structured extraction from raw text
-// Supports PDF/DOCX/TXT with deterministic fallback schemas
+// RFP Analyzer Pro — Document Parser
+// Supports: PDF (via pdf-parse), DOCX (via mammoth), TXT (native)
+// Falls back gracefully if binary parsing fails
 // ============================================================
-import type {
-  DocumentSummary,
-  ExtractedSections,
-  RFPDocument,
-} from '@/types';
+
+import type { DocumentSummary, ExtractedSections } from '@/types';
+
+// ── Text extraction ──────────────────────────────────────────
 
 /**
- * Extract structured sections from raw document text.
- * Uses pattern matching + keyword density for section detection.
+ * Extract plain text from a File/Blob.
+ * - PDF  → pdf-parse (server-side only, imported dynamically)
+ * - DOCX → mammoth  (server-side only, imported dynamically)
+ * - TXT  → file.text()
  */
-export function extractSections(rawText: string): ExtractedSections {
-  const text = rawText || '';
-  const lower = text.toLowerCase();
+export async function extractTextFromFile(file: File): Promise<string> {
+  const name = file.name.toLowerCase();
+  const type = file.type;
 
-  const extract = (keywords: string[], fallback: string): string => {
-    for (const kw of keywords) {
-      const idx = lower.indexOf(kw);
-      if (idx !== -1) {
-        const start = Math.max(0, idx - 20);
-        const end = Math.min(text.length, idx + 800);
-        return text.slice(start, end).trim();
-      }
+  // ── PDF ──────────────────────────────────────────────────
+  if (type === 'application/pdf' || name.endsWith('.pdf')) {
+    try {
+      const arrayBuffer = await file.arrayBuffer();
+      const buffer = Buffer.from(arrayBuffer);
+      // Dynamic import keeps pdf-parse server-side only
+      // eslint-disable-next-line @typescript-eslint/no-require-imports
+      const pdfParse = require('pdf-parse') as (buf: Buffer) => Promise<{ text: string }>;
+      const parsed = await pdfParse(buffer);
+      const text = parsed.text?.trim() ?? '';
+      if (text.length > 50) return text;
+    } catch (err) {
+      console.warn('[parser] pdf-parse failed, falling back to text():', err);
     }
-    return fallback;
-  };
+    // Fallback
+    return file.text().catch(() => '');
+  }
 
-  return {
-    scope: extract(
-      ['scope of work', 'project scope', 'scope:'],
-      'The project scope encompasses development and delivery of a modern software platform.'
-    ),
-    objectives: extract(
-      ['objective', 'goal', 'purpose:'],
-      'Deliver a scalable, enterprise-grade solution meeting all stated functional and non-functional requirements.'
-    ),
-    timeline: extract(
-      ['timeline', 'schedule', 'duration', 'deadline'],
-      'The project is expected to be completed within the proposed timeline, subject to finalization upon contract award.'
-    ),
-    budget: extract(
-      ['budget', 'cost', 'funding', 'price'],
-      'Budget constraints and investment parameters to be aligned with proposed cost estimates.'
-    ),
-    technicalRequirements: extract(
-      ['technical requirement', 'system requirement', 'technology stack', 'architecture'],
-      'Modern cloud-native architecture with microservices, APIs, and enterprise security compliance.'
-    ),
-    teamRequirements: extract(
-      ['team', 'resource', 'staffing', 'personnel'],
-      'Cross-functional team with technical leads, developers, QA engineers, and project management expertise.'
-    ),
-    evaluationCriteria: extract(
-      ['evaluation criteria', 'award criteria', 'selection criteria', 'scoring'],
-      'Proposals evaluated on technical approach, past performance, team qualifications, and cost.'
-    ),
-    risks: extract(
-      ['risk', 'challenge', 'constraint', 'assumption'],
-      'Key risks include scope changes, integration complexity, and stakeholder availability.'
-    ),
-    deliverables: extract(
-      ['deliverable', 'artifact', 'output', 'product'],
-      'All software deliverables, documentation, testing reports, and knowledge transfer sessions.'
-    ),
-  };
+  // ── DOCX ─────────────────────────────────────────────────
+  if (
+    type === 'application/vnd.openxmlformats-officedocument.wordprocessingml.document' ||
+    type === 'application/msword' ||
+    name.endsWith('.docx') ||
+    name.endsWith('.doc')
+  ) {
+    try {
+      const arrayBuffer = await file.arrayBuffer();
+      const mammoth = await import('mammoth');
+      const result = await mammoth.extractRawText({ arrayBuffer });
+      const text = result.value?.trim() ?? '';
+      if (text.length > 50) return text;
+    } catch (err) {
+      console.warn('[parser] mammoth failed, falling back to text():', err);
+    }
+    return file.text().catch(() => '');
+  }
+
+  // ── TXT / fallback ────────────────────────────────────────
+  return file.text().catch(() => '');
 }
 
-/**
- * Generate a DocumentSummary from raw text with confidence scoring.
- */
-export function generateSummary(rawText: string, filename: string): DocumentSummary {
-  const text = rawText || '';
+// ── Section extraction ───────────────────────────────────────
+
+const SECTION_PATTERNS: Record<keyof ExtractedSections, RegExp[]> = {
+  scope: [/scope\s+of\s+work/i, /project\s+scope/i, /work\s+scope/i],
+  objectives: [/objective[s]?/i, /goal[s]?/i, /purpose/i],
+  timeline: [/timeline/i, /schedule/i, /milestones?/i, /duration/i],
+  budget: [/budget/i, /cost/i, /pricing/i, /financial/i],
+  technicalRequirements: [/technical\s+req/i, /technology\s+req/i, /tech\s+stack/i],
+  teamRequirements: [/team\s+req/i, /staffing/i, /resource[s]?/i, /personnel/i],
+  evaluationCriteria: [/evaluation/i, /criteria/i, /selection\s+criteria/i, /scoring/i],
+  risks: [/risk[s]?/i, /constraint[s]?/i, /assumption[s]?/i, /challenge[s]?/i],
+  deliverables: [/deliverable[s]?/i, /output[s]?/i, /artifact[s]?/i],
+};
+
+export function extractSections(text: string): ExtractedSections {
+  const lines = text.split('\n');
+  const sections: ExtractedSections = {
+    scope: '', objectives: '', timeline: '', budget: '',
+    technicalRequirements: '', teamRequirements: '',
+    evaluationCriteria: '', risks: '', deliverables: '',
+  };
+
+  const keys = Object.keys(sections) as (keyof ExtractedSections)[];
+  let currentSection: keyof ExtractedSections | null = null;
+  const sectionContent: Record<keyof ExtractedSections, string[]> = {} as Record<keyof ExtractedSections, string[]>;
+  keys.forEach((k) => { sectionContent[k] = []; });
+
+  for (const line of lines) {
+    // Check if this line is a section header
+    let matched = false;
+    for (const key of keys) {
+      if (SECTION_PATTERNS[key].some((re) => re.test(line))) {
+        currentSection = key;
+        matched = true;
+        break;
+      }
+    }
+    if (!matched && currentSection) {
+      sectionContent[currentSection].push(line);
+    }
+  }
+
+  // Take up to 500 chars per section
+  keys.forEach((k) => {
+    sections[k] = sectionContent[k].join('\n').trim().slice(0, 500);
+  });
+
+  return sections;
+}
+
+// ── Summary generation ───────────────────────────────────────
+
+export function generateSummary(text: string, filename: string): DocumentSummary {
   const lower = text.toLowerCase();
-  const words = text.split(/\s+/).filter(Boolean);
+  const wordCount = text.split(/\s+/).filter(Boolean).length;
+  const pageCount = Math.max(1, Math.round(wordCount / 300));
 
-  // Extract project title from first 500 chars
-  const titleMatch = text.match(/(?:project|system|platform|application|solution)[:\s]+([A-Z][^.\n]{5,60})/i);
-  const title = titleMatch?.[1]?.trim() || filename.replace(/\.[^.]+$/, '').replace(/[-_]/g, ' ');
+  // ── Budget detection ─────────────────────────────────────
+  const budgetMatch = text.match(/\$[\d,.]+\s*(?:M|million|B|billion|K|thousand)?(?:\s*(?:to|-)\s*\$[\d,.]+\s*(?:M|million|B|billion|K|thousand)?)?/i);
+  const estimatedBudget = budgetMatch ? budgetMatch[0].trim() : '$2M – $5M (estimated)';
 
-  // Client name detection
-  const clientMatch = text.match(/(?:client|customer|organization|agency|department)[:\s]+([A-Z][^.\n]{3,40})/i);
-  const client = clientMatch?.[1]?.trim() || 'Issuing Organization';
-
-  // Budget detection
-  const budgetMatch = text.match(/\$[\d,]+(?:K|M|B)?|\d+\s*(?:million|thousand|billion)/i);
-  const estimatedBudget = budgetMatch?.[0] || 'To be determined';
-
-  // Timeline detection
+  // ── Timeline detection ───────────────────────────────────
   const timelineMatch = text.match(/(\d+)\s*(?:months?|weeks?|years?)/i);
-  const estimatedTimeline = timelineMatch?.[0] || '12-18 months';
+  const estimatedTimeline = timelineMatch ? timelineMatch[0] : '12–18 months';
 
-  // Technology extraction
+  // ── Technology keywords ──────────────────────────────────
   const techKeywords = [
-    'React', 'Angular', 'Vue', 'Node.js', 'Python', 'Java', 'AWS', 'Azure', 'GCP',
-    'Kubernetes', 'Docker', 'PostgreSQL', 'MongoDB', 'Redis', 'GraphQL', 'REST',
-    'TypeScript', 'Go', 'Rust', 'Spring', 'Django', 'FastAPI', 'Terraform',
+    ['ibm cloud', 'IBM Cloud'], ['watson', 'IBM Watson AI'],
+    ['watsonx', 'IBM watsonx'], ['kubernetes', 'Kubernetes'],
+    ['react', 'React'], ['node', 'Node.js'], ['python', 'Python'],
+    ['java', 'Java'], ['azure', 'Microsoft Azure'], ['aws', 'AWS'],
+    ['docker', 'Docker'], ['postgresql', 'PostgreSQL'], ['mongodb', 'MongoDB'],
+    ['kafka', 'Apache Kafka'], ['spark', 'Apache Spark'],
+    ['terraform', 'Terraform'], ['ansible', 'Ansible'],
+    ['openshift', 'Red Hat OpenShift'],
   ];
-  const technologies = techKeywords.filter((t) => lower.includes(t.toLowerCase()));
-  if (technologies.length === 0) technologies.push('Cloud Platform', 'REST APIs', 'Relational Database');
+  const technologies = techKeywords
+    .filter(([kw]) => lower.includes(kw))
+    .map(([, label]) => label)
+    .slice(0, 8);
+  if (technologies.length === 0) technologies.push('IBM Cloud', 'Watson AI', 'watsonx.data');
 
-  // Key requirements
-  const requirementPhrases = [
-    'user authentication',
-    'role-based access control',
-    'real-time processing',
-    'data analytics',
-    'reporting',
-    'mobile responsive',
-    'API integration',
-    'audit logging',
-    'high availability',
-    'disaster recovery',
+  // ── Requirements extraction ──────────────────────────────
+  const requirementKeywords = [
+    'cloud migration', 'ai/ml', 'machine learning', 'data integration',
+    'security', 'compliance', 'training', 'devops', 'microservices',
+    'api development', 'data governance', 'reporting', 'analytics',
   ];
-  const keyRequirements = requirementPhrases
-    .filter((r) => lower.includes(r))
-    .slice(0, 6)
-    .map((r) => r.charAt(0).toUpperCase() + r.slice(1));
-  if (keyRequirements.length < 3) {
-    keyRequirements.push(
-      'Scalable cloud-native architecture',
-      'Enterprise security compliance',
-      'Modern user interface',
-      'Comprehensive testing and QA',
-    );
+  const keyRequirements = requirementKeywords
+    .filter((kw) => lower.includes(kw))
+    .map((kw) => kw.split(' ').map((w) => w.charAt(0).toUpperCase() + w.slice(1)).join(' '))
+    .slice(0, 6);
+  if (keyRequirements.length === 0) {
+    keyRequirements.push('Cloud Infrastructure', 'AI/ML Implementation', 'Data Integration', 'Security & Compliance');
   }
 
-  // Deliverables
-  const deliverables = [
-    'Software application and source code',
-    'Technical architecture documentation',
-    'Test plans and test results',
-    'Deployment and operations guide',
-    'User training materials',
-    'Project management artifacts',
-  ];
-
-  // Constraints
-  const constraints: string[] = [];
-  if (lower.includes('fedramp')) constraints.push('FedRAMP compliance required');
-  if (lower.includes('hipaa')) constraints.push('HIPAA compliance required');
-  if (lower.includes('section 508') || lower.includes('wcag')) constraints.push('Section 508 / WCAG 2.1 AA accessibility');
-  if (lower.includes('on-premise') || lower.includes('on-prem')) constraints.push('On-premise deployment required');
-  if (constraints.length === 0) {
-    constraints.push(
-      'Must use approved technology stack',
-      'Integration with existing enterprise systems',
-      'Performance SLAs must be met',
-    );
-  }
-
-  // Evaluation criteria
-  const evaluationCriteria = [
-    'Technical approach and methodology',
-    'Team qualifications and past performance',
-    'Project management approach',
-    'Cost and value proposition',
-    'Proposed timeline and schedule',
-    'Risk mitigation strategy',
-  ];
-
-  // Confidence scoring
-  let confidence = 40;
-  if (titleMatch) confidence += 15;
-  if (clientMatch) confidence += 10;
-  if (budgetMatch) confidence += 10;
-  if (timelineMatch) confidence += 10;
-  if (technologies.length > 2) confidence += 10;
-  confidence = Math.min(95, confidence);
+  // ── Confidence score ─────────────────────────────────────
+  let confidence = 60;
+  if (wordCount > 500) confidence += 10;
+  if (wordCount > 1500) confidence += 10;
+  if (budgetMatch) confidence += 8;
+  if (timelineMatch) confidence += 7;
+  if (technologies.length >= 3) confidence += 5;
+  confidence = Math.min(99, confidence);
 
   return {
-    title,
-    client,
-    projectDescription: `${title} is a comprehensive software initiative requiring skilled delivery resources across architecture, development, testing, and deployment. The project targets ${estimatedTimeline} delivery with an estimated investment of ${estimatedBudget}.`,
+    title: filename.replace(/\.[^.]+$/, '').replace(/[-_]/g, ' '),
+    client: extractClientName(text) || 'Enterprise Client',
+    projectDescription: extractDescription(text) ||
+      'Digital transformation initiative requiring cloud, AI/ML, data integration and security capabilities.',
     estimatedBudget,
     estimatedTimeline,
     keyRequirements,
-    technologies: technologies.slice(0, 8),
-    deliverables,
-    constraints,
-    evaluationCriteria,
-    wordCount: words.length,
-    pageCount: Math.ceil(words.length / 250),
+    technologies,
+    deliverables: [
+      'Architecture Document', 'MVP Release',
+      'UAT Sign-off', 'Deployment Runbook', 'Training Material',
+    ],
+    constraints: extractConstraints(text),
+    evaluationCriteria: ['Technical fit', 'Cost competitiveness', 'IBM expertise', 'Delivery track record'],
+    wordCount,
+    pageCount,
     confidenceScore: confidence,
   };
 }
 
-/**
- * Simulate document text extraction from file type.
- * In production, this would call pdf-parse, mammoth, etc.
- */
-export async function extractTextFromFile(file: File): Promise<string> {
-  return new Promise((resolve) => {
-    if (file.type === 'text/plain') {
-      const reader = new FileReader();
-      reader.onload = (e) => resolve((e.target?.result as string) || '');
-      reader.readAsText(file);
-    } else {
-      // For PDF/DOCX in browser demo mode, return rich sample text
-      setTimeout(() => resolve(getSampleRFPText(file.name)), 500);
-    }
-  });
+function extractClientName(text: string): string {
+  const match = text.match(/(?:client|customer|organization|company|issued\s+by)[:\s]+([A-Z][A-Za-z\s&,.]{2,40})/);
+  return match ? match[1].trim().slice(0, 40) : '';
 }
 
-/**
- * Sample RFP text used for demonstration and testing.
- * Contains all key keywords to drive high extraction confidence.
- */
-export function getSampleRFPText(filename: string): string {
-  return `
-REQUEST FOR PROPOSAL
-${filename.replace(/\.[^.]+$/, '')}
+function extractDescription(text: string): string {
+  const match = text.match(/(?:executive\s+summary|overview|introduction)[:\s\n]+([^\n]{40,300})/i);
+  return match ? match[1].trim() : '';
+}
 
-SECTION 1: SCOPE OF WORK
-The client organization requires a comprehensive digital transformation platform leveraging modern 
-cloud-native architecture. The scope of work includes design, development, testing, deployment, 
-and ongoing support of an enterprise application suite supporting 5,000+ concurrent users.
+function extractConstraints(text: string): string[] {
+  const constraints: string[] = [];
+  const timeMatch = text.match(/(?:go-?live|launch|deadline)[^.]*?(\d+)\s*months?/i);
+  if (timeMatch) constraints.push(`Go-live within ${timeMatch[1]} months`);
+  const budgetMatch = text.match(/budget[^.]*?not\s+to\s+exceed[^.]*?\$[\d,.]+[MK]?/i);
+  if (budgetMatch) constraints.push(budgetMatch[0].trim().slice(0, 60));
+  if (text.toLowerCase().includes('zero downtime')) constraints.push('Zero downtime migration required');
+  if (constraints.length === 0) {
+    constraints.push('Go-live within 18 months', 'Budget not to exceed $4M');
+  }
+  return constraints;
+}
 
-SECTION 2: OBJECTIVES
-Primary objectives include delivering a scalable React/Node.js web platform integrated with 
-PostgreSQL and Redis for real-time data processing. The system must provide role-based access control,
-user authentication via SSO, comprehensive audit logging, and mobile responsive design.
+// ── Demo RFP text ─────────────────────────────────────────────
+export function getSampleRFPText(filename?: string): string {
+  return `REQUEST FOR PROPOSAL — Enterprise Digital Transformation Platform
+${filename ? `Document: ${filename}` : ''}
 
-SECTION 3: TECHNICAL REQUIREMENTS
-Technology stack: React 18, TypeScript, Node.js, Python for data services, AWS cloud platform,
-Kubernetes orchestration, Docker containerization, PostgreSQL database, Redis caching, 
-GraphQL and REST APIs, Terraform infrastructure-as-code.
+Section 1: Executive Summary
+The client seeks an enterprise partner to deliver a comprehensive digital transformation encompassing
+cloud infrastructure migration, AI/ML capabilities, data governance, and security compliance.
+Estimated budget: $2.5M to $4M. Timeline: 18 months from contract execution.
 
-Architecture must meet high availability (99.9% uptime SLA), disaster recovery (RPO 4h, RTO 1h), 
-and support horizontal scaling. WCAG 2.1 AA accessibility compliance required.
+Section 2: Scope of Work
+2.1 Cloud Infrastructure: Migrate all on-premise workloads to IBM Cloud hybrid architecture.
+2.2 Data Platform: Implement watsonx.data as the central data lakehouse with IBM DataStage ETL.
+2.3 AI & Machine Learning: Deploy IBM Watson AI for NLP document processing and watsonx for code generation.
+2.4 Security & Compliance: Implement IBM Security QRadar SIEM. Achieve SOC2 Type II and ISO 27001.
 
-SECTION 4: TEAM REQUIREMENTS
-Vendor must provide experienced team including: Senior Project Manager, Technical Lead, 
-Senior Backend Developers (2), Frontend Developers (2), QA Engineers (2), DevOps Engineer, 
-Business Analyst, and UX Designer. Team should have demonstrated experience in similar projects.
+Section 3: Deliverables
+3.1 Solution Architecture Document — Page 5
+3.2 MVP Platform Release — Page 11
+3.3 UAT Sign-off and Go-Live Approval — Page 17
 
-SECTION 5: TIMELINE
-Project duration: 18 months from contract award.
-Phase 1 - Discovery & Architecture: months 1-2
-Phase 2 - Core Development: months 3-10
-Phase 3 - Integration & Testing: months 11-14
-Phase 4 - UAT & Deployment: months 15-18
+Section 4: Timeline
+Project timeline: 18 months. Key milestones at weeks 4, 12, 24, 36, 52, and 72.
 
-SECTION 6: BUDGET
-Estimated budget range: $2.5 million to $3.5 million USD.
-Proposals exceeding $4 million will not be considered.
-
-SECTION 7: DELIVERABLES
-All source code and technical documentation, architecture design documents, test plans and test results,
-deployment guides, operational runbooks, user training materials, knowledge transfer sessions,
-and post-launch support plan.
-
-SECTION 8: EVALUATION CRITERIA
-Technical approach and methodology (35%), team qualifications and past performance (30%),
-project management approach (20%), cost and value proposition (15%).
-
-SECTION 9: RISKS AND CONSTRAINTS
-Key risks include: integration complexity with legacy systems, data migration challenges,
-regulatory compliance requirements, stakeholder availability constraints, and third-party API dependencies.
-Vendor must provide comprehensive risk mitigation strategy.
-`;
+Section 5: Budget
+Budget range: $2.5M to $4M including licensing, professional services, and infrastructure.`;
 }

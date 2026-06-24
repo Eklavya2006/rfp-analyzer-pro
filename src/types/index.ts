@@ -1,8 +1,22 @@
 // ============================================================
-// RFP Analyzer Pro — Core Type Definitions
+// RFP Analyzer Pro — Core Type Definitions (v3 — IBM Blue)
 // ============================================================
 
 export type DocumentStatus = 'uploading' | 'processing' | 'ready' | 'error';
+
+export type TabId =
+  | 'document-analyzer'
+  | 'dashboard'
+  | 'scope'
+  | 'offerings'
+  | 'project-plan'
+  | 'staffing'
+  | 'testing'
+  | 'estimation'
+  | 'ai-impact';
+
+// IBM Band levels
+export type IBMBand = '6A' | '6B' | '6G' | '7A' | '7B' | '8' | '9' | '10' | 'Executive' | 'D';
 
 export interface RFPDocument {
   id: string;
@@ -12,6 +26,7 @@ export interface RFPDocument {
   status: DocumentStatus;
   uploadedAt: string;
   processedAt?: string;
+  rawText?: string;
   summary?: DocumentSummary;
   extractedSections?: ExtractedSections;
   errorMessage?: string;
@@ -46,101 +61,57 @@ export interface ExtractedSections {
 }
 
 // ============================================================
-// Cost Estimation Types
+// Scope & Deliverables
 // ============================================================
-export interface CostAssumptions {
-  hourlyRates: Record<string, number>;
-  teamComposition: Record<string, number>; // role -> headcount
-  projectDurationWeeks: number;
-  contingencyPercent: number;
-  infrastructureMonthlyCost: number;
-  overheadPercent: number;
-  licensesCost: number;
-  travelCost: number;
-}
-
-export interface CostPhase {
+export interface ScopeItem {
   id: string;
-  name: string;
-  durationWeeks: number;
-  roles: Record<string, number>; // role -> hours
-  cost: number;
-}
-
-export interface CostBreakdown {
-  totalCost: number;
-  laborCost: number;
-  infrastructureCost: number;
-  licensesCost: number;
-  travelCost: number;
-  contingencyCost: number;
-  overheadCost: number;
-  phases: CostPhase[];
-  byRole: Array<{ role: string; hours: number; cost: number; percentage: number }>;
-  byCategory: Array<{ category: string; cost: number; percentage: number }>;
-  assumptions: CostAssumptions;
-  lastCalculated: string;
-}
-
-// ============================================================
-// Project Plan Types
-// ============================================================
-export interface ProjectMilestone {
-  id: string;
-  name: string;
   description: string;
-  dueWeek: number;
-  deliverables: string[];
-  isCritical: boolean;
+  referenceSection: string;
+  pageNumber: string;
+  category: 'in-scope' | 'out-of-scope' | 'assumption';
 }
 
-export interface ProjectPhase {
+export interface DeliverableItem {
+  id: string;
+  description: string;
+  referenceSection: string;
+  pageNumber: string;
+  phase: string;
+  priority: 'high' | 'medium' | 'low';
+}
+
+// ============================================================
+// Offerings / Technology
+// ============================================================
+export type OfferingCategory = 'Cloud' | 'AI/ML' | 'Security' | 'Integration' | 'Consulting' | 'Data & Analytics';
+
+export interface IBMOffering {
   id: string;
   name: string;
+  category: OfferingCategory;
   description: string;
-  startWeek: number;
-  durationWeeks: number;
-  dependencies: string[];
-  milestones: ProjectMilestone[];
-  deliverables: string[];
-  team: string[];
-  status: 'not-started' | 'in-progress' | 'completed';
-  completionPercent: number;
-}
-
-export interface ProjectPlan {
-  id: string;
-  documentId: string;
-  projectName: string;
-  startDate: string;
-  totalDurationWeeks: number;
-  phases: ProjectPhase[];
-  assumptions: string[];
-  risks: string[];
-  lastUpdated: string;
+  relevanceScore: number; // 0-100
+  tags: string[];
 }
 
 // ============================================================
-// Staffing Plan Types
+// Staffing Plan (IBM Band)
 // ============================================================
+export interface IBMBandInfo {
+  band: IBMBand;
+  levelDescription: string;
+  defaultHourlyRate: number;
+}
+
 export interface StaffingRole {
   id: string;
-  title: string;
-  seniority: 'junior' | 'mid' | 'senior' | 'lead' | 'principal';
-  headcount: number;
-  allocationPercent: number;
-  startWeek: number;
-  endWeek: number;
-  rampUpWeeks: number;
-  rampDownWeeks: number;
-  skills: string[];
+  roleName: string;
+  band: IBMBand;
+  levelDescription: string;
+  numberOfResources: number;
+  hoursPerResource: number;
+  totalHours: number;
   hourlyRate: number;
-}
-
-export interface StaffingWeekData {
-  week: number;
-  totalHeadcount: number;
-  byRole: Record<string, number>;
   totalCost: number;
 }
 
@@ -148,117 +119,184 @@ export interface StaffingPlan {
   id: string;
   documentId: string;
   roles: StaffingRole[];
-  weeklyData: StaffingWeekData[];
   totalHeadcount: number;
   peakHeadcount: number;
   totalLaborCost: number;
-  assumptions: string[];
+  totalHours: number;
   lastUpdated: string;
 }
 
 // ============================================================
-// Testing Strategy Types
+// Project Plan
 // ============================================================
-export interface TestType {
+export interface ProjectPhase {
   id: string;
   name: string;
-  category: 'functional' | 'non-functional' | 'automation' | 'security' | 'performance';
-  scope: string;
-  estimatedHours: number;
-  automationFeasibility: 'high' | 'medium' | 'low';
-  priority: 'critical' | 'high' | 'medium' | 'low';
-  tools: string[];
+  startWeek: number;
+  durationWeeks: number;
+  endWeek: number;
+  responsibleRoles: string[];
+  deliverables: string[];
+  status: 'not-started' | 'in-progress' | 'completed';
 }
 
-export interface TestEnvironment {
-  name: string;
-  purpose: string;
-  infrastructure: string;
-  dataSets: string[];
+export interface ProjectPlan {
+  id: string;
+  documentId: string;
+  projectName: string;
+  totalDurationWeeks: number;
+  phases: ProjectPhase[];
+  lastUpdated: string;
+}
+
+// ============================================================
+// Testing Strategy
+// ============================================================
+export interface TestSection {
+  id: string;
+  type: 'Unit' | 'Integration' | 'UAT' | 'Performance' | 'Security' | 'Regression';
+  scope: string;
+  entryCriteria: string[];
+  exitCriteria: string[];
+  tools: string[];
+  estimatedHours: number;
+  responsibleBand: IBMBand;
+  enabled: boolean;
 }
 
 export interface TestingStrategy {
   id: string;
   documentId: string;
-  testTypes: TestType[];
-  environments: TestEnvironment[];
+  sections: TestSection[];
   totalQAHours: number;
   automationCoverage: number;
-  qaCostEstimate: number;
-  entryCriteria: string[];
-  exitCriteria: string[];
-  risks: string[];
-  staffingRecommendation: Array<{ role: string; count: number; weeks: number }>;
-  phaseDistribution: Array<{ phase: string; hours: number; percentage: number }>;
-  qualityMetrics: Array<{ metric: string; target: string; current: string }>;
   lastUpdated: string;
 }
 
 // ============================================================
-// AI Comparison Types
+// Estimation + Cost Assumptions (NEW — for sliders)
 // ============================================================
-export interface AIUseCase {
+
+/** Multipliers and add-ons applied on top of base labor cost */
+export interface CostAssumptions {
+  rateMultiplier: number;       // 0.50 – 2.00 (default 1.00) — scales all hourly rates
+  contingencyPct: number;       // 0 – 30 %   (default 10)
+  infrastructurePct: number;    // 0 – 20 %   (default 8)
+  overheadPct: number;          // 0 – 25 %   (default 12)
+  travelPct: number;            // 0 – 10 %   (default 3)
+  licensingFlatUSD: number;     // 0 – 500000 (default 0)
+}
+
+export const DEFAULT_COST_ASSUMPTIONS: CostAssumptions = {
+  rateMultiplier: 1.0,
+  contingencyPct: 10,
+  infrastructurePct: 8,
+  overheadPct: 12,
+  travelPct: 3,
+  licensingFlatUSD: 0,
+};
+
+export interface EstimationRow {
   id: string;
-  area: string;
-  description: string;
-  tools: string[];
-  effortReduction: number; // percentage
-  costImpact: number; // percentage (negative = savings)
-  qualityImpact: 'high-improvement' | 'moderate-improvement' | 'neutral' | 'risk';
-  speedImprovement: number; // percentage
-  automationOpportunity: 'high' | 'medium' | 'low';
-  limitations: string[];
-  maturityLevel: 'proven' | 'emerging' | 'experimental';
+  activity: string;
+  role: string;
+  band: IBMBand;
+  hours: number;
+  ratePerHour: number;
+  cost: number;
+  phase: string;
 }
 
-export interface AIScenario {
-  totalCostBaseline: number;
-  totalCostAIAugmented: number;
-  totalEffortBaselineHours: number;
-  totalEffortAIHours: number;
-  timelineBaselineWeeks: number;
-  timelineAIWeeks: number;
-  qualityScoreBaseline: number;
-  qualityScoreAI: number;
-  costSavingsPercent: number;
-  effortSavingsPercent: number;
-  timelineSavingsPercent: number;
-}
-
-export interface AIComparison {
+export interface EstimationSummary {
   id: string;
   documentId: string;
-  useCases: AIUseCase[];
-  baseline: AIScenario;
-  aiAugmented: AIScenario;
-  assumptions: string[];
-  limitations: string[];
-  recommendations: string[];
+  rows: EstimationRow[];
+  /** Base labor hours (pre-assumption adjustments) */
+  totalHours: number;
+  /** Base labor cost (pre-assumption adjustments) */
+  totalCost: number;
+  /** Adjusted total after applying CostAssumptions */
+  adjustedTotalCost: number;
+  /** Breakdown of each cost add-on */
+  costBreakdown: CostBreakdown;
+  personDays: number;
+  personMonths: number;
+  phaseSubtotals: Array<{ phase: string; hours: number; cost: number }>;
+  lastUpdated: string;
+}
+
+export interface CostBreakdown {
+  baseLaborCost: number;
+  contingencyAmount: number;
+  infrastructureAmount: number;
+  overheadAmount: number;
+  travelAmount: number;
+  licensingAmount: number;
+  totalAdjustedCost: number;
+}
+
+// ============================================================
+// AI Impact
+// ============================================================
+export interface AIPhaseRow {
+  id: string;
+  phase: string;
+  activity: string;
+  traditionalHours: number;
+  aiAssistedHours: number;
+  hoursSaved: number;
+  productivityGainPct: number;
+}
+
+export interface AIRoleRow {
+  id: string;
+  role: string;
+  band: IBMBand;
+  traditionalFTE: number;
+  aiAugmentedFTE: number;
+  productivityPct: number;
+  automationCoveragePct: number;
+  reworkReductionPct: number;
+  accelerationFactor: number;
+  toolUsed: string;
+}
+
+export interface AIImpact {
+  id: string;
+  documentId: string;
+  phaseRows: AIPhaseRow[];
+  roleRows: AIRoleRow[];
+  totalTraditionalHours: number;
+  totalAIHours: number;
+  totalHoursSaved: number;
+  overallProductivityGain: number;
   lastUpdated: string;
 }
 
 // ============================================================
-// App State Types
+// Global Analysis Result
 // ============================================================
 export interface AnalysisResult {
   documentId: string;
-  costBreakdown?: CostBreakdown;
+  scopeItems?: ScopeItem[];
+  deliverableItems?: DeliverableItem[];
+  offerings?: IBMOffering[];
   projectPlan?: ProjectPlan;
   staffingPlan?: StaffingPlan;
   testingStrategy?: TestingStrategy;
-  aiComparison?: AIComparison;
+  estimation?: EstimationSummary;
+  aiImpact?: AIImpact;
   generatedAt: string;
 }
 
-export interface AppState {
-  documents: RFPDocument[];
-  activeDocumentId: string | null;
-  analysisResults: Record<string, AnalysisResult>;
-  isLoading: boolean;
-  error: string | null;
+// Popup notification
+export interface ChangeNotification {
+  id: string;
+  sourceModule: string;
+  affectedModules: string[];
+  message: string;
+  pendingUpdate: () => void;
 }
-
-export type TabId = 'dashboard' | 'upload' | 'cost' | 'plan' | 'staffing' | 'testing' | 'ai-comparison';
 
 export interface DashboardMetric {
   label: string;
