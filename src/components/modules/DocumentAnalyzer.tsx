@@ -3,7 +3,7 @@
 import React, { useCallback, useState, useEffect } from 'react';
 import { useDropzone } from 'react-dropzone';
 import { motion, AnimatePresence } from 'framer-motion';
-import { FileText, Upload, CheckCircle, AlertCircle, Loader2, Zap, Trash2, BookOpen, X } from 'lucide-react';
+import { FileText, Upload, CheckCircle, AlertCircle, Loader2, Zap, Trash2, BookOpen, X, Paperclip } from 'lucide-react';
 import { useRFPStore } from '@/lib/store';
 import { T } from '@/lib/theme';
 import { runFullAnalysis } from '@/lib/mockEngine';
@@ -174,27 +174,19 @@ export default function DocumentAnalyzer() {
               {doc.status === 'error' && doc.errorMessage && (
                 <div className="mt-3 text-xs text-red-500 bg-red-50 rounded-lg px-3 py-2">❌ {doc.errorMessage}</div>
               )}
-              {doc.status === 'ready' && doc.summary && (
-                <div className="mt-3 grid grid-cols-2 sm:grid-cols-4 gap-3">
-                  {[
-                    { label: 'Pages', value: doc.summary.pageCount },
-                    { label: 'Words', value: doc.summary.wordCount.toLocaleString() },
-                    { label: 'Confidence', value: `${doc.summary.confidenceScore}%` },
-                    { label: 'Tech', value: doc.summary.technologies.length },
-                  ].map((m) => (
-                    <div key={m.label} className="rounded-xl p-2.5 border text-center" style={{ background: '#F8FAFC', borderColor: '#E2E8F0' }}>
-                      <div className="text-lg font-bold" style={{ color: ACCENT }}>{m.value}</div>
-                      <div className="text-[10px] text-gray-500">{m.label}</div>
-                    </div>
-                  ))}
-                </div>
-              )}
-              {doc.status === 'ready' && doc.summary && doc.summary.technologies.length > 0 && (
-                <div className="mt-2 flex flex-wrap gap-1.5">
-                  {doc.summary.technologies.slice(0, 6).map((t) => (
-                    <span key={t} className="text-[10px] font-medium px-2 py-0.5 rounded-full" style={{ background: `${TEAL}15`, color: TEAL }}>{t}</span>
-                  ))}
-                  {doc.summary.technologies.length > 6 && <span className="text-[10px] text-gray-400">+{doc.summary.technologies.length - 6} more</span>}
+              {/* Attached indicator — shows document is linked to analysis modules */}
+              {doc.status === 'ready' && (
+                <div className="mt-3 flex items-center gap-2">
+                  <span className="inline-flex items-center gap-1.5 text-xs font-semibold px-2.5 py-1 rounded-full"
+                    style={{ background: `${TEAL}18`, color: TEAL, border: `1px solid ${TEAL}40` }}>
+                    <Paperclip size={11} />
+                    Attached
+                  </span>
+                  {doc.summary && (
+                    <span className="text-xs" style={{ color: '#94A3B8' }}>
+                      {doc.summary.title && doc.summary.title !== 'Unknown Document' ? doc.summary.title : doc.name}
+                    </span>
+                  )}
                 </div>
               )}
               {doc.status === 'ready' && (

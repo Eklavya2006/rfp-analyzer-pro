@@ -1,11 +1,11 @@
 'use client';
-// Testing — KPI cards + graphical charts (Line, Bar, ScatterChart) + coverage gauge
+// Testing — KPI cards + QA Hours bar + coverage gauge
 import React, { useState } from 'react';
 import { Plus, Trash2, ToggleLeft, ToggleRight, Pencil, Check, X } from 'lucide-react';
 import {
-  LineChart, Line, BarChart, Bar, ScatterChart, Scatter,
+  BarChart, Bar,
   XAxis, YAxis, CartesianGrid, Tooltip,
-  ResponsiveContainer, Cell, Legend,
+  ResponsiveContainer, Cell,
 } from 'recharts';
 import { useRFPStore } from '@/lib/store';
 import { T } from '@/lib/theme';
@@ -21,8 +21,6 @@ const TYPE_COLORS: Record<string, string> = {
   Performance: '#ff832b', Security: '#da1e28', Regression: '#a56eff',
 };
 
-const DEFECT_COLORS = ['#da1e28', '#ff832b', '#f1c21b', '#94A3B8'];
-
 const tooltipStyle = {
   backgroundColor: '#1e2030',
   border: '1px solid #2a2d3e',
@@ -31,11 +29,6 @@ const tooltipStyle = {
   fontSize: 12,
   fontFamily: 'var(--font-mono)',
 };
-
-// ── Interfaces ────────────────────────────────────────────────
-interface SprintPoint  { sprint: string; Pass: number; Fail: number; Blocked: number }
-interface DefectBar    { severity: string; count: number }
-interface ScatterPoint { age: number; severity: number; name: string }
 
 // ── Coverage SVG Gauge ────────────────────────────────────────
 function CoverageGauge({ pct }: { pct: number }) {
@@ -181,30 +174,6 @@ export default function TestingModule() {
   const failedTests   = Math.max(1, Math.round(totalCases * (1 - passRate / 100) * 0.6));
   const pendingReview = Math.max(1, Math.round(totalCases * 0.05));
 
-  // Sprint trend
-  const SPRINTS = ['S1','S2','S3','S4','S5','S6','S7','S8'];
-  const sprintData: SprintPoint[] = SPRINTS.map((sprint, i) => ({
-    sprint,
-    Pass:    Math.round(100 + i * 18 + Math.sin(i) * 12),
-    Fail:    Math.max(2, Math.round(40 - i * 5 + Math.cos(i) * 8)),
-    Blocked: Math.max(1, Math.round(15 - i * 2)),
-  }));
-
-  // Defect severity
-  const defectData: DefectBar[] = [
-    { severity: 'Critical', count: Math.round(failedTests * 0.15) },
-    { severity: 'Major',    count: Math.round(failedTests * 0.35) },
-    { severity: 'Minor',    count: Math.round(failedTests * 0.35) },
-    { severity: 'Trivial',  count: Math.round(failedTests * 0.15) },
-  ];
-
-  // Defect age scatter
-  const scatterData: ScatterPoint[] = Array.from({ length: 20 }, (_, i) => ({
-    age:      Math.round(Math.random() * 30 + 1),
-    severity: Math.round(Math.random() * 4 + 1),
-    name:     `DEF-${1000 + i}`,
-  }));
-
   return (
     <div className="p-6 max-w-7xl mx-auto space-y-6">
 
@@ -277,56 +246,6 @@ export default function TestingModule() {
             ))}
           </div>
         </div>
-      </div>
-
-      {/* ── Charts Row 2: Execution Trend + Defect Severity ── */}
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-        {/* Sprint trend line */}
-        <div className="bg-white rounded-2xl border p-5" style={{ borderColor: T.border }}>
-          <h3 style={{ fontSize: 16, fontWeight: 600, color: T.navy, marginBottom: 20 }}>Test Execution Trend</h3>
-          <ResponsiveContainer width="100%" height={220}>
-            <LineChart data={sprintData} margin={{ left: -10, right: 10 }}>
-              <CartesianGrid strokeDasharray="3 3" stroke={T.border} vertical={false} />
-              <XAxis dataKey="sprint" tick={{ fontSize: 11, fill: T.textMuted }} axisLine={false} tickLine={false} />
-              <YAxis tick={{ fontSize: 11, fill: T.textMuted }} axisLine={false} tickLine={false} />
-              <Tooltip contentStyle={tooltipStyle} labelStyle={{ color: '#f4f4f4' }} />
-              <Legend wrapperStyle={{ fontSize: 11 }} />
-              <Line type="monotone" dataKey="Pass"    stroke="#42be65" strokeWidth={2.5} dot={false} activeDot={{ r: 4 }} />
-              <Line type="monotone" dataKey="Fail"    stroke="#da1e28" strokeWidth={2.5} dot={false} activeDot={{ r: 4 }} />
-              <Line type="monotone" dataKey="Blocked" stroke="#f1c21b" strokeWidth={2}   dot={false} activeDot={{ r: 4 }} />
-            </LineChart>
-          </ResponsiveContainer>
-        </div>
-
-        {/* Defect Severity */}
-        <div className="bg-white rounded-2xl border p-5" style={{ borderColor: T.border }}>
-          <h3 style={{ fontSize: 16, fontWeight: 600, color: T.navy, marginBottom: 20 }}>Defect Severity Distribution</h3>
-          <ResponsiveContainer width="100%" height={220}>
-            <BarChart data={defectData} barSize={40} margin={{ left: -10, right: 10 }}>
-              <CartesianGrid strokeDasharray="3 3" stroke={T.border} vertical={false} />
-              <XAxis dataKey="severity" tick={{ fontSize: 11, fill: T.textMuted }} axisLine={false} tickLine={false} />
-              <YAxis tick={{ fontSize: 11, fill: T.textMuted }} axisLine={false} tickLine={false} />
-              <Tooltip contentStyle={tooltipStyle} labelStyle={{ color: '#f4f4f4' }} />
-              <Bar dataKey="count" radius={[6, 6, 0, 0]}>
-                {defectData.map((_, i) => <Cell key={i} fill={DEFECT_COLORS[i % DEFECT_COLORS.length]} />)}
-              </Bar>
-            </BarChart>
-          </ResponsiveContainer>
-        </div>
-      </div>
-
-      {/* ── Defect Age Scatter ──────────────────────────── */}
-      <div className="bg-white rounded-2xl border p-5" style={{ borderColor: T.border }}>
-        <h3 style={{ fontSize: 16, fontWeight: 600, color: T.navy, marginBottom: 20 }}>Defect Age vs Severity</h3>
-        <ResponsiveContainer width="100%" height={220}>
-          <ScatterChart margin={{ left: 0, right: 20 }}>
-            <CartesianGrid strokeDasharray="3 3" stroke={T.border} />
-            <XAxis type="number" dataKey="age"      name="Age (days)" tick={{ fontSize: 11, fill: T.textMuted }} axisLine={false} tickLine={false} label={{ value: 'Days Open', position: 'insideBottom', offset: -4, fontSize: 11, fill: T.textMuted }} />
-            <YAxis type="number" dataKey="severity" name="Severity"   tick={{ fontSize: 11, fill: T.textMuted }} axisLine={false} tickLine={false} domain={[0, 5]} label={{ value: 'Severity', angle: -90, position: 'insideLeft', offset: 10, fontSize: 11, fill: T.textMuted }} />
-            <Tooltip contentStyle={tooltipStyle} labelStyle={{ color: '#f4f4f4' }} cursor={{ strokeDasharray: '3 3' }} />
-            <Scatter data={scatterData} fill="#0f62fe" opacity={0.75} />
-          </ScatterChart>
-        </ResponsiveContainer>
       </div>
 
       {/* ── Action bar + Add form ───────────────────────── */}

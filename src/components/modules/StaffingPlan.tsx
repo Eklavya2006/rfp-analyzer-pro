@@ -1,6 +1,6 @@
 'use client';
 // StaffingPlan — Interactive graphical view with Area, Pie, Line charts + utilization heatmap
-import React, { useState } from 'react';
+import React, { useState, useMemo } from 'react';
 import { Plus, Trash2, Edit3, Check, X } from 'lucide-react';
 import {
   AreaChart, Area, LineChart, Line,
@@ -446,6 +446,232 @@ export default function StaffingPlanModule() {
               <td />
             </tr>
           </tfoot>
+        </table>
+      </div>
+
+      {/* ════════════════════════════════════════════════════════════
+          STAFF SELECTION TABLE — interactive filter & select
+          ════════════════════════════════════════════════════════════ */}
+      <StaffSelectionTable roles={plan.roles} />
+
+    </div>
+  );
+}
+
+// ── Staff Selection interfaces ────────────────────────────────
+interface StaffRow {
+  id:         string;
+  name:       string;
+  role:       string;
+  band:       IBMBand;
+  staffType:  'FNC' | 'Geo' | 'Nearshore';
+  allocation: number;
+  startDate:  string;
+  endDate:    string;
+  effHrsWk:   number;
+  selected:   boolean;
+}
+
+const STAFF_TYPES = ['FNC', 'Geo', 'Nearshore'] as const;
+
+// Derive a deterministic weekly start/end from role index
+function roleDate(offset: number, add: number) {
+  const d = new Date(Date.now() + offset * 7 * 24 * 60 * 60 * 1000 + add * 7 * 24 * 60 * 60 * 1000);
+  return d.toISOString().slice(0, 10);
+}
+
+// ── Staff Selection Table Component ──────────────────────────
+function StaffSelectionTable({ roles }: { roles: StaffingRole[] }) {
+  const [staffSelect, setStaffSelect] = useState<string>('');
+  const [bandFilter,  setBandFilter]  = useState<string>('');
+  const [typeFilter,  setTypeFilter]  = useState<string>('');
+
+  // Build initial staff rows from roles
+  const allRows = useMemo<StaffRow[]>(() => roles.flatMap((r, ri) =>
+    Array.from({ length: r.numberOfResources }, (_, ni) => ({
+      id:         `${r.id}-${ni}`,
+      name:       r.numberOfResources > 1 ? `${r.roleName} ${ni + 1}` : r.roleName,
+      role:       r.roleName,
+      band:       r.band,
+      staffType:  STAFF_TYPES[ri % STAFF_TYPES.length],
+      allocation: Math.round((r.hoursPerResource / 40) * 10),   // % of 40h week
+      startDate:  roleDate(ri * 2, 0),
+      endDate:    roleDate(ri * 2, r.hoursPerResource / 40),
+      effHrsWk:   Math.min(40, Math.round(r.hoursPerResource / 10)),
+      selected:   false,
+    }))
+  ), [roles]);
+
+  const [rows, setRows] = useState<StaffRow[]>(allRows);
+
+  const filtered = useMemo(() => rows.filter(r => {
+    if (staffSelect && !r.name.toLowerCase().includes(staffSelect.toLowerCase()) &&
+        !r.role.toLowerCase().includes(staffSelect.toLowerCase())) return false;
+    if (bandFilter  && r.band      !== bandFilter)  return false;
+    if (typeFilter  && r.staffType !== typeFilter)  return false;
+    return true;
+  }), [rows, staffSelect, bandFilter, typeFilter]);
+
+  const uniqueBands = Array.from(new Set(roles.map(r => r.band)));
+
+  const toggleRow = (id: string) =>
+    setRows(prev => prev.map(r => r.id === id ? { ...r, selected: !r.selected } : r));
+
+  const selectedCount = rows.filter(r => r.selected).length;
+
+  return (
+    <div className="bg-white rounded-2xl border overflow-hidden" style={{ borderColor: T.border }}>
+      {/* Header */}
+      <div className="px-5 py-4 border-b flex items-center justify-between flex-wrap gap-3"
+        style={{ borderColor: T.border }}>
+        <div>
+          <h3 style={{ fontSize: 16, fontWeight: 600, color: T.navy }}>Staff Selection</h3>
+          <p style={{ fontSize: 12, color: T.textMuted, marginTop: 2 }}>
+            {filtered.length} of {allRows.length} staff members
+            {selectedCount > 0 && ` · ${selectedCount} selected`}
+          </p>
+        </div>
+
+        {/* Filter controls */}
+        <div className="flex items-center gap-3 flex-wrap">
+          {/* Staff search/select */}
+          <div className="flex items-center gap-2 border rounded-xl px-3 py-1.5"
+            style={{ borderColor: T.border, background: '#F8FAFC' }}>
+            <span style={{ fontSize: 11, color: T.textMuted }}>Staff</span>
+            <input
+              value={staffSelect}
+              onChange={e => setStaffSelect(e.target.value)}
+              placeholder="Search name / role…"
+              className="outline-none bg-transparent text-sm"
+              style={{ width: 160, color: T.navy }}
+            />
+          </div>
+
+          {/* Band Type dropdown */}
+          <select
+            value={bandFilter}
+            onChange={e => setBandFilter(e.target.value)}
+            className="border rounded-xl px-3 py-1.5 text-sm outline-none"
+            style={{ borderColor: T.border, color: T.navy, background: '#F8FAFC' }}>
+            <option value="">All Bands</option>
+            {uniqueBands.map(b => <option key={b} value={b}>{b} — {BAND_DESC[b]}</option>)}
+          </select>
+
+          {/* Staff Type dropdown */}
+          <select
+            value={typeFilter}
+            onChange={e => setTypeFilter(e.target.value)}
+            className="border rounded-xl px-3 py-1.5 text-sm outline-none"
+            style={{ borderColor: T.border, color: T.navy, background: '#F8FAFC' }}>
+            <option value="">All Types</option>
+            {STAFF_TYPES.map(t => <option key={t} value={t}>{t}</option>)}
+          </select>
+
+          {(staffSelect || bandFilter || typeFilter) && (
+            <button
+              onClick={() => { setStaffSelect(''); setBandFilter(''); setTypeFilter(''); }}
+              className="text-xs font-semibold px-3 py-1.5 rounded-xl border"
+              style={{ borderColor: T.border, color: T.textMuted }}>
+              Clear
+            </button>
+          )}
+        </div>
+      </div>
+
+      {/* Table */}
+      <div className="overflow-x-auto">
+        <table className="w-full" style={{ fontSize: 13, minWidth: 820 }}>
+          <thead>
+            <tr style={{ background: '#F8FAFC', color: T.textMuted, fontSize: 11 }}>
+              <th className="px-4 py-3 text-left" style={{ width: 28 }}></th>
+              <th className="px-4 py-3 text-left font-semibold uppercase tracking-wider">Role</th>
+              <th className="px-4 py-3 text-center font-semibold uppercase tracking-wider" style={{ minWidth: 150 }}>Staff Type</th>
+              <th className="px-4 py-3 text-center font-semibold uppercase tracking-wider">Band</th>
+              <th className="px-4 py-3 text-center font-semibold uppercase tracking-wider">Count</th>
+              <th className="px-4 py-3 text-center font-semibold uppercase tracking-wider">Util.&nbsp;%</th>
+              <th className="px-4 py-3 text-center font-semibold uppercase tracking-wider">Eff.&nbsp;Hrs/Wk</th>
+              <th className="px-4 py-3 text-center" style={{ width: 24 }}></th>
+            </tr>
+          </thead>
+          <tbody>
+            {filtered.length === 0 && (
+              <tr>
+                <td colSpan={8} className="px-5 py-10 text-center text-sm" style={{ color: T.textMuted }}>
+                  No staff members match the current filters.
+                </td>
+              </tr>
+            )}
+            {filtered.map((row) => (
+              <tr key={row.id} className="border-t hover:bg-gray-50/40 transition-colors"
+                style={{ borderColor: T.border, background: row.selected ? `${T.chart[3]}08` : undefined }}>
+                {/* Checkbox */}
+                <td className="px-4 py-3 text-center">
+                  <input type="checkbox" checked={row.selected}
+                    onChange={() => toggleRow(row.id)}
+                    className="w-4 h-4 rounded cursor-pointer accent-blue-600" />
+                </td>
+
+                {/* Role name */}
+                <td className="px-4 py-3 font-medium" style={{ color: T.navy }}>
+                  {row.name}
+                </td>
+
+                {/* Staff Type chips — FNC / Geo / Nearshore */}
+                <td className="px-4 py-3">
+                  <div className="flex items-center gap-1 justify-center flex-wrap">
+                    {STAFF_TYPES.map(t => (
+                      <span key={t}
+                        className="text-[11px] font-semibold px-2 py-0.5 rounded"
+                        style={{
+                          background: row.staffType === t ? T.navy : '#F1F5F9',
+                          color:      row.staffType === t ? '#fff' : T.textMuted,
+                        }}>
+                        {t}<br/>
+                        <span className="kpi-value font-normal" style={{ fontSize: 10 }}>
+                          {t === 'FNC' ? '45h' : t === 'Geo' ? '40h' : '40h'}
+                        </span>
+                      </span>
+                    ))}
+                  </div>
+                </td>
+
+                {/* Band dropdown */}
+                <td className="px-4 py-3 text-center">
+                  <div className="flex items-center justify-center gap-1">
+                    <span className="text-xs font-semibold px-2 py-0.5 rounded border"
+                      style={{ borderColor: T.border, color: T.navy }}>
+                      {row.band}
+                    </span>
+                    <span style={{ color: T.textMuted, fontSize: 14 }}>▾</span>
+                  </div>
+                </td>
+
+                {/* Count */}
+                <td className="px-4 py-3 text-center">
+                  <span className="kpi-value" style={{ color: T.navy, fontWeight: 600 }}>1</span>
+                </td>
+
+                {/* Utilization % */}
+                <td className="px-4 py-3 text-center">
+                  <span className="kpi-value" style={{ color: row.allocation >= 80 ? '#da1e28' : T.navy, fontWeight: 600 }}>
+                    {row.allocation}
+                  </span>
+                </td>
+
+                {/* Eff Hrs/Wk */}
+                <td className="px-4 py-3 text-center">
+                  <span className="kpi-value font-bold" style={{ color: T.navy }}>
+                    {row.effHrsWk}
+                  </span>
+                </td>
+
+                {/* Remove */}
+                <td className="px-4 py-3 text-center">
+                  <button style={{ color: '#CBD5E1' }} className="hover:text-red-400 transition-colors">✕</button>
+                </td>
+              </tr>
+            ))}
+          </tbody>
         </table>
       </div>
     </div>
