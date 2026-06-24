@@ -1,10 +1,14 @@
 @import "tailwindcss";
 
 /* ================================================================
-   CENTRALIZED DESIGN TOKEN SYSTEM  — edit ONLY this file to
-   change the entire main-content color palette globally.
+   DESIGN TOKEN SYSTEM — IBM Plex Font System + Enterprise Palette
    ================================================================ */
+
+/* ── IBM Plex Font Variables ─────────────────────────────────── */
 :root {
+  --font-sans: var(--font-ibm-plex-sans), 'IBM Plex Sans', system-ui, sans-serif;
+  --font-mono: var(--font-ibm-plex-mono), 'IBM Plex Mono', 'Courier New', monospace;
+
   /* ── Enterprise Palette (main content) ── */
   --clr-navy:            #0A1628;
   --clr-slate:           #1E3A5F;
@@ -17,6 +21,18 @@
   --clr-text-secondary:  #4A5568;
   --clr-text-muted:      #94A3B8;
 
+  /* ── IBM Carbon / Dark Theme Tokens ── */
+  --clr-dark-bg:         #0f1117;
+  --clr-dark-card:       #1a1d27;
+  --clr-dark-card-border:#2a2d3e;
+  --clr-dark-header:     #13151f;
+  --clr-ibm-blue:        #0f62fe;
+  --clr-ibm-green:       #42be65;
+  --clr-ibm-yellow:      #f1c21b;
+  --clr-ibm-red:         #da1e28;
+  --clr-dark-text:       #f4f4f4;
+  --clr-dark-muted:      #8d8d8d;
+
   /* ── Chart palette (6 steps) ── */
   --clr-chart-1: #0A1628;
   --clr-chart-2: #1E3A5F;
@@ -24,29 +40,46 @@
   --clr-chart-4: #4A7FB5;
   --clr-chart-5: #7C5CBF;
   --clr-chart-6: #2A9D8F;
-
-  /* ── IBM Sidebar (preserved — DO NOT CHANGE) ── */
-  --clr-ibm-blue: #0F62FE;
 }
 
-/* ── Custom scrollbar ───────────────────────────── */
+/* ── Base reset ─────────────────────────────────────────────── */
+*, *::before, *::after { box-sizing: border-box; }
+html, body { height: 100%; margin: 0; padding: 0; }
+
+body {
+  font-family: var(--font-sans);
+  background: var(--clr-surface);
+  color: var(--clr-text-primary);
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  font-size: 14px;
+  font-weight: 400;
+  line-height: 1.5;
+}
+
+/* ── IBM Plex Mono for numbers/code ─────────────────────────── */
+.font-mono,
+code, pre,
+.kpi-value,
+.metric-number {
+  font-family: var(--font-mono) !important;
+}
+
+/* ── Typography Scale ───────────────────────────────────────── */
+.text-page-title   { font-size: 28px; font-weight: 700; font-family: var(--font-sans); }
+.text-section-hdr  { font-size: 20px; font-weight: 600; font-family: var(--font-sans); }
+.text-card-label   { font-size: 13px; font-weight: 500; font-family: var(--font-sans); }
+.text-body         { font-size: 14px; font-weight: 400; font-family: var(--font-sans); }
+.text-table        { font-size: 13px; font-weight: 400; font-family: var(--font-sans); }
+.text-kpi          { font-size: 32px; font-weight: 700; font-family: var(--font-mono); }
+
+/* ── Custom scrollbar ───────────────────────────────────────── */
 ::-webkit-scrollbar        { width: 6px; height: 6px; }
 ::-webkit-scrollbar-track  { background: transparent; }
 ::-webkit-scrollbar-thumb  { background: #e2e8f0; border-radius: 9999px; }
 ::-webkit-scrollbar-thumb:hover { background: #cbd5e1; }
 
-/* ── Base reset ─────────────────────────────────── */
-*, *::before, *::after { box-sizing: border-box; }
-html, body { height: 100%; margin: 0; padding: 0; }
-body {
-  font-family: -apple-system, "Segoe UI", system-ui, sans-serif;
-  background: var(--clr-surface);
-  color: var(--clr-text-primary);
-  -webkit-font-smoothing: antialiased;
-  -moz-osx-font-smoothing: grayscale;
-}
-
-/* ── Range input ────────────────────────────────── */
+/* ── Range input ────────────────────────────────────────────── */
 input[type="range"] {
   -webkit-appearance: none; appearance: none;
   width: 100%; height: 6px;
@@ -68,16 +101,17 @@ input[type="range"]::-moz-range-thumb {
   border: 2px solid white; box-shadow: 0 1px 3px rgba(0,0,0,.2);
 }
 
-/* ── Recharts ───────────────────────────────────── */
+/* ── Recharts ───────────────────────────────────────────────── */
 .recharts-tooltip-wrapper { z-index: 50 !important; }
 .recharts-default-tooltip {
   border-radius: 10px !important;
   border: 1px solid #e2e8f0 !important;
   box-shadow: 0 4px 12px rgba(0,0,0,.08) !important;
   font-size: 12px !important;
+  font-family: var(--font-sans) !important;
 }
 
-/* ── Editable field affordance ──────────────────── */
+/* ── Editable field affordance ──────────────────────────────── */
 .edit-cell {
   border-bottom: 1px dashed var(--clr-border);
   transition: border-color .15s;

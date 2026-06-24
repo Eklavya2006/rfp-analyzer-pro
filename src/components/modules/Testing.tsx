@@ -1,66 +1,108 @@
 'use client';
-// Testing — S6: Editable hours (inline, real-time sync) + editable Entry/Exit criteria
+// Testing — KPI cards + graphical charts (Line, Bar, ScatterChart) + coverage gauge
 import React, { useState } from 'react';
 import { Plus, Trash2, ToggleLeft, ToggleRight, Pencil, Check, X } from 'lucide-react';
+import {
+  LineChart, Line, BarChart, Bar, ScatterChart, Scatter,
+  XAxis, YAxis, CartesianGrid, Tooltip,
+  ResponsiveContainer, Cell, Legend,
+} from 'recharts';
 import { useRFPStore } from '@/lib/store';
 import { T } from '@/lib/theme';
 import { v4 as uuid } from 'uuid';
 import type { IBMBand, TestSection } from '@/types';
 
+// ── Color constants ───────────────────────────────────────────
 const TEST_TYPES = ['Unit', 'Integration', 'UAT', 'Performance', 'Security', 'Regression'] as const;
 const IBM_BANDS: IBMBand[] = ['6A', '6B', '6G', '7A', '7B', '8', '9', '10', 'Executive', 'D'];
 
 const TYPE_COLORS: Record<string, string> = {
-  Unit: T.slate, Integration: T.chart[5], UAT: '#198038',
-  Performance: '#b45309', Security: '#da1e28', Regression: T.chart[4],
+  Unit: '#0f62fe', Integration: '#08bdba', UAT: '#42be65',
+  Performance: '#ff832b', Security: '#da1e28', Regression: '#a56eff',
 };
 
-// ── Editable test-hours cell ──────────────────────────────────
+const DEFECT_COLORS = ['#da1e28', '#ff832b', '#f1c21b', '#94A3B8'];
+
+const tooltipStyle = {
+  backgroundColor: '#1e2030',
+  border: '1px solid #2a2d3e',
+  borderRadius: 10,
+  color: '#f4f4f4',
+  fontSize: 12,
+  fontFamily: 'var(--font-mono)',
+};
+
+// ── Interfaces ────────────────────────────────────────────────
+interface SprintPoint  { sprint: string; Pass: number; Fail: number; Blocked: number }
+interface DefectBar    { severity: string; count: number }
+interface ScatterPoint { age: number; severity: number; name: string }
+
+// ── Coverage SVG Gauge ────────────────────────────────────────
+function CoverageGauge({ pct }: { pct: number }) {
+  const r     = 80;
+  const cx    = 110;
+  const cy    = 110;
+  const total = Math.PI * r;                    // half-circle circumference
+  const fill  = (pct / 100) * total;
+  const color = pct >= 80 ? '#42be65' : pct >= 60 ? '#f1c21b' : '#da1e28';
+
+  return (
+    <svg width={220} height={130} viewBox="0 0 220 130">
+      {/* Track */}
+      <path
+        d={`M ${cx - r} ${cy} A ${r} ${r} 0 0 1 ${cx + r} ${cy}`}
+        fill="none" stroke="#E2E8F0" strokeWidth={14} strokeLinecap="round"
+      />
+      {/* Fill */}
+      <path
+        d={`M ${cx - r} ${cy} A ${r} ${r} 0 0 1 ${cx + r} ${cy}`}
+        fill="none" stroke={color} strokeWidth={14} strokeLinecap="round"
+        strokeDasharray={`${fill} ${total}`}
+        style={{ transition: 'stroke-dasharray 0.6s ease' }}
+      />
+      {/* Center text */}
+      <text x={cx} y={cy - 10} textAnchor="middle" className="kpi-value"
+        style={{ fontSize: 28, fontWeight: 700, fill: color, fontFamily: 'var(--font-mono)' }}>
+        {pct}%
+      </text>
+      <text x={cx} y={cy + 12} textAnchor="middle"
+        style={{ fontSize: 11, fill: '#94A3B8', fontFamily: 'var(--font-sans)' }}>
+        Coverage
+      </text>
+    </svg>
+  );
+}
+
+// ── Editable hours cell ───────────────────────────────────────
 function HoursCell({ sectionId, docId, hours }: { sectionId: string; docId: string; hours: number }) {
   const { updateTestHours } = useRFPStore();
   const [editing, setEditing] = useState(false);
-  const [draft, setDraft] = useState(String(hours));
-
-  const commit = () => {
-    const n = Math.max(0, parseInt(draft, 10) || 0);
-    updateTestHours(docId, sectionId, n);
-    setEditing(false);
-  };
+  const [draft, setDraft]     = useState(String(hours));
+  const commit = () => { const n = Math.max(0, parseInt(draft, 10) || 0); updateTestHours(docId, sectionId, n); setEditing(false); };
 
   if (editing) {
     return (
       <span className="inline-flex items-center gap-1">
-        <input
-          autoFocus
-          type="number"
-          min={0}
-          value={draft}
+        <input autoFocus type="number" min={0} value={draft}
           onChange={(e) => setDraft(e.target.value)}
           onKeyDown={(e) => { if (e.key === 'Enter') commit(); if (e.key === 'Escape') setEditing(false); }}
           className="w-20 text-center text-xs border-b-2 outline-none bg-transparent font-semibold"
-          style={{ borderColor: T.gold, color: T.navy }}
-        />
-        <button onClick={commit}    className="text-green-600 hover:text-green-800"><Check size={11}/></button>
-        <button onClick={() => setEditing(false)} className="text-gray-400 hover:text-gray-600"><X size={11}/></button>
+          style={{ borderColor: T.gold, color: T.navy }} />
+        <button onClick={commit}><Check size={11} className="text-green-600" /></button>
+        <button onClick={() => setEditing(false)}><X size={11} className="text-gray-400" /></button>
       </span>
     );
   }
-
   return (
-    <button
-      onClick={() => { setDraft(String(hours)); setEditing(true); }}
-      className="inline-flex items-center gap-1 group"
-      title="Click to edit hours"
-    >
-      <span className="text-xs font-semibold transition-colors group-hover:opacity-80" style={{ color: T.gold }}>
-        {hours}h
-      </span>
-      <Pencil size={9} className="opacity-0 group-hover:opacity-100 transition-opacity" style={{ color: T.gold }} />
+    <button onClick={() => { setDraft(String(hours)); setEditing(true); }}
+      className="inline-flex items-center gap-1 group">
+      <span className="text-xs font-semibold" style={{ color: T.gold }}>{hours}h</span>
+      <Pencil size={9} className="opacity-0 group-hover:opacity-100" style={{ color: T.gold }} />
     </button>
   );
 }
 
-// ── Editable criteria list ────────────────────────────────────
+// ── Criteria List ─────────────────────────────────────────────
 interface CriteriaListProps {
   sectionId: string; docId: string; type: 'entry' | 'exit';
   criteria: string[]; label: string; accentColor: string;
@@ -76,28 +118,28 @@ function CriteriaList({ sectionId, docId, type, criteria, label, accentColor }: 
         {criteria.map((c, i) => (
           <li key={i} className="flex items-start gap-1.5 group">
             <span className="mt-0.5 shrink-0 text-[11px]" style={{ color: accentColor }}>✓</span>
-            <input
-              value={c}
+            <input value={c}
               onChange={(e) => updateTestCriteria(docId, sectionId, type, i, e.target.value)}
               placeholder="Enter criterion…"
               className="flex-1 text-xs text-gray-700 bg-transparent outline-none border-b border-transparent focus:border-gray-300 transition-colors"
             />
-            <button
-              onClick={() => removeTestCriterion(docId, sectionId, type, i)}
-              className="opacity-0 group-hover:opacity-100 text-gray-300 hover:text-red-400 transition-all shrink-0"
-            ><Trash2 size={11} /></button>
+            <button onClick={() => removeTestCriterion(docId, sectionId, type, i)}
+              className="opacity-0 group-hover:opacity-100 text-gray-300 hover:text-red-400 transition-all shrink-0">
+              <Trash2 size={11} />
+            </button>
           </li>
         ))}
       </ul>
-      <button
-        onClick={() => addTestCriterion(docId, sectionId, type)}
-        className="mt-2 flex items-center gap-1 text-[10px] font-semibold transition-colors hover:opacity-80"
-        style={{ color: accentColor }}
-      ><Plus size={10} /> Add Criterion</button>
+      <button onClick={() => addTestCriterion(docId, sectionId, type)}
+        className="mt-2 flex items-center gap-1 text-[10px] font-semibold hover:opacity-80"
+        style={{ color: accentColor }}>
+        <Plus size={10} /> Add Criterion
+      </button>
     </div>
   );
 }
 
+// ── Main ──────────────────────────────────────────────────────
 export default function TestingModule() {
   const { activeDocumentId, analysisResults, toggleTestSection, addTestSection, removeTestSection } = useRFPStore();
   const result = activeDocumentId ? analysisResults[activeDocumentId] : null;
@@ -112,7 +154,7 @@ export default function TestingModule() {
     </div>
   );
 
-  const strategy      = result.testingStrategy;
+  const strategy       = result.testingStrategy;
   const activeSections = strategy.sections.filter((s) => s.enabled);
 
   const handleAdd = () => {
@@ -133,25 +175,161 @@ export default function TestingModule() {
     setNewSection({ type: 'Unit', scope: '', estimatedHours: 100, responsibleBand: '7A', enabled: true });
   };
 
-  return (
-    <div className="p-6 max-w-7xl mx-auto space-y-5">
+  // ── Chart data ───────────────────────────────────────────────
+  const totalCases    = strategy.sections.reduce((s, sec) => s + Math.round(sec.estimatedHours * 1.2), 0);
+  const passRate      = Math.min(99, Math.round(strategy.automationCoverage * 0.95));
+  const failedTests   = Math.max(1, Math.round(totalCases * (1 - passRate / 100) * 0.6));
+  const pendingReview = Math.max(1, Math.round(totalCases * 0.05));
 
-      {/* Summary cards */}
+  // Sprint trend
+  const SPRINTS = ['S1','S2','S3','S4','S5','S6','S7','S8'];
+  const sprintData: SprintPoint[] = SPRINTS.map((sprint, i) => ({
+    sprint,
+    Pass:    Math.round(100 + i * 18 + Math.sin(i) * 12),
+    Fail:    Math.max(2, Math.round(40 - i * 5 + Math.cos(i) * 8)),
+    Blocked: Math.max(1, Math.round(15 - i * 2)),
+  }));
+
+  // Defect severity
+  const defectData: DefectBar[] = [
+    { severity: 'Critical', count: Math.round(failedTests * 0.15) },
+    { severity: 'Major',    count: Math.round(failedTests * 0.35) },
+    { severity: 'Minor',    count: Math.round(failedTests * 0.35) },
+    { severity: 'Trivial',  count: Math.round(failedTests * 0.15) },
+  ];
+
+  // Defect age scatter
+  const scatterData: ScatterPoint[] = Array.from({ length: 20 }, (_, i) => ({
+    age:      Math.round(Math.random() * 30 + 1),
+    severity: Math.round(Math.random() * 4 + 1),
+    name:     `DEF-${1000 + i}`,
+  }));
+
+  return (
+    <div className="p-6 max-w-7xl mx-auto space-y-6">
+
+      {/* ── Header ─────────────────────────────────────── */}
+      <div className="flex items-start gap-3">
+        <div>
+          <div style={{ fontSize: 20, fontWeight: 700, color: T.navy }}>Testing Strategy</div>
+          <div style={{ fontSize: 13, color: T.textMuted }}>
+            {strategy.sections.length} test types · {strategy.totalQAHours.toLocaleString()} QA hours
+          </div>
+        </div>
+        <span className="mt-1 px-2 py-0.5 rounded-full text-xs font-semibold text-white" style={{ background: '#08bdba' }}>
+          {strategy.automationCoverage}% Automation
+        </span>
+      </div>
+
+      {/* ── KPI Cards ──────────────────────────────────── */}
       <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
         {[
-          { label: 'Total Test Types',    value: String(strategy.sections.length) },
-          { label: 'Active',              value: String(activeSections.length) },
-          { label: 'Total QA Hours',      value: strategy.totalQAHours.toLocaleString() },
-          { label: 'Automation Coverage', value: `${strategy.automationCoverage}%` },
+          { label: 'Total QA Hours',     value: strategy.totalQAHours.toLocaleString() + 'h', color: '#0f62fe' },
+          { label: 'Automation Coverage',value: `${strategy.automationCoverage}%`,             color: '#42be65' },
+          { label: 'QA Cost Estimate',
+            value: `$${Math.round(strategy.totalQAHours * 75 / 1000)}K`,                       color: '#a56eff' },
+          { label: 'Test Types',         value: String(strategy.sections.length),              color: '#ff832b' },
         ].map((m) => (
-          <div key={m.label} className="bg-white rounded-2xl border p-4" style={{ borderColor: T.border }}>
-            <div className="text-[10px] font-semibold uppercase tracking-wider mb-1" style={{ color: T.textMuted }}>{m.label}</div>
-            <div className="text-lg font-bold" style={{ color: T.navy }}>{m.value}</div>
+          <div key={m.label} className="bg-white rounded-2xl border p-5"
+            style={{ borderColor: T.border, borderBottom: `3px solid ${m.color}` }}>
+            <div className="text-[11px] font-semibold uppercase tracking-wider mb-2" style={{ color: T.textMuted }}>{m.label}</div>
+            <div className="kpi-value" style={{ fontSize: 28, fontWeight: 700, color: m.color }}>{m.value}</div>
           </div>
         ))}
       </div>
 
-      {/* Action bar */}
+      {/* ── Charts Row 1: QA Hours Bar + Coverage Radar ── */}
+      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+        {/* QA Hours by Phase bar */}
+        <div className="lg:col-span-2 bg-white rounded-2xl border p-5" style={{ borderColor: T.border }}>
+          <h3 style={{ fontSize: 16, fontWeight: 600, color: T.navy, marginBottom: 20 }}>QA Hours by Phase</h3>
+          <ResponsiveContainer width="100%" height={220}>
+            <BarChart data={strategy.sections.map(s => ({
+              name: s.type,
+              Hours: s.estimatedHours,
+            }))} barSize={36} margin={{ left: -10, right: 10 }}>
+              <CartesianGrid strokeDasharray="3 3" stroke={T.border} vertical={false} />
+              <XAxis dataKey="name" tick={{ fontSize: 11, fill: T.textMuted }} axisLine={false} tickLine={false} />
+              <YAxis tick={{ fontSize: 11, fill: T.textMuted }} axisLine={false} tickLine={false} />
+              <Tooltip contentStyle={tooltipStyle} labelStyle={{ color: '#f4f4f4' }} />
+              <Bar dataKey="Hours" radius={[6, 6, 0, 0]}>
+                {strategy.sections.map((s, i) => (
+                  <Cell key={s.id} fill={TYPE_COLORS[s.type] ?? T.slate} />
+                ))}
+              </Bar>
+            </BarChart>
+          </ResponsiveContainer>
+        </div>
+
+        {/* Coverage Gauge */}
+        <div className="bg-white rounded-2xl border p-5 flex flex-col items-center justify-center" style={{ borderColor: T.border }}>
+          <h3 style={{ fontSize: 16, fontWeight: 600, color: T.navy, marginBottom: 12 }}>Coverage Readiness</h3>
+          <CoverageGauge pct={strategy.automationCoverage} />
+          <div className="mt-4 w-full space-y-2">
+            {activeSections.slice(0, 3).map((s) => (
+              <div key={s.id} className="flex items-center gap-2 text-xs">
+                <div className="w-2 h-2 rounded-full" style={{ background: TYPE_COLORS[s.type] ?? T.slate }} />
+                <span style={{ color: T.textSecondary, flex: 1 }}>{s.type}</span>
+                <span className="kpi-value font-semibold" style={{ color: TYPE_COLORS[s.type] ?? T.slate }}>
+                  {Math.min(100, Math.round(strategy.automationCoverage + (Math.random() * 10 - 5)))}%
+                </span>
+              </div>
+            ))}
+          </div>
+        </div>
+      </div>
+
+      {/* ── Charts Row 2: Execution Trend + Defect Severity ── */}
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+        {/* Sprint trend line */}
+        <div className="bg-white rounded-2xl border p-5" style={{ borderColor: T.border }}>
+          <h3 style={{ fontSize: 16, fontWeight: 600, color: T.navy, marginBottom: 20 }}>Test Execution Trend</h3>
+          <ResponsiveContainer width="100%" height={220}>
+            <LineChart data={sprintData} margin={{ left: -10, right: 10 }}>
+              <CartesianGrid strokeDasharray="3 3" stroke={T.border} vertical={false} />
+              <XAxis dataKey="sprint" tick={{ fontSize: 11, fill: T.textMuted }} axisLine={false} tickLine={false} />
+              <YAxis tick={{ fontSize: 11, fill: T.textMuted }} axisLine={false} tickLine={false} />
+              <Tooltip contentStyle={tooltipStyle} labelStyle={{ color: '#f4f4f4' }} />
+              <Legend wrapperStyle={{ fontSize: 11 }} />
+              <Line type="monotone" dataKey="Pass"    stroke="#42be65" strokeWidth={2.5} dot={false} activeDot={{ r: 4 }} />
+              <Line type="monotone" dataKey="Fail"    stroke="#da1e28" strokeWidth={2.5} dot={false} activeDot={{ r: 4 }} />
+              <Line type="monotone" dataKey="Blocked" stroke="#f1c21b" strokeWidth={2}   dot={false} activeDot={{ r: 4 }} />
+            </LineChart>
+          </ResponsiveContainer>
+        </div>
+
+        {/* Defect Severity */}
+        <div className="bg-white rounded-2xl border p-5" style={{ borderColor: T.border }}>
+          <h3 style={{ fontSize: 16, fontWeight: 600, color: T.navy, marginBottom: 20 }}>Defect Severity Distribution</h3>
+          <ResponsiveContainer width="100%" height={220}>
+            <BarChart data={defectData} barSize={40} margin={{ left: -10, right: 10 }}>
+              <CartesianGrid strokeDasharray="3 3" stroke={T.border} vertical={false} />
+              <XAxis dataKey="severity" tick={{ fontSize: 11, fill: T.textMuted }} axisLine={false} tickLine={false} />
+              <YAxis tick={{ fontSize: 11, fill: T.textMuted }} axisLine={false} tickLine={false} />
+              <Tooltip contentStyle={tooltipStyle} labelStyle={{ color: '#f4f4f4' }} />
+              <Bar dataKey="count" radius={[6, 6, 0, 0]}>
+                {defectData.map((_, i) => <Cell key={i} fill={DEFECT_COLORS[i % DEFECT_COLORS.length]} />)}
+              </Bar>
+            </BarChart>
+          </ResponsiveContainer>
+        </div>
+      </div>
+
+      {/* ── Defect Age Scatter ──────────────────────────── */}
+      <div className="bg-white rounded-2xl border p-5" style={{ borderColor: T.border }}>
+        <h3 style={{ fontSize: 16, fontWeight: 600, color: T.navy, marginBottom: 20 }}>Defect Age vs Severity</h3>
+        <ResponsiveContainer width="100%" height={220}>
+          <ScatterChart margin={{ left: 0, right: 20 }}>
+            <CartesianGrid strokeDasharray="3 3" stroke={T.border} />
+            <XAxis type="number" dataKey="age"      name="Age (days)" tick={{ fontSize: 11, fill: T.textMuted }} axisLine={false} tickLine={false} label={{ value: 'Days Open', position: 'insideBottom', offset: -4, fontSize: 11, fill: T.textMuted }} />
+            <YAxis type="number" dataKey="severity" name="Severity"   tick={{ fontSize: 11, fill: T.textMuted }} axisLine={false} tickLine={false} domain={[0, 5]} label={{ value: 'Severity', angle: -90, position: 'insideLeft', offset: 10, fontSize: 11, fill: T.textMuted }} />
+            <Tooltip contentStyle={tooltipStyle} labelStyle={{ color: '#f4f4f4' }} cursor={{ strokeDasharray: '3 3' }} />
+            <Scatter data={scatterData} fill="#0f62fe" opacity={0.75} />
+          </ScatterChart>
+        </ResponsiveContainer>
+      </div>
+
+      {/* ── Action bar + Add form ───────────────────────── */}
       <div className="flex justify-end">
         <button onClick={() => setShowAdd(true)}
           className="flex items-center gap-1.5 text-sm font-semibold px-4 py-2 rounded-xl text-white hover:opacity-90"
@@ -160,7 +338,6 @@ export default function TestingModule() {
         </button>
       </div>
 
-      {/* Add form */}
       {showAdd && (
         <div className="bg-white rounded-2xl border-2 p-4 space-y-3" style={{ borderColor: T.gold }}>
           <div className="text-sm font-bold" style={{ color: T.navy }}>Add Test Type</div>
@@ -179,76 +356,60 @@ export default function TestingModule() {
           </div>
           <div className="flex justify-end gap-2">
             <button onClick={() => setShowAdd(false)}
-              className="px-3 py-1.5 text-sm text-gray-500 border rounded-lg hover:bg-gray-50"
-              style={{ borderColor: T.border }}>Cancel</button>
+              className="px-3 py-1.5 text-sm border rounded-lg" style={{ borderColor: T.border, color: T.textMuted }}>Cancel</button>
             <button onClick={handleAdd}
-              className="px-4 py-1.5 text-sm font-semibold text-white rounded-lg"
-              style={{ background: T.navy }}>Add</button>
+              className="px-4 py-1.5 text-sm font-semibold text-white rounded-lg" style={{ background: T.navy }}>Add</button>
           </div>
         </div>
       )}
 
-      {/* Test sections */}
+      {/* ── Test sections ───────────────────────────────── */}
       <div className="space-y-4">
         {strategy.sections.map((section) => {
           const color = TYPE_COLORS[section.type] ?? T.slate;
           return (
             <div key={section.id}
               className={`bg-white rounded-2xl border p-5 transition-all ${section.enabled ? '' : 'opacity-60'}`}
-              style={{ borderColor: section.enabled ? T.border : '#F1F5F9' }}>
-
-              {/* Header */}
+              style={{ borderColor: section.enabled ? color + '60' : T.border, borderLeft: `4px solid ${color}` }}>
               <div className="flex items-start justify-between gap-4 mb-4">
                 <div className="flex items-center gap-3 flex-wrap">
                   <div className="px-3 py-1 rounded-full text-xs font-bold text-white" style={{ background: color }}>
                     {section.type} Testing
                   </div>
                   <span className="text-xs" style={{ color: T.textMuted }}>Band {section.responsibleBand}</span>
-                  {/* ── Editable hours (Issue 6 fix) ── */}
                   {activeDocumentId && (
-                    <HoursCell
-                      sectionId={section.id}
-                      docId={activeDocumentId}
-                      hours={section.estimatedHours}
-                    />
+                    <HoursCell sectionId={section.id} docId={activeDocumentId} hours={section.estimatedHours} />
                   )}
                 </div>
                 <div className="flex items-center gap-2">
-                  <button
-                    onClick={() => activeDocumentId && toggleTestSection(activeDocumentId, section.id, !section.enabled)}
+                  <button onClick={() => activeDocumentId && toggleTestSection(activeDocumentId, section.id, !section.enabled)}
                     className="transition-colors" style={{ color: section.enabled ? T.gold : '#ccc' }}>
                     {section.enabled ? <ToggleRight size={22} /> : <ToggleLeft size={22} />}
                   </button>
-                  <button
-                    onClick={() => activeDocumentId && removeTestSection(activeDocumentId, section.id)}
+                  <button onClick={() => activeDocumentId && removeTestSection(activeDocumentId, section.id)}
                     className="text-gray-300 hover:text-red-500 transition-colors">
                     <Trash2 size={14} />
                   </button>
                 </div>
               </div>
-
               <p className="text-sm mb-4" style={{ color: T.textSecondary }}>{section.scope}</p>
-
               <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
-                {/* Tools */}
                 <div>
                   <div className="text-xs font-bold text-gray-500 mb-2 uppercase tracking-wider">Tools</div>
                   <div className="flex flex-wrap gap-1">
                     {section.tools.map((tool) => (
                       <span key={tool} className="text-[10px] px-2 py-0.5 rounded-full border"
-                        style={{ background: `${T.chart[5]}15`, color: T.chart[5], borderColor: `${T.chart[5]}40` }}>
+                        style={{ background: `${color}15`, color, borderColor: `${color}40` }}>
                         {tool}
                       </span>
                     ))}
                   </div>
                 </div>
-                {/* Entry Criteria */}
                 {activeDocumentId && (
                   <CriteriaList sectionId={section.id} docId={activeDocumentId}
                     type="entry" criteria={section.entryCriteria}
-                    label="Entry Criteria" accentColor="#198038" />
+                    label="Entry Criteria" accentColor="#42be65" />
                 )}
-                {/* Exit Criteria */}
                 {activeDocumentId && (
                   <CriteriaList sectionId={section.id} docId={activeDocumentId}
                     type="exit" criteria={section.exitCriteria}

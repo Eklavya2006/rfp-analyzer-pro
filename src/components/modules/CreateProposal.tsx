@@ -277,7 +277,11 @@ export default function CreateProposalModule() {
                   style={{ borderColor: '#E2E8F0', color: '#374151' }}>
                   Choose Image…
                 </button>
-                {logoDataUrl && <img src={logoDataUrl} alt="Logo preview" className="h-10 object-contain rounded" />}
+                {logoDataUrl && (
+                  /* eslint-disable-next-line @next/next/no-img-element */
+                  <img src={logoDataUrl} alt="Logo preview"
+                    style={{ height: 48, maxWidth: 200, objectFit: 'contain', imageRendering: 'crisp-edges', borderRadius: 6 }} />
+                )}
               </div>
             )}
 
@@ -292,7 +296,11 @@ export default function CreateProposalModule() {
                   style={{ background: fetchingLogo ? '#CBD5E0' : TEAL }}>
                   {fetchingLogo ? 'Fetching…' : 'Fetch Logo'}
                 </button>
-                {logoDataUrl && <img src={logoDataUrl} alt="Logo preview" className="h-10 object-contain rounded" />}
+                {logoDataUrl && (
+                  /* eslint-disable-next-line @next/next/no-img-element */
+                  <img src={logoDataUrl} alt="Logo preview"
+                    style={{ height: 48, maxWidth: 200, objectFit: 'contain', imageRendering: 'crisp-edges', borderRadius: 6 }} />
+                )}
               </div>
             )}
           </div>

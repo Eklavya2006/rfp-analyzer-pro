@@ -1,67 +1,77 @@
 'use client';
-// ProjectPlan — fully editable Gantt + Phase Details + Add/Remove phases
+// ProjectPlan — Dark Gantt-style redesign with status pills, progress bars, resource chart
 import React, { useState, useRef, useCallback } from 'react';
 import { Pencil, Check, X, Plus, Trash2 } from 'lucide-react';
+import {
+  BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip,
+  ResponsiveContainer, Cell, Legend,
+} from 'recharts';
 import { useRFPStore } from '@/lib/store';
 import { T } from '@/lib/theme';
 import { v4 as uuid } from 'uuid';
 import type { ProjectPhase } from '@/types';
 
-const PHASE_COLORS = [T.navy, T.slate, T.gold, T.chart[4], '#DC2626', '#D97706'];
+// ── Color constants ───────────────────────────────────────────
+const PC = {
+  bg:        '#F8FAFC',
+  card:      '#FFFFFF',
+  border:    '#E2E8F0',
+  completed: '#238636',
+  inprog:    '#1f6feb',
+  delayed:   '#f78166',
+  notstart:  '#94A3B8',
+  text:      '#0A1628',
+  muted:     '#94A3B8',
+  phases:    ['#1f6feb','#238636','#a56eff','#f1c21b','#f78166','#08bdba','#ff832b','#0f62fe'],
+} as const;
+
+const tooltipStyle = {
+  backgroundColor: '#1e2030',
+  border: '1px solid #2a2d3e',
+  borderRadius: 10,
+  color: '#f4f4f4',
+  fontSize: 12,
+};
+
+// ── Status helpers ────────────────────────────────────────────
+type PhaseStatus = 'not-started' | 'in-progress' | 'completed';
+function statusColor(s: PhaseStatus): string {
+  if (s === 'completed')   return PC.completed;
+  if (s === 'in-progress') return PC.inprog;
+  return PC.notstart;
+}
+function statusLabel(s: PhaseStatus): string {
+  if (s === 'completed')   return 'Completed';
+  if (s === 'in-progress') return 'In Progress';
+  return 'Not Started';
+}
+function statusPct(s: PhaseStatus): number {
+  if (s === 'completed')   return 100;
+  if (s === 'in-progress') return 50;
+  return 0;
+}
 
 // ── Inline editable cell ──────────────────────────────────────
-function EditCell({ value, onSave, className = '' }: {
-  value: string; onSave: (v: string) => void; className?: string;
-}) {
+function EditCell({ value, onSave }: { value: string; onSave: (v: string) => void }) {
   const [editing, setEditing] = useState(false);
   const [val, setVal]         = useState(value);
   const commit = () => { onSave(val); setEditing(false); };
 
   if (!editing) return (
-    <span
-      className={`cursor-pointer hover:underline decoration-dashed inline-flex items-center gap-1 group ${className}`}
-      onClick={() => { setVal(value); setEditing(true); }}
-    >
-      {value || <span style={{ color: T.textMuted }} className="italic">click to edit</span>}
+    <span className="cursor-pointer inline-flex items-center gap-1 group"
+      onClick={() => { setVal(value); setEditing(true); }}>
+      {value || <span style={{ color: PC.muted }} className="italic text-xs">click to edit</span>}
       <Pencil size={9} className="opacity-0 group-hover:opacity-60 flex-shrink-0" style={{ color: T.gold }} />
     </span>
   );
-
   return (
     <span className="flex items-center gap-1">
       <input autoFocus value={val} onChange={(e) => setVal(e.target.value)}
         onKeyDown={(e) => { if (e.key === 'Enter') commit(); if (e.key === 'Escape') setEditing(false); }}
         className="border-b-2 outline-none text-sm bg-transparent w-full"
-        style={{ borderColor: T.gold }} />
-      <button onClick={commit} className="text-green-500 hover:text-green-700"><Check size={12} /></button>
-      <button onClick={() => setEditing(false)} className="text-gray-400 hover:text-red-400"><X size={12} /></button>
-    </span>
-  );
-}
-
-// ── Editable number cell ──────────────────────────────────────
-function NumCell({ value, onSave, label }: { value: number; onSave: (v: number) => void; label: string }) {
-  const [editing, setEditing] = useState(false);
-  const [val, setVal]         = useState(String(value));
-  const commit = () => { const n = Math.max(1, parseInt(val, 10) || 1); onSave(n); setEditing(false); };
-
-  if (!editing) return (
-    <span className="cursor-pointer hover:underline decoration-dashed inline-flex items-center gap-1 group"
-      onClick={() => { setVal(String(value)); setEditing(true); }} title={`Edit ${label}`}>
-      <span className="font-medium">W{value}</span>
-      <Pencil size={9} className="opacity-0 group-hover:opacity-60" style={{ color: T.gold }} />
-    </span>
-  );
-
-  return (
-    <span className="flex items-center gap-1">
-      <span className="text-xs" style={{ color: T.textMuted }}>W</span>
-      <input autoFocus type="number" min={1} value={val} onChange={(e) => setVal(e.target.value)}
-        onKeyDown={(e) => { if (e.key === 'Enter') commit(); if (e.key === 'Escape') setEditing(false); }}
-        className="w-12 text-center border-b-2 outline-none text-sm bg-transparent"
-        style={{ borderColor: T.gold }} />
-      <button onClick={commit} className="text-green-500 hover:text-green-700"><Check size={12} /></button>
-      <button onClick={() => setEditing(false)} className="text-gray-400"><X size={12} /></button>
+        style={{ borderColor: T.gold, color: PC.text }} />
+      <button onClick={commit}><Check size={12} className="text-green-500" /></button>
+      <button onClick={() => setEditing(false)}><X size={12} className="text-gray-400" /></button>
     </span>
   );
 }
@@ -85,11 +95,10 @@ function GanttBar({ phase, totalWeeks, color, onUpdate }: {
 
   const onMouseDown = (e: React.MouseEvent, type: 'move' | 'left' | 'right') => {
     e.preventDefault();
-    dragging.current     = type;
-    startX.current       = e.clientX;
-    startWeek.current    = phase.startWeek;
+    dragging.current      = type;
+    startX.current        = e.clientX;
+    startWeek.current     = phase.startWeek;
     startDuration.current = phase.durationWeeks;
-
     const onMove = (me: MouseEvent) => {
       const delta = Math.round((me.clientX - startX.current) / pxPerWeek());
       if (dragging.current === 'move') {
@@ -104,28 +113,24 @@ function GanttBar({ phase, totalWeeks, color, onUpdate }: {
         onUpdate({ startWeek: s, durationWeeks: d, endWeek: s + d - 1 });
       }
     };
-    const onUp = () => {
-      dragging.current = null;
-      window.removeEventListener('mousemove', onMove);
-      window.removeEventListener('mouseup', onUp);
-    };
+    const onUp = () => { dragging.current = null; window.removeEventListener('mousemove', onMove); window.removeEventListener('mouseup', onUp); };
     window.addEventListener('mousemove', onMove);
     window.addEventListener('mouseup', onUp);
   };
 
   return (
-    <div ref={containerRef} className="flex-1 relative h-9 rounded-lg overflow-visible" style={{ background: '#EEF2F7' }}>
+    <div ref={containerRef} className="flex-1 relative h-9" style={{ background: '#EEF2F7', borderRadius: 6 }}>
       <div
-        className="absolute top-1 h-7 rounded-lg flex items-center select-none shadow-sm"
-        style={{ left: `${leftPct}%`, width: `${Math.max(widthPct, 2)}%`, background: color, minWidth: 32, cursor: 'grab' }}
+        className="absolute top-1 h-7 flex items-center select-none"
+        style={{ left: `${leftPct}%`, width: `${Math.max(widthPct, 2)}%`, background: color, minWidth: 32, cursor: 'grab', borderRadius: 6, boxShadow: '0 1px 4px rgba(0,0,0,0.15)' }}
         onMouseDown={(e) => onMouseDown(e, 'move')}
       >
-        <div className="absolute left-0 top-0 h-full w-2 cursor-ew-resize rounded-l-lg hover:bg-black/20 z-10"
+        <div className="absolute left-0 top-0 h-full w-2 cursor-ew-resize hover:bg-black/20 z-10" style={{ borderRadius: '6px 0 0 6px' }}
           onMouseDown={(e) => { e.stopPropagation(); onMouseDown(e, 'left'); }} />
         <span className="text-[10px] text-white font-semibold px-2 truncate select-none pointer-events-none">
-          {phase.durationWeeks}w · W{phase.startWeek}–W{phase.endWeek}
+          {phase.name.length > 14 ? phase.name.slice(0, 14) + '…' : phase.name} · {phase.durationWeeks}w
         </span>
-        <div className="absolute right-0 top-0 h-full w-2 cursor-ew-resize rounded-r-lg hover:bg-black/20 z-10"
+        <div className="absolute right-0 top-0 h-full w-2 cursor-ew-resize hover:bg-black/20 z-10" style={{ borderRadius: '0 6px 6px 0' }}
           onMouseDown={(e) => { e.stopPropagation(); onMouseDown(e, 'right'); }} />
       </div>
     </div>
@@ -140,41 +145,32 @@ function AddPhaseForm({ onAdd, onCancel }: { onAdd: (p: Omit<ProjectPhase, 'id'>
 
   const submit = () => {
     if (!name.trim()) return;
-    onAdd({
-      name: name.trim(), owner: owner || 'TBD',
-      description: '', milestones: [],
+    onAdd({ name: name.trim(), owner: owner || 'TBD', description: '', milestones: [],
       startWeek: 1, durationWeeks: duration, endWeek: duration,
-      responsibleRoles: [], deliverables: [], status: 'not-started',
-    });
+      responsibleRoles: [], deliverables: [], status: 'not-started' });
   };
 
   return (
-    <div className="bg-white rounded-2xl border-2 p-4 space-y-3" style={{ borderColor: T.gold }}>
-      <div className="text-sm font-bold" style={{ color: T.navy }}>Add New Phase</div>
+    <div className="rounded-2xl border-2 p-4 space-y-3 bg-white" style={{ borderColor: T.gold }}>
+      <div className="text-sm font-bold" style={{ color: PC.text }}>Add New Phase</div>
       <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
         <input placeholder="Phase name" value={name} onChange={(e) => setName(e.target.value)}
-          className="col-span-2 border rounded-lg px-3 py-1.5 text-sm outline-none"
-          style={{ borderColor: T.border }} />
-        <input type="number" min={1} placeholder="Duration (weeks)" value={duration}
+          className="col-span-2 border rounded-lg px-3 py-1.5 text-sm outline-none" style={{ borderColor: PC.border }} />
+        <input type="number" min={1} placeholder="Duration (wks)" value={duration}
           onChange={(e) => setDuration(Math.max(1, Number(e.target.value)))}
-          className="border rounded-lg px-3 py-1.5 text-sm outline-none"
-          style={{ borderColor: T.border }} />
+          className="border rounded-lg px-3 py-1.5 text-sm outline-none" style={{ borderColor: PC.border }} />
         <input placeholder="Owner (optional)" value={owner} onChange={(e) => setOwner(e.target.value)}
-          className="border rounded-lg px-3 py-1.5 text-sm outline-none"
-          style={{ borderColor: T.border }} />
+          className="border rounded-lg px-3 py-1.5 text-sm outline-none" style={{ borderColor: PC.border }} />
       </div>
       <div className="flex justify-end gap-2">
-        <button onClick={onCancel}
-          className="px-3 py-1.5 text-sm border rounded-lg hover:bg-gray-50"
-          style={{ borderColor: T.border, color: T.textSecondary }}>Cancel</button>
-        <button onClick={submit}
-          className="px-4 py-1.5 text-sm font-semibold text-white rounded-lg"
-          style={{ background: T.navy }}>Add Phase</button>
+        <button onClick={onCancel} className="px-3 py-1.5 text-sm border rounded-lg" style={{ borderColor: PC.border, color: PC.muted }}>Cancel</button>
+        <button onClick={submit} className="px-4 py-1.5 text-sm font-semibold text-white rounded-lg" style={{ background: PC.inprog }}>Add Phase</button>
       </div>
     </div>
   );
 }
 
+// ── Main ──────────────────────────────────────────────────────
 export default function ProjectPlanModule() {
   const { activeDocumentId, analysisResults, updateProjectPhase, addProjectPhase, removeProjectPhase } = useRFPStore();
   const result     = activeDocumentId ? analysisResults[activeDocumentId] : null;
@@ -182,7 +178,7 @@ export default function ProjectPlanModule() {
   const [showAddForm, setShowAddForm]       = useState(false);
 
   if (!result?.projectPlan) return (
-    <div className="p-6 text-sm text-center mt-20" style={{ color: T.textMuted }}>
+    <div className="p-6 text-sm text-center mt-20" style={{ color: PC.muted }}>
       Upload a document to see the project plan
     </div>
   );
@@ -193,31 +189,48 @@ export default function ProjectPlanModule() {
   const update = (phaseId: string, updates: Partial<ProjectPhase>) => {
     if (activeDocumentId) updateProjectPhase(activeDocumentId, phaseId, updates);
   };
-
   const handleAddPhase = (partial: Omit<ProjectPhase, 'id'>) => {
     if (!activeDocumentId) return;
     addProjectPhase(activeDocumentId, { id: uuid(), ...partial });
     setShowAddForm(false);
   };
-
   const handleRemovePhase = (phaseId: string) => {
     if (activeDocumentId) removeProjectPhase(activeDocumentId, phaseId);
   };
 
-  return (
-    <div className="p-6 max-w-7xl mx-auto space-y-6">
+  // Resource allocation chart data
+  interface ResData { week: string; [role: string]: number | string }
+  const resData: ResData[] = Array.from({ length: Math.min(totalWeeks, 12) }, (_, i) => {
+    const weekNum = i + 1;
+    const row: ResData = { week: `W${weekNum}` };
+    plan.phases.forEach((p, pi) => {
+      if (weekNum >= p.startWeek && weekNum <= p.endWeek) {
+        row[p.name.slice(0, 8)] = (p.responsibleRoles.length || 2) + pi;
+      }
+    });
+    return row;
+  });
+  const phaseKeys = plan.phases.map(p => p.name.slice(0, 8));
 
-      {/* Summary KPIs */}
+  const criticalCount = plan.phases.filter(p => p.durationWeeks >= 4).length;
+  const milestoneCount = plan.phases.reduce((s, p) => s + (p.milestones?.length ?? 0), 0);
+  const completedCount = plan.phases.filter(p => p.status === 'completed').length;
+
+  return (
+    <div className="p-6 max-w-7xl mx-auto space-y-6" style={{ background: PC.bg }}>
+
+      {/* ── KPI Cards ──────────────────────────────────── */}
       <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
         {[
-          { label: 'Project Name',    value: plan.projectName },
-          { label: 'Total Duration',  value: `${totalWeeks} weeks` },
-          { label: 'Phases',          value: String(plan.phases.length) },
-          { label: 'Last Updated',    value: new Date(plan.lastUpdated).toLocaleDateString() },
+          { label: 'Total Duration',      value: `${totalWeeks}w`,              color: PC.inprog },
+          { label: 'Total Phases',         value: String(plan.phases.length),    color: PC.completed },
+          { label: 'Total Milestones',     value: String(milestoneCount),        color: '#a56eff' },
+          { label: 'Critical Phases',      value: String(criticalCount),         color: PC.delayed },
         ].map((m) => (
-          <div key={m.label} className="bg-white rounded-2xl border p-4" style={{ borderColor: T.border }}>
-            <div className="text-[10px] font-semibold uppercase tracking-wider mb-1" style={{ color: T.textMuted }}>{m.label}</div>
-            <div className="text-sm font-bold" style={{ color: T.navy }}>{m.value}</div>
+          <div key={m.label} className="bg-white rounded-2xl border p-5"
+            style={{ borderColor: PC.border, borderBottom: `3px solid ${m.color}` }}>
+            <div className="text-[11px] font-semibold uppercase tracking-wider mb-2" style={{ color: PC.muted }}>{m.label}</div>
+            <div className="kpi-value" style={{ fontSize: 28, fontWeight: 700, color: m.color }}>{m.value}</div>
           </div>
         ))}
       </div>
@@ -225,34 +238,32 @@ export default function ProjectPlanModule() {
       {/* Action bar */}
       <div className="flex justify-end">
         <button onClick={() => setShowAddForm(true)}
-          className="flex items-center gap-1.5 text-sm font-semibold px-4 py-2 rounded-xl text-white hover:opacity-90"
-          style={{ background: T.navy }}>
+          className="flex items-center gap-1.5 text-sm font-semibold px-4 py-2 rounded-xl text-white hover:opacity-90 transition-opacity"
+          style={{ background: PC.inprog }}>
           <Plus size={14} /> Add Phase
         </button>
       </div>
 
-      {/* Add Phase form */}
-      {showAddForm && (
-        <AddPhaseForm
-          onAdd={handleAddPhase}
-          onCancel={() => setShowAddForm(false)}
-        />
-      )}
+      {showAddForm && <AddPhaseForm onAdd={handleAddPhase} onCancel={() => setShowAddForm(false)} />}
 
-      {/* Interactive Gantt */}
-      <div className="bg-white rounded-2xl border p-5 overflow-x-auto" style={{ borderColor: T.border }}>
-        <div className="flex items-center justify-between mb-4">
-          <h3 className="text-sm font-bold" style={{ color: T.navy }}>Gantt Timeline</h3>
-          <span className="text-[10px]" style={{ color: T.textMuted }}>Drag bars to move · Drag edges to resize</span>
+      {/* ── Gantt Timeline ─────────────────────────────── */}
+      <div className="bg-white rounded-2xl border p-5 overflow-x-auto" style={{ borderColor: PC.border }}>
+        <div className="flex items-center justify-between mb-5">
+          <h3 className="font-semibold" style={{ fontSize: 16, color: PC.text }}>Timeline Overview</h3>
+          <div className="flex items-center gap-4 text-xs" style={{ color: PC.muted }}>
+            <span style={{ color: PC.delayed }}>● Critical Milestone</span>
+            <span style={{ color: PC.inprog }}>◆ Milestone</span>
+            <span>Drag bars · Drag edges to resize</span>
+          </div>
         </div>
-        <div className="min-w-[640px]">
-          {/* Week ruler */}
-          <div className="flex mb-2">
-            <div className="w-44 shrink-0" />
+        <div className="min-w-[700px]">
+          {/* Ruler */}
+          <div className="flex mb-3">
+            <div className="w-48 shrink-0" />
             <div className="flex-1 flex">
               {Array.from({ length: Math.ceil(totalWeeks / 4) + 1 }, (_, i) => (
                 <div key={i} className="flex-1 text-[10px] text-center border-l"
-                  style={{ minWidth: 28, color: T.textMuted, borderColor: T.border }}>
+                  style={{ minWidth: 28, color: PC.muted, borderColor: PC.border }}>
                   W{i * 4 + 1}
                 </div>
               ))}
@@ -260,14 +271,17 @@ export default function ProjectPlanModule() {
           </div>
           {/* Phase rows */}
           {plan.phases.map((phase, idx) => {
-            const color = PHASE_COLORS[idx % PHASE_COLORS.length];
+            const color = PC.phases[idx % PC.phases.length];
             return (
               <div key={phase.id} className="flex items-center mb-2 gap-2 group">
-                <div className="w-44 shrink-0 pr-3 flex items-center justify-between">
-                  <div className="text-xs font-semibold truncate" style={{ color: T.navy }}>{phase.name}</div>
+                <div className="w-48 shrink-0 pr-3 flex items-center justify-between">
+                  <div className="flex items-center gap-2">
+                    <div className="w-1 h-6 rounded-sm flex-shrink-0" style={{ background: color }} />
+                    <span className="text-xs font-semibold truncate" style={{ color: PC.text }}>{phase.name}</span>
+                  </div>
                   <button onClick={() => handleRemovePhase(phase.id)}
-                    className="opacity-0 group-hover:opacity-100 text-gray-300 hover:text-red-500 ml-1 flex-shrink-0 transition-all">
-                    <Trash2 size={11} />
+                    className="opacity-0 group-hover:opacity-100 transition-all ml-1 flex-shrink-0">
+                    <Trash2 size={11} style={{ color: PC.delayed }} />
                   </button>
                 </div>
                 <GanttBar phase={phase} totalWeeks={totalWeeks} color={color}
@@ -278,109 +292,115 @@ export default function ProjectPlanModule() {
         </div>
       </div>
 
-      {/* Phase Details — fully editable inline */}
-      <div className="bg-white rounded-2xl border overflow-hidden" style={{ borderColor: T.border }}>
-        <div className="flex items-center justify-between px-5 py-4 border-b" style={{ borderColor: T.border }}>
-          <h3 className="text-sm font-bold" style={{ color: T.navy }}>Phase Details</h3>
-          <span className="text-[10px]" style={{ color: T.textMuted }}>Click any cell to edit · Pencil icon = editable</span>
+      {/* ── Phase Details with status pills ────────────── */}
+      <div className="bg-white rounded-2xl border overflow-hidden" style={{ borderColor: PC.border }}>
+        <div className="flex items-center justify-between px-5 py-4 border-b" style={{ borderColor: PC.border }}>
+          <h3 className="font-semibold" style={{ fontSize: 16, color: PC.text }}>Phase Details</h3>
+          <span className="text-xs" style={{ color: PC.muted }}>{completedCount}/{plan.phases.length} completed</span>
         </div>
         <div className="overflow-x-auto">
-          <table className="w-full text-sm min-w-[800px]">
+          <table className="w-full min-w-[860px]" style={{ fontSize: 13 }}>
             <thead>
-              <tr className="text-xs font-semibold uppercase tracking-wider"
-                style={{ background: T.surface, color: T.textSecondary }}>
-                <th className="px-4 py-3 text-left">Phase</th>
-                <th className="px-4 py-3 text-center">Start ✎</th>
-                <th className="px-4 py-3 text-center">End ✎</th>
-                <th className="px-4 py-3 text-center">Duration ✎</th>
-                <th className="px-4 py-3 text-left">Owner ✎</th>
-                <th className="px-4 py-3 text-left">Description ✎</th>
-                <th className="px-4 py-3 text-left">Roles</th>
-                <th className="px-4 py-3 text-center">Del</th>
+              <tr style={{ background: '#F8FAFC', color: PC.muted, fontSize: 11 }}>
+                <th className="px-4 py-3 text-left font-semibold uppercase tracking-wider">Phase</th>
+                <th className="px-4 py-3 text-center font-semibold uppercase tracking-wider">Weeks</th>
+                <th className="px-4 py-3 text-center font-semibold uppercase tracking-wider">Duration</th>
+                <th className="px-4 py-3 text-left font-semibold uppercase tracking-wider">Owner</th>
+                <th className="px-4 py-3 text-center font-semibold uppercase tracking-wider">Status</th>
+                <th className="px-4 py-3 text-left font-semibold uppercase tracking-wider">Progress</th>
+                <th className="px-4 py-3 text-left font-semibold uppercase tracking-wider">Description</th>
+                <th className="px-4 py-3 text-center font-semibold uppercase tracking-wider">Del</th>
               </tr>
             </thead>
             <tbody>
               {plan.phases.map((phase, idx) => {
-                const color      = PHASE_COLORS[idx % PHASE_COLORS.length];
+                const color      = PC.phases[idx % PC.phases.length];
                 const isExpanded = editingPhaseId === phase.id;
+                const pct        = statusPct(phase.status as PhaseStatus);
+                const sColor     = statusColor(phase.status as PhaseStatus);
                 return (
                   <React.Fragment key={phase.id}>
-                    <tr className="border-t hover:bg-gray-50/50 transition-colors"
-                      style={{ borderColor: T.border }}>
+                    <tr className="border-t hover:bg-gray-50/40 transition-colors" style={{ borderColor: PC.border }}>
                       <td className="px-4 py-3">
                         <div className="flex items-center gap-2">
-                          <div className="w-2.5 h-2.5 rounded-sm shrink-0" style={{ background: color }} />
-                          <EditCell value={phase.name}
-                            onSave={(v) => update(phase.id, { name: v })}
-                            className="font-semibold text-gray-800" />
-                        </div>
-                      </td>
-                      <td className="px-4 py-3 text-center text-xs">
-                        <NumCell value={phase.startWeek} label="start week"
-                          onSave={(v) => update(phase.id, { startWeek: v })} />
-                      </td>
-                      <td className="px-4 py-3 text-center text-xs">
-                        <NumCell value={phase.endWeek} label="end week"
-                          onSave={(v) => update(phase.id, { endWeek: v })} />
-                      </td>
-                      <td className="px-4 py-3 text-center">
-                        <span className="text-xs font-bold px-2 py-0.5 rounded-full text-white cursor-pointer"
-                          style={{ background: color }}
-                          onClick={() => {
-                            const n = parseInt(prompt(`New duration for "${phase.name}" (weeks):`, String(phase.durationWeeks)) ?? '', 10);
-                            if (!isNaN(n) && n > 0) update(phase.id, { durationWeeks: n });
-                          }}>
-                          {phase.durationWeeks}w
-                        </span>
-                      </td>
-                      <td className="px-4 py-3 text-xs" style={{ color: T.textSecondary }}>
-                        <EditCell value={phase.owner ?? 'Unassigned'}
-                          onSave={(v) => update(phase.id, { owner: v })} />
-                      </td>
-                      <td className="px-4 py-3 text-xs max-w-[200px]" style={{ color: T.textSecondary }}>
-                        <EditCell value={phase.description ?? ''}
-                          onSave={(v) => update(phase.id, { description: v })} />
-                      </td>
-                      <td className="px-4 py-3">
-                        <div className="flex items-center gap-1 flex-wrap">
-                          {phase.responsibleRoles.slice(0, 2).map((r) => (
-                            <span key={r} className="text-[10px] px-2 py-0.5 rounded-full border"
-                              style={{ background: `${T.slate}10`, color: T.slate, borderColor: `${T.slate}30` }}>{r}</span>
-                          ))}
-                          {phase.responsibleRoles.length > 2 && (
-                            <button onClick={() => setEditingPhaseId(isExpanded ? null : phase.id)}
-                              className="text-[10px] underline hover:opacity-70"
-                              style={{ color: T.textMuted }}>
-                              {isExpanded ? 'less' : `+${phase.responsibleRoles.length - 2} more`}
-                            </button>
+                          <div className="w-3 h-3 rounded-sm flex-shrink-0" style={{ background: color }} />
+                          <EditCell value={phase.name} onSave={(v) => update(phase.id, { name: v })} />
+                          {(phase.milestones?.length ?? 0) > 0 && (
+                            <span className="text-[10px] px-1.5 py-0.5 rounded text-white ml-1" style={{ background: PC.inprog }}>
+                              {phase.milestones?.length}ms
+                            </span>
                           )}
                         </div>
                       </td>
                       <td className="px-4 py-3 text-center">
-                        <button onClick={() => handleRemovePhase(phase.id)}
-                          className="text-gray-300 hover:text-red-500 transition-colors">
-                          <Trash2 size={13} />
-                        </button>
+                        <span className="kpi-value" style={{ fontSize: 12, color: color }}>W{phase.startWeek}–W{phase.endWeek}</span>
+                      </td>
+                      <td className="px-4 py-3 text-center">
+                        <span className="font-bold text-xs px-2 py-0.5 rounded-full text-white" style={{ background: color }}>
+                          {phase.durationWeeks}w
+                        </span>
+                      </td>
+                      <td className="px-4 py-3 text-xs" style={{ color: PC.muted }}>
+                        <EditCell value={phase.owner ?? 'Unassigned'} onSave={(v) => update(phase.id, { owner: v })} />
+                      </td>
+                      <td className="px-4 py-3 text-center">
+                        <span className="text-[11px] font-semibold px-2 py-1 rounded-full" style={{ background: `${sColor}18`, color: sColor }}>
+                          {statusLabel(phase.status as PhaseStatus)}
+                        </span>
+                      </td>
+                      <td className="px-4 py-3" style={{ minWidth: 120 }}>
+                        <div className="flex items-center gap-2">
+                          <div className="flex-1 h-1.5 rounded-full" style={{ background: PC.border }}>
+                            <div className="h-1.5 rounded-full transition-all" style={{ width: `${pct}%`, background: sColor }} />
+                          </div>
+                          <span className="kpi-value text-xs" style={{ color: sColor }}>{pct}%</span>
+                        </div>
+                      </td>
+                      <td className="px-4 py-3 text-xs max-w-[180px] truncate" style={{ color: PC.muted }}>
+                        <EditCell value={phase.description ?? ''} onSave={(v) => update(phase.id, { description: v })} />
+                      </td>
+                      <td className="px-4 py-3 text-center">
+                        <div className="flex items-center justify-center gap-1">
+                          {phase.responsibleRoles.length > 0 && (
+                            <button onClick={() => setEditingPhaseId(isExpanded ? null : phase.id)}
+                              className="text-xs underline" style={{ color: PC.muted }}>
+                              {isExpanded ? '▲' : `▼ ${phase.responsibleRoles.length}`}
+                            </button>
+                          )}
+                          <button onClick={() => handleRemovePhase(phase.id)}>
+                            <Trash2 size={13} style={{ color: PC.delayed }} />
+                          </button>
+                        </div>
                       </td>
                     </tr>
                     {isExpanded && (
                       <tr className="border-t border-dashed" style={{ borderColor: `${T.gold}50`, background: `${T.gold}06` }}>
                         <td colSpan={8} className="px-5 py-3">
-                          <div className="grid grid-cols-2 gap-4 text-xs">
+                          <div className="grid grid-cols-3 gap-4 text-xs">
                             <div>
-                              <div className="font-semibold uppercase tracking-wide text-[10px] mb-1" style={{ color: T.textMuted }}>All Roles</div>
+                              <div className="font-bold uppercase tracking-wider text-[10px] mb-1" style={{ color: PC.muted }}>Roles</div>
                               <div className="flex flex-wrap gap-1">
                                 {phase.responsibleRoles.map((r) => (
                                   <span key={r} className="px-2 py-0.5 rounded-full text-[10px]"
-                                    style={{ background: `${T.slate}15`, color: T.slate }}>{r}</span>
+                                    style={{ background: `${PC.inprog}18`, color: PC.inprog }}>{r}</span>
                                 ))}
                               </div>
                             </div>
                             <div>
-                              <div className="font-semibold uppercase tracking-wide text-[10px] mb-1" style={{ color: T.textMuted }}>Key Deliverables</div>
+                              <div className="font-bold uppercase tracking-wider text-[10px] mb-1" style={{ color: PC.muted }}>Deliverables</div>
                               <div className="flex flex-wrap gap-1">
                                 {phase.deliverables.map((d) => (
-                                  <span key={d} className="bg-gray-100 text-gray-600 px-2 py-0.5 rounded-full text-[10px]">{d}</span>
+                                  <span key={d} className="px-2 py-0.5 rounded-full text-[10px]"
+                                    style={{ background: '#F1F5F9', color: PC.muted }}>{d}</span>
+                                ))}
+                              </div>
+                            </div>
+                            <div>
+                              <div className="font-bold uppercase tracking-wider text-[10px] mb-1" style={{ color: PC.muted }}>Milestones</div>
+                              <div className="flex flex-wrap gap-1">
+                                {(phase.milestones ?? []).map((m) => (
+                                  <span key={m} className="px-2 py-0.5 rounded-full text-[10px]"
+                                    style={{ background: `${PC.completed}18`, color: PC.completed }}>✓ {m}</span>
                                 ))}
                               </div>
                             </div>
@@ -395,6 +415,24 @@ export default function ProjectPlanModule() {
           </table>
         </div>
       </div>
+
+      {/* ── Resource Allocation Chart ──────────────────── */}
+      <div className="bg-white rounded-2xl border p-5" style={{ borderColor: PC.border }}>
+        <h3 className="font-semibold mb-5" style={{ fontSize: 16, color: PC.text }}>Resource Allocation by Phase</h3>
+        <ResponsiveContainer width="100%" height={260}>
+          <BarChart data={resData} margin={{ left: -10, right: 10 }}>
+            <CartesianGrid strokeDasharray="3 3" stroke={PC.border} vertical={false} />
+            <XAxis dataKey="week" tick={{ fontSize: 10, fill: PC.muted }} axisLine={false} tickLine={false} />
+            <YAxis tick={{ fontSize: 11, fill: PC.muted }} axisLine={false} tickLine={false} />
+            <Tooltip contentStyle={tooltipStyle} labelStyle={{ color: '#f4f4f4' }} />
+            <Legend wrapperStyle={{ fontSize: 11 }} />
+            {phaseKeys.map((key, i) => (
+              <Bar key={key} dataKey={key} stackId="a" fill={PC.phases[i % PC.phases.length]} radius={i === phaseKeys.length - 1 ? [4, 4, 0, 0] : undefined} />
+            ))}
+          </BarChart>
+        </ResponsiveContainer>
+      </div>
+
     </div>
   );
 }
