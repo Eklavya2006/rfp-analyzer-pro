@@ -1,102 +1,219 @@
 // ============================================================
-// RFP Analyzer Pro — Document Parser
-// Supports: PDF (via pdf-parse), DOCX (via mammoth), TXT (native)
-// Falls back gracefully if binary parsing fails
+// RFP Analyzer Pro — Document Parser v2
+// Supports: PDF (pdf-parse), DOCX (mammoth), XLSX (xlsx), TXT
+// All formats include binary/junk sanitization pass
 // ============================================================
 
 import type { DocumentSummary, ExtractedSections } from '@/types';
 
-// ── Extraction result — carries both text AND authoritative page count ──
+// ── Extraction result ─────────────────────────────────────────
 export interface ExtractionResult {
   text: string;
-  /** Actual page count from the document metadata (numpages for PDF,
-   *  estimated from word count for DOCX/TXT). Always the canonical value. */
   pageCount: number;
 }
 
-// ── Text + metadata extraction ───────────────────────────────
+// ── Progress callback ─────────────────────────────────────────
+export type ParseStep = 'uploading' | 'parsing' | 'extracting' | 'rendering' | 'done';
+export type ProgressCallback = (step: ParseStep, pct: number) => void;
 
+// ── Binary / junk character sanitizer ────────────────────────
 /**
- * Extract plain text AND authoritative page count from a File/Blob.
- * - PDF  → pdf-parse (numpages is the real page count — NOT word count / 300)
- * - DOCX → mammoth  (page count estimated from word count)
- * - TXT  → file.text() (page count estimated from word count)
- *
- * FIX: The old approach derived pageCount = Math.round(wordCount / 300) even for
- * PDFs, producing wildly inaccurate numbers (e.g. 174 for a 90-page document).
- * Now we use `parsed.numpages` from pdf-parse as the single source of truth for PDFs.
+ * Remove PDF internals (stream/endstream blocks, xref tables, binary
+ * FlateDecode data, non-printable Unicode, etc.) from extracted text.
  */
-export async function extractFromFile(file: File): Promise<ExtractionResult> {
+export function sanitizeText(raw: string): string {
+  let s = raw;
+
+  // Strip PDF binary stream blocks
+  s = s.replace(/stream[\s\S]*?endstream/gi, ' ');
+  // Strip xref table blocks
+  s = s.replace(/xref[\s\S]*?%%EOF/gi, ' ');
+  // Strip PDF object/keyword tokens
+  s = s.replace(/\b(?:obj|endobj|trailer|startxref)\b/g, ' ');
+  // Strip hex-encoded strings  <4E2D...>
+  s = s.replace(/<[0-9A-Fa-f\s]{4,}>/g, ' ');
+  // Strip FlateDecode / binary escape sequences
+  s = s.replace(/\\[0-9]{3}/g, ' ');
+  // Strip lines that are almost entirely non-ASCII (binary artifact lines)
+  s = s
+    .split('\n')
+    .filter((line) => {
+      const nonPrint = (line.match(/[^\x09\x0A\x0D\x20-\x7E\u00A0-\uFFFF]/g) || []).length;
+      return line.length === 0 || nonPrint / line.length < 0.3;
+    })
+    .join('\n');
+  // Strip remaining non-printable control chars (keep tab, newline, carriage return)
+  s = s.replace(/[\x00-\x08\x0B\x0C\x0E-\x1F\x7F]/g, ' ');
+  // Collapse runs of whitespace (but preserve paragraph breaks)
+  s = s.replace(/[ \t]{2,}/g, ' ');
+  s = s.replace(/\n{3,}/g, '\n\n');
+  return s.trim();
+}
+
+/** Returns true if the text looks like raw binary / junk (>20% non-printable). */
+function isBinaryJunk(text: string): boolean {
+  if (!text) return true;
+  const nonPrint = (text.match(/[^\x09\x0A\x0D\x20-\x7E\u00A0-\uFFFF]/g) || []).length;
+  return nonPrint / text.length > 0.2;
+}
+
+// ── Main extraction entry point ───────────────────────────────
+export async function extractFromFile(
+  file: File,
+  onProgress?: ProgressCallback,
+): Promise<ExtractionResult> {
   const name = file.name.toLowerCase();
   const type = file.type;
 
-  // ── PDF ──────────────────────────────────────────────────
+  onProgress?.('uploading', 10);
+
+  // ── PDF ──────────────────────────────────────────────────────
   if (type === 'application/pdf' || name.endsWith('.pdf')) {
+    onProgress?.('parsing', 25);
     try {
       const arrayBuffer = await file.arrayBuffer();
       const buffer = Buffer.from(arrayBuffer);
       const pdfParseModule = await import('pdf-parse');
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       const pdfParse = ((pdfParseModule as any).default ?? pdfParseModule) as (
-        buf: Buffer
+        buf: Buffer,
+        opts?: object,
       ) => Promise<{ text: string; numpages: number }>;
-      const parsed = await pdfParse(buffer);
-      const text = parsed.text?.trim() ?? '';
-      // Use the real page count from the PDF metadata
-      const pageCount = parsed.numpages > 0 ? parsed.numpages : estimatePageCount(text);
-      if (text.length > 50) return { text, pageCount };
-      // PDF parsed but text too short — still keep real page count
-      const fallbackText = await file.text().catch(() => '');
-      return { text: fallbackText, pageCount };
+      onProgress?.('extracting', 50);
+      const parsed = await pdfParse(buffer, { max: 0 });
+      const rawText = parsed.text?.trim() ?? '';
+      const pageCount = parsed.numpages > 0 ? parsed.numpages : estimatePageCount(rawText);
+      onProgress?.('rendering', 80);
+      const text = sanitizeText(rawText);
+      if (text.length > 50 && !isBinaryJunk(text)) {
+        onProgress?.('done', 100);
+        return { text, pageCount };
+      }
+      // Fallback — text too short or still junk
+      const fallback = sanitizeText(await file.text().catch(() => ''));
+      onProgress?.('done', 100);
+      return { text: fallback || '[PDF text extraction yielded no readable content]', pageCount };
     } catch (err) {
-      console.warn('[parser] pdf-parse failed, falling back to text():', err);
+      console.warn('[parser] pdf-parse failed:', err);
     }
-    const fallbackText = await file.text().catch(() => '');
-    return { text: fallbackText, pageCount: estimatePageCount(fallbackText) };
+    const fallback = sanitizeText(await file.text().catch(() => ''));
+    onProgress?.('done', 100);
+    return { text: fallback || '[PDF could not be read — try uploading as DOCX or TXT]', pageCount: estimatePageCount(fallback) };
   }
 
-  // ── DOCX ─────────────────────────────────────────────────
+  // ── DOCX / DOC ───────────────────────────────────────────────
   if (
     type === 'application/vnd.openxmlformats-officedocument.wordprocessingml.document' ||
     type === 'application/msword' ||
     name.endsWith('.docx') ||
     name.endsWith('.doc')
   ) {
+    onProgress?.('parsing', 30);
     try {
       const arrayBuffer = await file.arrayBuffer();
       const mammoth = await import('mammoth');
+      onProgress?.('extracting', 55);
       const result = await mammoth.extractRawText({ arrayBuffer });
-      const text = result.value?.trim() ?? '';
-      if (text.length > 50) return { text, pageCount: estimatePageCount(text) };
+      const text = sanitizeText(result.value?.trim() ?? '');
+      if (text.length > 50) {
+        onProgress?.('done', 100);
+        return { text, pageCount: estimatePageCount(text) };
+      }
     } catch (err) {
-      console.warn('[parser] mammoth failed, falling back to text():', err);
+      console.warn('[parser] mammoth failed:', err);
     }
-    const fallback = await file.text().catch(() => '');
+    const fallback = sanitizeText(await file.text().catch(() => ''));
+    onProgress?.('done', 100);
     return { text: fallback, pageCount: estimatePageCount(fallback) };
   }
 
-  // ── TXT / fallback ────────────────────────────────────────
-  const txt = await file.text().catch(() => '');
+  // ── XLSX / XLS ───────────────────────────────────────────────
+  if (
+    type === 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' ||
+    type === 'application/vnd.ms-excel' ||
+    name.endsWith('.xlsx') ||
+    name.endsWith('.xls')
+  ) {
+    onProgress?.('parsing', 30);
+    try {
+      const arrayBuffer = await file.arrayBuffer();
+      const XLSX = await import('xlsx');
+      const wb = XLSX.read(arrayBuffer, { type: 'array' });
+      onProgress?.('extracting', 60);
+      const lines: string[] = [];
+      wb.SheetNames.forEach((sheetName) => {
+        lines.push(`\n=== Sheet: ${sheetName} ===`);
+        const ws = wb.Sheets[sheetName];
+        const rows: string[][] = XLSX.utils.sheet_to_json(ws, { header: 1, defval: '' });
+        rows.forEach((row) => {
+          const cell = row.filter((v) => v !== '').join('\t');
+          if (cell.trim()) lines.push(cell);
+        });
+      });
+      const text = sanitizeText(lines.join('\n'));
+      onProgress?.('done', 100);
+      return { text, pageCount: Math.max(1, wb.SheetNames.length) };
+    } catch (err) {
+      console.warn('[parser] xlsx failed:', err);
+    }
+    onProgress?.('done', 100);
+    return { text: '[XLSX extraction failed]', pageCount: 1 };
+  }
+
+  // ── PPTX / PPT ───────────────────────────────────────────────
+  if (
+    type === 'application/vnd.openxmlformats-officedocument.presentationml.presentation' ||
+    type === 'application/vnd.ms-powerpoint' ||
+    name.endsWith('.pptx') ||
+    name.endsWith('.ppt')
+  ) {
+    onProgress?.('parsing', 30);
+    try {
+      // Use JSZip-based PPTX text extraction (built-in to xlsx for pptx xml)
+      const arrayBuffer = await file.arrayBuffer();
+      const JSZip = (await import('xlsx')).SSF; // fallback approach
+      void JSZip;
+      // Attempt raw text extraction from PPTX XML slides
+      const uint8 = new Uint8Array(arrayBuffer);
+      const decoder = new TextDecoder('utf-8', { fatal: false });
+      const raw = decoder.decode(uint8);
+      // Extract all <a:t>text content</a:t> from pptx XML
+      const matches = raw.match(/<a:t[^>]*>([^<]{1,300})<\/a:t>/g) ?? [];
+      const slideText = matches
+        .map((m) => m.replace(/<[^>]+>/g, '').trim())
+        .filter((t) => t.length > 1)
+        .join('\n');
+      const text = sanitizeText(slideText || '[No readable slide text found]');
+      onProgress?.('done', 100);
+      return { text, pageCount: Math.max(1, Math.round(matches.length / 10)) };
+    } catch (err) {
+      console.warn('[parser] pptx failed:', err);
+    }
+    onProgress?.('done', 100);
+    return { text: '[PPTX extraction failed]', pageCount: 1 };
+  }
+
+  // ── TXT / CSV / fallback ─────────────────────────────────────
+  onProgress?.('parsing', 40);
+  const txt = sanitizeText(await file.text().catch(() => ''));
+  onProgress?.('done', 100);
   return { text: txt, pageCount: estimatePageCount(txt) };
 }
 
 /**
- * Kept for backwards compatibility — wraps extractFromFile and returns only text.
- * New callers should use extractFromFile() to get both text and pageCount.
+ * Backwards-compat wrapper — returns text only.
  */
 export async function extractTextFromFile(file: File): Promise<string> {
   const result = await extractFromFile(file);
   return result.text;
 }
 
-/** Estimate page count from word count when real metadata is unavailable (DOCX / TXT). */
 function estimatePageCount(text: string): number {
   const words = text.split(/\s+/).filter(Boolean).length;
   return Math.max(1, Math.round(words / 300));
 }
 
-// ── Section extraction ───────────────────────────────────────
-
+// ── Section extraction ────────────────────────────────────────
 const SECTION_PATTERNS: Record<keyof ExtractedSections, RegExp[]> = {
   scope: [/scope\s+of\s+work/i, /project\s+scope/i, /work\s+scope/i],
   objectives: [/objective[s]?/i, /goal[s]?/i, /purpose/i],
@@ -116,14 +233,12 @@ export function extractSections(text: string): ExtractedSections {
     technicalRequirements: '', teamRequirements: '',
     evaluationCriteria: '', risks: '', deliverables: '',
   };
-
   const keys = Object.keys(sections) as (keyof ExtractedSections)[];
   let currentSection: keyof ExtractedSections | null = null;
   const sectionContent: Record<keyof ExtractedSections, string[]> = {} as Record<keyof ExtractedSections, string[]>;
   keys.forEach((k) => { sectionContent[k] = []; });
 
   for (const line of lines) {
-    // Check if this line is a section header
     let matched = false;
     for (const key of keys) {
       if (SECTION_PATTERNS[key].some((re) => re.test(line))) {
@@ -132,26 +247,13 @@ export function extractSections(text: string): ExtractedSections {
         break;
       }
     }
-    if (!matched && currentSection) {
-      sectionContent[currentSection].push(line);
-    }
+    if (!matched && currentSection) sectionContent[currentSection].push(line);
   }
-
-  // Take up to 500 chars per section
-  keys.forEach((k) => {
-    sections[k] = sectionContent[k].join('\n').trim().slice(0, 500);
-  });
-
+  keys.forEach((k) => { sections[k] = sectionContent[k].join('\n').trim().slice(0, 500); });
   return sections;
 }
 
-// ── Summary generation ───────────────────────────────────────
-
-/**
- * Generate a DocumentSummary from raw text.
- * @param canonicalPageCount  When provided (e.g. numpages from pdf-parse), this value
- *   is used directly instead of estimating from word count.  Pass it from extractFromFile().
- */
+// ── Summary generation ────────────────────────────────────────
 export function generateSummary(
   text: string,
   filename: string,
@@ -159,35 +261,24 @@ export function generateSummary(
 ): DocumentSummary {
   const lower = text.toLowerCase();
   const wordCount = text.split(/\s+/).filter(Boolean).length;
-  // Use the authoritative page count when available, fall back to word-count estimate
   const pageCount = canonicalPageCount ?? Math.max(1, Math.round(wordCount / 300));
 
-  // ── Budget detection ─────────────────────────────────────
   const budgetMatch = text.match(/\$[\d,.]+\s*(?:M|million|B|billion|K|thousand)?(?:\s*(?:to|-)\s*\$[\d,.]+\s*(?:M|million|B|billion|K|thousand)?)?/i);
   const estimatedBudget = budgetMatch ? budgetMatch[0].trim() : '$2M – $5M (estimated)';
 
-  // ── Timeline detection ───────────────────────────────────
   const timelineMatch = text.match(/(\d+)\s*(?:months?|weeks?|years?)/i);
   const estimatedTimeline = timelineMatch ? timelineMatch[0] : '12–18 months';
 
-  // ── Technology keywords ──────────────────────────────────
   const techKeywords = [
-    ['ibm cloud', 'IBM Cloud'], ['watson', 'IBM Watson AI'],
-    ['watsonx', 'IBM watsonx'], ['kubernetes', 'Kubernetes'],
-    ['react', 'React'], ['node', 'Node.js'], ['python', 'Python'],
-    ['java', 'Java'], ['azure', 'Microsoft Azure'], ['aws', 'AWS'],
-    ['docker', 'Docker'], ['postgresql', 'PostgreSQL'], ['mongodb', 'MongoDB'],
-    ['kafka', 'Apache Kafka'], ['spark', 'Apache Spark'],
-    ['terraform', 'Terraform'], ['ansible', 'Ansible'],
-    ['openshift', 'Red Hat OpenShift'],
+    ['ibm cloud', 'IBM Cloud'], ['watson', 'IBM Watson AI'], ['watsonx', 'IBM watsonx'],
+    ['kubernetes', 'Kubernetes'], ['react', 'React'], ['node', 'Node.js'], ['python', 'Python'],
+    ['java', 'Java'], ['azure', 'Microsoft Azure'], ['aws', 'AWS'], ['docker', 'Docker'],
+    ['postgresql', 'PostgreSQL'], ['mongodb', 'MongoDB'], ['kafka', 'Apache Kafka'],
+    ['spark', 'Apache Spark'], ['terraform', 'Terraform'], ['openshift', 'Red Hat OpenShift'],
   ];
-  const technologies = techKeywords
-    .filter(([kw]) => lower.includes(kw))
-    .map(([, label]) => label)
-    .slice(0, 8);
+  const technologies = techKeywords.filter(([kw]) => lower.includes(kw)).map(([, l]) => l).slice(0, 8);
   if (technologies.length === 0) technologies.push('IBM Cloud', 'Watson AI', 'watsonx.data');
 
-  // ── Requirements extraction ──────────────────────────────
   const requirementKeywords = [
     'cloud migration', 'ai/ml', 'machine learning', 'data integration',
     'security', 'compliance', 'training', 'devops', 'microservices',
@@ -201,7 +292,6 @@ export function generateSummary(
     keyRequirements.push('Cloud Infrastructure', 'AI/ML Implementation', 'Data Integration', 'Security & Compliance');
   }
 
-  // ── Confidence score ─────────────────────────────────────
   let confidence = 60;
   if (wordCount > 500) confidence += 10;
   if (wordCount > 1500) confidence += 10;
@@ -219,10 +309,7 @@ export function generateSummary(
     estimatedTimeline,
     keyRequirements,
     technologies,
-    deliverables: [
-      'Architecture Document', 'MVP Release',
-      'UAT Sign-off', 'Deployment Runbook', 'Training Material',
-    ],
+    deliverables: ['Architecture Document', 'MVP Release', 'UAT Sign-off', 'Deployment Runbook', 'Training Material'],
     constraints: extractConstraints(text),
     evaluationCriteria: ['Technical fit', 'Cost competitiveness', 'IBM expertise', 'Delivery track record'],
     wordCount,
@@ -235,12 +322,10 @@ function extractClientName(text: string): string {
   const match = text.match(/(?:client|customer|organization|company|issued\s+by)[:\s]+([A-Z][A-Za-z\s&,.]{2,40})/);
   return match ? match[1].trim().slice(0, 40) : '';
 }
-
 function extractDescription(text: string): string {
   const match = text.match(/(?:executive\s+summary|overview|introduction)[:\s\n]+([^\n]{40,300})/i);
   return match ? match[1].trim() : '';
 }
-
 function extractConstraints(text: string): string[] {
   const constraints: string[] = [];
   const timeMatch = text.match(/(?:go-?live|launch|deadline)[^.]*?(\d+)\s*months?/i);
@@ -248,13 +333,10 @@ function extractConstraints(text: string): string[] {
   const budgetMatch = text.match(/budget[^.]*?not\s+to\s+exceed[^.]*?\$[\d,.]+[MK]?/i);
   if (budgetMatch) constraints.push(budgetMatch[0].trim().slice(0, 60));
   if (text.toLowerCase().includes('zero downtime')) constraints.push('Zero downtime migration required');
-  if (constraints.length === 0) {
-    constraints.push('Go-live within 18 months', 'Budget not to exceed $4M');
-  }
+  if (constraints.length === 0) constraints.push('Go-live within 18 months', 'Budget not to exceed $4M');
   return constraints;
 }
 
-// ── Demo RFP text ─────────────────────────────────────────────
 export function getSampleRFPText(filename?: string): string {
   return `REQUEST FOR PROPOSAL — Enterprise Digital Transformation Platform
 ${filename ? `Document: ${filename}` : ''}
@@ -267,7 +349,7 @@ Estimated budget: $2.5M to $4M. Timeline: 18 months from contract execution.
 Section 2: Scope of Work
 2.1 Cloud Infrastructure: Migrate all on-premise workloads to IBM Cloud hybrid architecture.
 2.2 Data Platform: Implement watsonx.data as the central data lakehouse with IBM DataStage ETL.
-2.3 AI & Machine Learning: Deploy IBM Watson AI for NLP document processing and watsonx for code generation.
+2.3 AI & Machine Learning: Deploy IBM Watson AI for NLP document processing.
 2.4 Security & Compliance: Implement IBM Security QRadar SIEM. Achieve SOC2 Type II and ISO 27001.
 
 Section 3: Deliverables

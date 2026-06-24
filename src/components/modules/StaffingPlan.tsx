@@ -1,7 +1,13 @@
 'use client';
-// StaffingPlan — Interactive graphical view with Area, Pie, Line charts + utilization heatmap
+// StaffingPlan — Nearshore/Geo/Offshore toggles per row · Utilization fix
+//               Phases column · Role icons · Band dropdown · Count stepper
 import React, { useState, useMemo } from 'react';
-import { Plus, Trash2, Edit3, Check, X } from 'lucide-react';
+import {
+  Plus, Trash2, Edit3, Check, X,
+  Briefcase, BarChart2, Code2, ShieldCheck,
+  Pencil, Building2, Settings2, GraduationCap,
+  RefreshCw, Search,
+} from 'lucide-react';
 import {
   AreaChart, Area, LineChart, Line,
   PieChart, Pie, Cell,
@@ -13,66 +19,147 @@ import { T } from '@/lib/theme';
 import { v4 as uuid } from 'uuid';
 import type { IBMBand, StaffingRole } from '@/types';
 
-// ── Color constants ───────────────────────────────────────────
-const ROLE_COLORS = ['#0f62fe','#42be65','#ee5396','#ff832b','#a56eff','#08bdba','#f1c21b','#da1e28'];
+// ── Constants ─────────────────────────────────────────────────
+const ROLE_COLORS = ['#6366f1','#06b6d4','#10b981','#f59e0b','#ef4444','#8b5cf6','#ec4899','#14b8a6'];
 
-const IBM_BANDS: IBMBand[] = ['6A', '6B', '6G', '7A', '7B', '8', '9', '10', 'Executive', 'D'];
+const IBM_BANDS: IBMBand[] = ['6A','6B','6G','7A','7B','8','9','10','Executive','D'];
 const BAND_RATES: Record<IBMBand, number> = {
-  '6A': 45, '6B': 48, '6G': 50, '7A': 65, '7B': 70,
-  '8': 90, '9': 100, '10': 120, 'Executive': 150, 'D': 200,
+  '6A': 45,'6B': 48,'6G': 50,'7A': 65,'7B': 70,
+  '8': 90,'9': 100,'10': 120,'Executive': 150,'D': 200,
 };
 const BAND_DESC: Record<IBMBand, string> = {
-  '6A': 'Fresher / Entry Level', '6B': 'Fresher / Entry Level', '6G': 'Fresher / Entry Level',
-  '7A': 'Middle Level', '7B': 'Middle Level',
-  '8': 'Senior Middle Level', '9': 'Senior Middle Level',
-  '10': 'Senior', 'Executive': 'Senior Executive', 'D': 'Distinguished / Senior Executive',
+  '6A': 'Entry Level','6B': 'Entry Level','6G': 'Entry Level',
+  '7A': 'Middle Level','7B': 'Middle Level',
+  '8': 'Senior Middle','9': 'Senior Middle',
+  '10': 'Senior','Executive': 'Sr. Executive','D': 'Distinguished',
 };
+
+// Deployment types — Nearshore / Geo / Offshore
+const DEPLOY_TYPES = ['Nearshore', 'Geo', 'Offshore'] as const;
+type DeployType = typeof DEPLOY_TYPES[number];
+// Hours per week per deploy type
+const DEPLOY_HRS: Record<DeployType, number> = { Nearshore: 40, Geo: 40, Offshore: 45 };
+// Monthly available hours = hrs/wk × 4 weeks per FTE
+const MONTHLY_AVAIL_HRS = 160; // standard constant for utilization calc
+
+// Project phases
+const PROJECT_PHASES = ['Prepare', 'Explore', 'Realize - Build', 'Realize - Test', 'Training - Deploy - Hypercare'] as const;
+type ProjectPhase = typeof PROJECT_PHASES[number];
+
+const PHASE_COLORS: Record<ProjectPhase, string> = {
+  'Prepare':                       '#6366f1',
+  'Explore':                       '#06b6d4',
+  'Realize - Build':               '#10b981',
+  'Realize - Test':                '#f59e0b',
+  'Training - Deploy - Hypercare': '#ef4444',
+};
+
+// ── Role icon mapping ──────────────────────────────────────────
+function getRoleIcon(roleName: string): React.ReactNode {
+  const n = roleName.toLowerCase();
+  const sz = 15;
+  if (n.includes('manager') || n.includes('pm'))         return <Briefcase size={sz} />;
+  if (n.includes('analyst') || n.includes('ba'))         return <BarChart2 size={sz} />;
+  if (n.includes('developer') || n.includes('engineer')) return <Code2 size={sz} />;
+  if (n.includes('qa') || n.includes('test'))            return <ShieldCheck size={sz} />;
+  if (n.includes('design') || n.includes('ux'))          return <Pencil size={sz} />;
+  if (n.includes('architect'))                           return <Building2 size={sz} />;
+  if (n.includes('consultant') || n.includes('functional')) return <Settings2 size={sz} />;
+  if (n.includes('train') || n.includes('scrum') || n.includes('agile')) return <GraduationCap size={sz} />;
+  if (n.includes('cloud') || n.includes('devops'))       return <RefreshCw size={sz} />;
+  return <Briefcase size={sz} />;
+}
 
 function fmt(n: number) {
   return new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD', maximumFractionDigits: 0 }).format(n);
 }
 
 const tooltipStyle = {
-  backgroundColor: '#1e2030',
-  border: '1px solid #2a2d3e',
-  borderRadius: 10,
-  color: '#f4f4f4',
-  fontSize: 12,
-  fontFamily: 'var(--font-mono)',
+  backgroundColor: '#1e2030', border: '1px solid #2a2d3e',
+  borderRadius: 10, color: '#f4f4f4', fontSize: 12, fontFamily: 'var(--font-mono)',
 };
 
-// ── Interfaces ────────────────────────────────────────────────
+// ── Row-level state ────────────────────────────────────────────
+interface RowOverride {
+  deployType: DeployType;
+  phases: Set<ProjectPhase>;
+  count: number;
+  band: IBMBand;
+}
+
 interface HeadcountPoint { month: string; [role: string]: number | string }
 interface CostPoint      { month: string; headcount: number; costK: number }
 interface RoleSlice      { name: string; value: number }
 
-// ── Utilization cell color ────────────────────────────────────
-function heatColor(pct: number): string {
-  if (pct < 40)  return '#d1fae5';
-  if (pct < 60)  return '#6ee7b7';
-  if (pct < 75)  return '#fef3c7';
-  if (pct < 90)  return '#fde68a';
-  if (pct < 100) return '#fee2e2';
-  return '#fca5a5';
+// ── Utilization color ──────────────────────────────────────────
+function utilColor(pct: number): string {
+  if (pct > 100) return '#ef4444'; // over-utilized — red
+  if (pct < 70)  return '#f59e0b'; // under-utilized — amber
+  return '#10b981';                // healthy — green
 }
 
 export default function StaffingPlanModule() {
   const { activeDocumentId, analysisResults, updateStaffingRole, addStaffingRole, removeStaffingRole } = useRFPStore();
   const result = activeDocumentId ? analysisResults[activeDocumentId] : null;
-  const [editingId, setEditingId]   = useState<string | null>(null);
-  const [editValues, setEditValues] = useState<Partial<StaffingRole>>({});
+
+  // Row overrides — persist across tab switches (component state)
+  const [overrides, setOverrides] = useState<Record<string, RowOverride>>({});
+
+  const [editingId,   setEditingId]   = useState<string | null>(null);
+  const [editValues,  setEditValues]  = useState<Partial<StaffingRole>>({});
   const [showAddForm, setShowAddForm] = useState(false);
-  const [newRole, setNewRole] = useState<Partial<StaffingRole>>({
+  const [newRole,     setNewRole]     = useState<Partial<StaffingRole>>({
     roleName: '', band: '7A', numberOfResources: 1, hoursPerResource: 640, hourlyRate: 65,
   });
 
   if (!result?.staffingPlan) return (
-    <div className="p-6 text-sm text-center mt-20" style={{ color: T.textMuted }}>
+    <div className="flex items-center justify-center mt-20" style={{ color: T.textMuted, fontSize: 14 }}>
       Upload a document to see the staffing plan
     </div>
   );
 
   const plan = result.staffingPlan;
+
+  // Get or initialise an override for a role
+  function getOverride(role: StaffingRole, idx: number): RowOverride {
+    return overrides[role.id] ?? {
+      deployType: DEPLOY_TYPES[idx % DEPLOY_TYPES.length],
+      phases: new Set<ProjectPhase>([PROJECT_PHASES[0]]),
+      count: role.numberOfResources,
+      band: role.band,
+    };
+  }
+
+  function setDeployType(id: string, dt: DeployType, role: StaffingRole, idx: number) {
+    setOverrides((prev) => ({
+      ...prev,
+      [id]: { ...getOverride(role, idx), deployType: dt },
+    }));
+  }
+
+  function togglePhase(id: string, phase: ProjectPhase, role: StaffingRole, idx: number) {
+    setOverrides((prev) => {
+      const ov = getOverride(role, idx);
+      const next = new Set(ov.phases);
+      if (next.has(phase)) { if (next.size > 1) next.delete(phase); }
+      else next.add(phase);
+      return { ...prev, [id]: { ...ov, phases: next } };
+    });
+  }
+
+  function setOvCount(id: string, delta: number, role: StaffingRole, idx: number) {
+    setOverrides((prev) => {
+      const ov = getOverride(role, idx);
+      return { ...prev, [id]: { ...ov, count: Math.max(1, ov.count + delta) } };
+    });
+  }
+
+  function setOvBand(id: string, band: IBMBand, role: StaffingRole, idx: number) {
+    setOverrides((prev) => ({
+      ...prev,
+      [id]: { ...getOverride(role, idx), band },
+    }));
+  }
 
   const startEdit = (role: StaffingRole) => {
     setEditingId(role.id);
@@ -99,22 +186,36 @@ export default function StaffingPlanModule() {
     setNewRole({ roleName: '', band: '7A', numberOfResources: 1, hoursPerResource: 640, hourlyRate: 65 });
   };
 
-  // ── Build chart data ─────────────────────────────────────────
+  // ── Derived totals from overrides ──────────────────────────────
+  const derivedRoles = plan.roles.map((r, idx) => {
+    const ov = getOverride(r, idx);
+    const effHrs = DEPLOY_HRS[ov.deployType];
+    const totalHrs = ov.count * r.hoursPerResource;
+    const availHrs = ov.count * MONTHLY_AVAIL_HRS;
+    const utilPct = availHrs > 0 ? +((totalHrs / availHrs) * 100).toFixed(1) : 0;
+    const rate = BAND_RATES[ov.band];
+    const totalCost = totalHrs * rate;
+    return { ...r, ov, effHrs, totalHrs, utilPct, totalCost, resolvedBand: ov.band, resolvedCount: ov.count };
+  });
+
+  const totalLaborCost = derivedRoles.reduce((a, r) => a + r.totalCost, 0);
+  const totalHours = derivedRoles.reduce((a, r) => a + r.totalHrs, 0);
+
+  // ── Chart data ────────────────────────────────────────────────
   const MONTHS = ['M1','M2','M3','M4','M5','M6','M7','M8','M9','M10','M11','M12'];
-  const topRoles = plan.roles.slice(0, 6);
+  const topRoles = derivedRoles.slice(0, 6);
 
   const headcountData: HeadcountPoint[] = MONTHS.map((month, mi) => {
     const row: HeadcountPoint = { month };
-    topRoles.forEach((r, ri) => {
+    topRoles.forEach((r) => {
       const ramp = mi < 2 ? 0.3 : mi < 4 ? 0.7 : mi < 9 ? 1 : 0.5;
-      row[r.roleName.split(' ')[0]] = Math.round(r.numberOfResources * ramp);
+      row[r.roleName.split(' ')[0]] = Math.round(r.resolvedCount * ramp);
     });
     return row;
   });
 
-  const roleDistData: RoleSlice[] = plan.roles.map(r => ({
-    name: r.roleName.split(' ')[0],
-    value: r.totalHours,
+  const roleDistData: RoleSlice[] = derivedRoles.map((r) => ({
+    name: r.roleName.split(' ')[0], value: r.totalHrs,
   }));
 
   const costData: CostPoint[] = MONTHS.map((month, mi) => {
@@ -122,57 +223,55 @@ export default function StaffingPlanModule() {
     return {
       month,
       headcount: Math.round(plan.totalHeadcount * ramp),
-      costK: Math.round((plan.totalLaborCost / 12) * ramp / 1000),
+      costK: Math.round((totalLaborCost / 12) * ramp / 1000),
     };
   });
 
-  // Utilization heatmap: roles × weeks (8 weeks)
-  const heatWeeks = 8;
-  const heatRoles = plan.roles.slice(0, 6);
-
-  const avgMonthlyCost = Math.round(plan.totalLaborCost / 12);
-
+  const avgMonthlyCost = Math.round(totalLaborCost / 12);
   const inputCls = 'border rounded-lg px-3 py-1.5 text-sm outline-none';
 
   return (
     <div className="p-6 max-w-7xl mx-auto space-y-6">
 
-      {/* ── KPI Cards ──────────────────────────────────── */}
+      {/* ── Header ───────────────────────────────────────── */}
       <div className="flex items-start gap-3 mb-2">
         <div>
           <div style={{ fontSize: 20, fontWeight: 700, color: T.navy }}>Staffing Plan</div>
-          <div style={{ fontSize: 13, color: T.textMuted }}>{plan.roles.length} roles · peak {plan.peakHeadcount} headcount</div>
+          <div style={{ fontSize: 13, color: T.textMuted }}>
+            {plan.roles.length} roles · peak {plan.peakHeadcount} headcount · real-time recalculation
+          </div>
         </div>
         <span className="mt-1 px-2 py-0.5 rounded-full text-xs font-semibold text-white" style={{ background: T.slate }}>
-          {plan.roles.length} Total Roles
+          {plan.roles.length} Roles
         </span>
       </div>
 
+      {/* ── KPI Cards ────────────────────────────────────── */}
       <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
         {[
-          { label: 'Total Roles',       value: String(plan.roles.length),                   color: '#0f62fe' },
-          { label: 'Peak Headcount',    value: String(plan.peakHeadcount),                  color: '#42be65' },
-          { label: 'Total Labor Cost',  value: fmt(plan.totalLaborCost),                    color: '#f1c21b' },
-          { label: 'Avg Monthly Burn',  value: fmt(avgMonthlyCost),                         color: '#ff832b' },
+          { label: 'Total Roles',      value: String(plan.roles.length),   color: '#6366f1' },
+          { label: 'Peak Headcount',   value: String(plan.peakHeadcount),  color: '#06b6d4' },
+          { label: 'Total Labor Cost', value: fmt(totalLaborCost),         color: '#f59e0b' },
+          { label: 'Avg Monthly Burn', value: fmt(avgMonthlyCost),         color: '#ef4444' },
         ].map((m) => (
           <div key={m.label} className="bg-white rounded-2xl border p-5"
             style={{ borderColor: T.border, borderBottom: `3px solid ${m.color}` }}>
             <div className="text-[11px] font-semibold uppercase tracking-wider mb-2" style={{ color: T.textMuted }}>{m.label}</div>
-            <div className="kpi-value" style={{ fontSize: 28, fontWeight: 700, color: m.color }}>{m.value}</div>
+            <div className="kpi-value" style={{ fontSize: 26, fontWeight: 700, color: m.color }}>{m.value}</div>
           </div>
         ))}
       </div>
 
-      {/* ── Headcount Over Time (Area Chart) ───────────── */}
+      {/* ── Headcount Area Chart ─────────────────────────── */}
       <div className="bg-white rounded-2xl border p-5" style={{ borderColor: T.border }}>
         <h3 style={{ fontSize: 16, fontWeight: 600, color: T.navy, marginBottom: 20 }}>Headcount Over Time</h3>
-        <ResponsiveContainer width="100%" height={300}>
+        <ResponsiveContainer width="100%" height={280}>
           <AreaChart data={headcountData} margin={{ left: -10, right: 10 }}>
             <defs>
               {topRoles.map((r, i) => (
                 <linearGradient key={r.id} id={`grad${i}`} x1="0" y1="0" x2="0" y2="1">
                   <stop offset="5%"  stopColor={ROLE_COLORS[i % ROLE_COLORS.length]} stopOpacity={0.3} />
-                  <stop offset="95%" stopColor={ROLE_COLORS[i % ROLE_COLORS.length]} stopOpacity={0}   />
+                  <stop offset="95%" stopColor={ROLE_COLORS[i % ROLE_COLORS.length]} stopOpacity={0} />
                 </linearGradient>
               ))}
             </defs>
@@ -186,41 +285,35 @@ export default function StaffingPlanModule() {
                 dataKey={r.roleName.split(' ')[0]}
                 stroke={ROLE_COLORS[i % ROLE_COLORS.length]}
                 fill={`url(#grad${i})`}
-                strokeWidth={2}
-                dot={false}
-                activeDot={{ r: 4 }}
-              />
+                strokeWidth={2} dot={false} activeDot={{ r: 4 }} />
             ))}
           </AreaChart>
         </ResponsiveContainer>
       </div>
 
-      {/* ── Role Distribution Pie + Cost Line ──────────── */}
+      {/* ── Role Distribution + Cost Trend ──────────────── */}
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-        {/* Donut Pie */}
         <div className="bg-white rounded-2xl border p-5" style={{ borderColor: T.border }}>
           <h3 style={{ fontSize: 16, fontWeight: 600, color: T.navy, marginBottom: 20 }}>Role Distribution</h3>
           <div className="flex items-center gap-4">
-            <ResponsiveContainer width={220} height={220}>
+            <ResponsiveContainer width={200} height={200}>
               <PieChart>
-                <Pie data={roleDistData} cx="50%" cy="50%" innerRadius={60} outerRadius={95}
+                <Pie data={roleDistData} cx="50%" cy="50%" innerRadius={55} outerRadius={88}
                   dataKey="value" paddingAngle={3}>
-                  {roleDistData.map((_, i) => (
-                    <Cell key={i} fill={ROLE_COLORS[i % ROLE_COLORS.length]} />
-                  ))}
+                  {roleDistData.map((_, i) => <Cell key={i} fill={ROLE_COLORS[i % ROLE_COLORS.length]} />)}
                 </Pie>
-                <Tooltip contentStyle={tooltipStyle} labelStyle={{ color: '#f4f4f4' }} />
+                <Tooltip contentStyle={tooltipStyle} />
               </PieChart>
             </ResponsiveContainer>
-            <div className="flex-1 space-y-2">
+            <div className="flex-1 space-y-1.5">
               {roleDistData.slice(0, 7).map((d, i) => {
                 const total = roleDistData.reduce((s, r) => s + r.value, 0);
                 const pct = total > 0 ? Math.round((d.value / total) * 100) : 0;
                 return (
-                  <div key={d.name} style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                    <div style={{ width: 8, height: 8, borderRadius: 2, background: ROLE_COLORS[i % ROLE_COLORS.length], flexShrink: 0 }} />
+                  <div key={d.name} className="flex items-center gap-2">
+                    <div className="w-2 h-2 rounded-sm shrink-0" style={{ background: ROLE_COLORS[i % ROLE_COLORS.length] }} />
                     <span style={{ fontSize: 12, color: T.textSecondary, flex: 1 }}>{d.name}</span>
-                    <span className="kpi-value" style={{ fontSize: 12, color: ROLE_COLORS[i % ROLE_COLORS.length], fontWeight: 600 }}>{pct}%</span>
+                    <span className="kpi-value text-xs font-semibold" style={{ color: ROLE_COLORS[i % ROLE_COLORS.length] }}>{pct}%</span>
                   </div>
                 );
               })}
@@ -228,78 +321,24 @@ export default function StaffingPlanModule() {
           </div>
         </div>
 
-        {/* Dual-axis Line: Headcount + Cost */}
         <div className="bg-white rounded-2xl border p-5" style={{ borderColor: T.border }}>
           <h3 style={{ fontSize: 16, fontWeight: 600, color: T.navy, marginBottom: 20 }}>Staffing Cost Trend</h3>
-          <ResponsiveContainer width="100%" height={220}>
+          <ResponsiveContainer width="100%" height={200}>
             <LineChart data={costData} margin={{ left: -10, right: 20 }}>
               <CartesianGrid strokeDasharray="3 3" stroke={T.border} vertical={false} />
               <XAxis dataKey="month" tick={{ fontSize: 11, fill: T.textMuted }} axisLine={false} tickLine={false} />
               <YAxis yAxisId="left"  tick={{ fontSize: 11, fill: T.textMuted }} axisLine={false} tickLine={false} />
               <YAxis yAxisId="right" orientation="right" tick={{ fontSize: 11, fill: T.textMuted }} axisLine={false} tickLine={false} tickFormatter={v => `$${v}K`} />
-              <Tooltip contentStyle={tooltipStyle} labelStyle={{ color: '#f4f4f4' }} />
+              <Tooltip contentStyle={tooltipStyle} />
               <Legend wrapperStyle={{ fontSize: 11 }} />
-              <Line yAxisId="left"  type="monotone" dataKey="headcount" stroke="#0f62fe" strokeWidth={2.5} dot={false} activeDot={{ r: 4 }} name="Headcount" />
-              <Line yAxisId="right" type="monotone" dataKey="costK"     stroke="#42be65" strokeWidth={2.5} dot={false} activeDot={{ r: 4 }} name="Cost $K"   />
+              <Line yAxisId="left"  type="monotone" dataKey="headcount" stroke="#6366f1" strokeWidth={2.5} dot={false} name="Headcount" />
+              <Line yAxisId="right" type="monotone" dataKey="costK"     stroke="#06b6d4" strokeWidth={2.5} dot={false} name="Cost $K" />
             </LineChart>
           </ResponsiveContainer>
         </div>
       </div>
 
-      {/* ── Utilization Heatmap ─────────────────────────── */}
-      <div className="bg-white rounded-2xl border p-5" style={{ borderColor: T.border }}>
-        <h3 style={{ fontSize: 16, fontWeight: 600, color: T.navy, marginBottom: 20 }}>Utilization Heatmap (Team × Week)</h3>
-        <div className="overflow-x-auto">
-          <table className="w-full" style={{ fontSize: 12, minWidth: 600 }}>
-            <thead>
-              <tr style={{ color: T.textMuted }}>
-                <th className="py-2 px-3 text-left font-medium">Role</th>
-                {Array.from({ length: heatWeeks }, (_, i) => (
-                  <th key={i} className="py-2 px-2 text-center font-medium">W{i + 1}</th>
-                ))}
-                <th className="py-2 px-3 text-center font-medium">Avg</th>
-              </tr>
-            </thead>
-            <tbody>
-              {heatRoles.map((role, ri) => {
-                const values = Array.from({ length: heatWeeks }, (_, wi) => {
-                  const base = 50 + (ri * 7) + (wi * 3);
-                  return Math.min(100, Math.max(20, base + Math.round(Math.sin(ri + wi) * 15)));
-                });
-                const avg = Math.round(values.reduce((s, v) => s + v, 0) / values.length);
-                return (
-                  <tr key={role.id} className="border-t" style={{ borderColor: T.border }}>
-                    <td className="py-2 px-3 font-medium" style={{ color: T.navy, whiteSpace: 'nowrap' }}>
-                      {role.roleName.length > 18 ? role.roleName.slice(0, 18) + '…' : role.roleName}
-                    </td>
-                    {values.map((val, wi) => (
-                      <td key={wi} className="py-2 px-2 text-center">
-                        <div className="rounded text-xs font-semibold py-1 px-2"
-                          style={{ background: heatColor(val), color: val > 80 ? '#7f1d1d' : val > 60 ? '#78350f' : '#14532d', minWidth: 36 }}>
-                          {val}%
-                        </div>
-                      </td>
-                    ))}
-                    <td className="py-2 px-3 text-center">
-                      <span className="kpi-value text-xs font-bold" style={{ color: ROLE_COLORS[ri % ROLE_COLORS.length] }}>{avg}%</span>
-                    </td>
-                  </tr>
-                );
-              })}
-            </tbody>
-          </table>
-        </div>
-        <div className="flex items-center gap-6 mt-4 text-xs" style={{ color: T.textMuted }}>
-          {[['< 40%','#d1fae5','Low'],['40–60%','#6ee7b7','Moderate'],['60–75%','#fef3c7','Medium'],['75–90%','#fde68a','High'],['> 90%','#fca5a5','Critical']].map(([range, color, label]) => (
-            <div key={range} className="flex items-center gap-1">
-              <div className="w-3 h-3 rounded" style={{ background: color }} />
-              <span>{label} ({range})</span>
-            </div>
-          ))}
-        </div>
-      </div>
-
-      {/* ── Add Role + Action bar ───────────────────────── */}
+      {/* ── Add Role ─────────────────────────────────────── */}
       <div className="flex justify-end">
         <button onClick={() => setShowAddForm(true)}
           className="flex items-center gap-1.5 text-sm font-semibold px-4 py-2 rounded-xl text-white hover:opacity-90"
@@ -340,385 +379,240 @@ export default function StaffingPlanModule() {
         </div>
       )}
 
-      {/* ── Staffing Table ───────────────────────────────── */}
+      {/* ════════════════════════════════════════════════════════
+          STAFFING TABLE — icons · deploy toggles · phases · util
+          ════════════════════════════════════════════════════════ */}
       <div className="bg-white rounded-2xl border overflow-x-auto" style={{ borderColor: T.border }}>
-        <div className="px-5 py-4 border-b" style={{ borderColor: T.border }}>
+        <div className="px-5 py-4 border-b flex items-center justify-between" style={{ borderColor: T.border }}>
           <h3 style={{ fontSize: 16, fontWeight: 600, color: T.navy }}>Role Details</h3>
+          <div className="flex items-center gap-2 text-xs" style={{ color: T.textMuted }}>
+            <span className="w-2 h-2 rounded-full inline-block" style={{ background: '#10b981' }} /> 70–100% Healthy
+            <span className="w-2 h-2 rounded-full inline-block ml-2" style={{ background: '#f59e0b' }} /> &lt;70% Under
+            <span className="w-2 h-2 rounded-full inline-block ml-2" style={{ background: '#ef4444' }} /> &gt;100% Over
+          </div>
         </div>
-        <table className="w-full min-w-[900px]" style={{ fontSize: 13 }}>
-          <thead>
-            <tr style={{ background: T.surface, color: T.textMuted, fontSize: 11 }}>
-              <th className="px-4 py-3 text-left font-semibold uppercase tracking-wider">Role Name</th>
-              <th className="px-4 py-3 text-left font-semibold uppercase tracking-wider">IBM Band</th>
-              <th className="px-4 py-3 text-left font-semibold uppercase tracking-wider">Level</th>
-              <th className="px-4 py-3 text-center font-semibold uppercase tracking-wider"># Resources</th>
-              <th className="px-4 py-3 text-center font-semibold uppercase tracking-wider">Hrs / Resource</th>
-              <th className="px-4 py-3 text-center font-semibold uppercase tracking-wider">Total Hours</th>
-              <th className="px-4 py-3 text-center font-semibold uppercase tracking-wider">$/hr</th>
-              <th className="px-4 py-3 text-right font-semibold uppercase tracking-wider">Total Cost</th>
-              <th className="px-4 py-3 text-center font-semibold uppercase tracking-wider">Actions</th>
-            </tr>
-          </thead>
-          <tbody>
-            {plan.roles.map((role, idx) => {
-              const isEditing = editingId === role.id;
-              const roleColor = ROLE_COLORS[idx % ROLE_COLORS.length];
-              return (
-                <tr key={role.id} className="border-t hover:bg-gray-50/40 transition-colors"
-                  style={{ borderColor: T.border }}>
-                  <td className="px-4 py-3 font-semibold" style={{ color: T.navy }}>
-                    <div className="flex items-center gap-2">
-                      <div className="w-2.5 h-2.5 rounded-sm" style={{ background: roleColor }} />
-                      {role.roleName}
-                    </div>
-                  </td>
-                  <td className="px-4 py-3">
-                    <span className="text-xs font-bold px-2 py-0.5 rounded-full text-white" style={{ background: roleColor }}>
-                      {role.band}
-                    </span>
-                  </td>
-                  <td className="px-4 py-3 text-xs" style={{ color: T.textMuted }}>{role.levelDescription}</td>
-                  <td className="px-4 py-3 text-center">
-                    {isEditing ? (
-                      <input type="number" min={1}
-                        value={editValues.numberOfResources ?? role.numberOfResources}
-                        onChange={(e) => setEditValues({ ...editValues, numberOfResources: Number(e.target.value) })}
-                        className="w-16 text-center border rounded-lg px-1 py-0.5 text-sm outline-none"
-                        style={{ borderColor: T.gold }} />
-                    ) : <span>{role.numberOfResources}</span>}
-                  </td>
-                  <td className="px-4 py-3 text-center">
-                    {isEditing ? (
-                      <input type="number" min={1}
-                        value={editValues.hoursPerResource ?? role.hoursPerResource}
-                        onChange={(e) => setEditValues({ ...editValues, hoursPerResource: Number(e.target.value) })}
-                        className="w-20 text-center border rounded-lg px-1 py-0.5 text-sm outline-none"
-                        style={{ borderColor: T.gold }} />
-                    ) : <span>{role.hoursPerResource}</span>}
-                  </td>
-                  <td className="px-4 py-3 text-center font-semibold" style={{ color: roleColor }}>
-                    {role.totalHours.toLocaleString()}
-                  </td>
-                  <td className="px-4 py-3 text-center">
-                    {isEditing ? (
-                      <input type="number" min={1}
-                        value={editValues.hourlyRate ?? role.hourlyRate}
-                        onChange={(e) => setEditValues({ ...editValues, hourlyRate: Number(e.target.value) })}
-                        className="w-20 text-center border rounded-lg px-1 py-0.5 text-sm outline-none"
-                        style={{ borderColor: T.gold }} />
-                    ) : <span>${role.hourlyRate}</span>}
-                  </td>
-                  <td className="px-4 py-3 text-right font-bold" style={{ color: T.gold }}>
-                    {fmt(role.totalCost)}
-                  </td>
-                  <td className="px-4 py-3 text-center">
-                    <div className="flex items-center justify-center gap-1.5">
+        <div className="overflow-x-auto">
+          <table className="w-full" style={{ fontSize: 12, minWidth: 1080 }}>
+            <thead>
+              <tr style={{ background: '#F8FAFC', color: T.textMuted, fontSize: 11 }}>
+                <th className="px-4 py-3 text-left font-semibold uppercase tracking-wider" style={{ minWidth: 180 }}>Role</th>
+                <th className="px-4 py-3 text-center font-semibold uppercase tracking-wider" style={{ minWidth: 180 }}>Location Type</th>
+                <th className="px-4 py-3 text-center font-semibold uppercase tracking-wider" style={{ minWidth: 80 }}>Band</th>
+                <th className="px-4 py-3 text-center font-semibold uppercase tracking-wider" style={{ minWidth: 100 }}>Count</th>
+                <th className="px-4 py-3 text-center font-semibold uppercase tracking-wider" style={{ minWidth: 80 }}>Util %</th>
+                <th className="px-4 py-3 text-center font-semibold uppercase tracking-wider" style={{ minWidth: 60 }}>Eff H/Wk</th>
+                <th className="px-4 py-3 text-right font-semibold uppercase tracking-wider" style={{ minWidth: 100 }}>Cost</th>
+                <th className="px-4 py-3 text-left font-semibold uppercase tracking-wider" style={{ minWidth: 320 }}>Phases</th>
+                <th className="px-4 py-3 text-center font-semibold uppercase tracking-wider" style={{ minWidth: 80 }}>Actions</th>
+              </tr>
+            </thead>
+            <tbody>
+              {derivedRoles.map((role, idx) => {
+                const ov = role.ov;
+                const roleColor = ROLE_COLORS[idx % ROLE_COLORS.length];
+                const isEditing = editingId === role.id;
+                return (
+                  <tr key={role.id}
+                    className="border-t hover:bg-slate-50/60 transition-colors"
+                    style={{ borderColor: T.border }}>
+
+                    {/* Role name + icon */}
+                    <td className="px-4 py-3">
+                      <div className="flex items-center gap-2">
+                        <span className="w-7 h-7 rounded-lg flex items-center justify-center shrink-0"
+                          style={{ background: `${roleColor}18`, color: roleColor }}>
+                          {getRoleIcon(role.roleName)}
+                        </span>
+                        <span className="font-semibold" style={{ color: T.navy }}>{role.roleName}</span>
+                      </div>
+                    </td>
+
+                    {/* Nearshore / Geo / Offshore toggle buttons — mutually exclusive */}
+                    <td className="px-4 py-3">
+                      <div className="flex items-center gap-1 justify-center">
+                        {DEPLOY_TYPES.map((dt) => {
+                          const active = ov.deployType === dt;
+                          const dtColor = dt === 'Nearshore' ? '#6366f1' : dt === 'Geo' ? '#06b6d4' : '#10b981';
+                          return (
+                            <button key={dt}
+                              onClick={() => setDeployType(role.id, dt, role, idx)}
+                              className="flex flex-col items-center px-2.5 py-1.5 rounded-lg border text-[10px] font-semibold transition-all"
+                              style={{
+                                background:  active ? dtColor : '#F8FAFC',
+                                color:       active ? '#fff'  : T.textMuted,
+                                borderColor: active ? dtColor : T.border,
+                                minWidth: 52,
+                              }}>
+                              <span>{dt}</span>
+                              <span style={{ fontSize: 9, opacity: 0.85, fontWeight: 400 }}>{DEPLOY_HRS[dt]}h/wk</span>
+                            </button>
+                          );
+                        })}
+                      </div>
+                    </td>
+
+                    {/* Band dropdown */}
+                    <td className="px-4 py-3 text-center">
                       {isEditing ? (
-                        <>
-                          <button onClick={() => commitEdit(role.id)}><Check size={14} className="text-green-600" /></button>
-                          <button onClick={() => setEditingId(null)}><X size={14} className="text-gray-400" /></button>
-                        </>
+                        <select value={editValues.band ?? ov.band}
+                          onChange={(e) => setEditValues({ ...editValues, band: e.target.value as IBMBand })}
+                          className="border rounded-lg px-1.5 py-1 text-xs font-semibold outline-none"
+                          style={{ borderColor: T.gold, color: T.navy }}>
+                          {IBM_BANDS.map(b => <option key={b} value={b}>{b}</option>)}
+                        </select>
                       ) : (
-                        <>
-                          <button onClick={() => startEdit(role)} style={{ color: T.slate }}><Edit3 size={14} /></button>
-                          <button onClick={() => activeDocumentId && removeStaffingRole(activeDocumentId, role.id)}
-                            className="text-gray-300 hover:text-red-500 transition-colors">
-                            <Trash2 size={14} />
-                          </button>
-                        </>
+                        <select value={ov.band}
+                          onChange={(e) => setOvBand(role.id, e.target.value as IBMBand, role, idx)}
+                          className="border rounded-lg px-1.5 py-1 text-xs font-semibold outline-none cursor-pointer"
+                          style={{ borderColor: T.border, color: T.navy, background: '#F8FAFC' }}>
+                          {IBM_BANDS.map(b => <option key={b} value={b}>{b}</option>)}
+                        </select>
                       )}
-                    </div>
-                  </td>
-                </tr>
-              );
-            })}
-          </tbody>
-          <tfoot>
-            <tr style={{ background: T.surface, borderTop: `2px solid ${T.gold}` }}>
-              <td colSpan={5} className="px-4 py-3 font-bold" style={{ color: T.navy, fontSize: 13 }}>Totals</td>
-              <td className="px-4 py-3 text-center font-bold kpi-value" style={{ color: T.slate }}>
-                {plan.totalHours.toLocaleString()}
-              </td>
-              <td />
-              <td className="px-4 py-3 text-right font-bold kpi-value" style={{ color: T.gold, fontSize: 16 }}>
-                {fmt(plan.totalLaborCost)}
-              </td>
-              <td />
-            </tr>
-          </tfoot>
-        </table>
+                    </td>
+
+                    {/* Count stepper */}
+                    <td className="px-4 py-3 text-center">
+                      <div className="inline-flex items-center border rounded-lg overflow-hidden"
+                        style={{ borderColor: T.border }}>
+                        <button onClick={() => setOvCount(role.id, -1, role, idx)}
+                          className="px-2 py-1 text-xs font-bold hover:bg-gray-100 transition-colors"
+                          style={{ color: T.textMuted }}>−</button>
+                        <span className="px-2 py-1 text-xs font-semibold" style={{ color: T.navy, minWidth: 24, textAlign: 'center' }}>
+                          {ov.count}
+                        </span>
+                        <button onClick={() => setOvCount(role.id, 1, role, idx)}
+                          className="px-2 py-1 text-xs font-bold hover:bg-gray-100 transition-colors"
+                          style={{ color: T.textMuted }}>+</button>
+                      </div>
+                    </td>
+
+                    {/* Utilization % — formula: (totalHours / (count × 160)) × 100 */}
+                    <td className="px-4 py-3 text-center">
+                      <div className="inline-flex flex-col items-center gap-0.5">
+                        <span className="kpi-value text-xs font-bold" style={{ color: utilColor(role.utilPct) }}>
+                          {role.utilPct.toFixed(1)}%
+                        </span>
+                        {role.utilPct > 100 && <span className="text-[9px] text-red-500 font-semibold">Over</span>}
+                        {role.utilPct < 70  && <span className="text-[9px] text-amber-500 font-semibold">Under</span>}
+                      </div>
+                    </td>
+
+                    {/* Effective hrs/wk */}
+                    <td className="px-4 py-3 text-center text-xs font-semibold" style={{ color: T.navy }}>
+                      {role.effHrs}h
+                    </td>
+
+                    {/* Total cost */}
+                    <td className="px-4 py-3 text-right font-bold" style={{ color: T.gold, fontSize: 12 }}>
+                      {fmt(role.totalCost)}
+                    </td>
+
+                    {/* Phases — multi-select tags */}
+                    <td className="px-4 py-3">
+                      <div className="flex flex-wrap gap-1">
+                        {PROJECT_PHASES.map((ph) => {
+                          const active = ov.phases.has(ph);
+                          const phColor = PHASE_COLORS[ph];
+                          return (
+                            <button key={ph}
+                              onClick={() => togglePhase(role.id, ph, role, idx)}
+                              className="text-[10px] font-semibold px-2 py-0.5 rounded-full border transition-all"
+                              style={{
+                                background:  active ? phColor      : 'transparent',
+                                color:       active ? '#fff'       : phColor,
+                                borderColor: phColor,
+                              }}>
+                              {ph}
+                            </button>
+                          );
+                        })}
+                      </div>
+                    </td>
+
+                    {/* Actions */}
+                    <td className="px-4 py-3 text-center">
+                      <div className="flex items-center justify-center gap-1.5">
+                        {isEditing ? (
+                          <>
+                            <button onClick={() => commitEdit(role.id)}><Check size={13} className="text-green-600" /></button>
+                            <button onClick={() => setEditingId(null)}><X size={13} className="text-gray-400" /></button>
+                          </>
+                        ) : (
+                          <>
+                            <button onClick={() => startEdit(role)} style={{ color: T.slate }}><Edit3 size={13} /></button>
+                            <button onClick={() => activeDocumentId && removeStaffingRole(activeDocumentId, role.id)}
+                              className="text-gray-300 hover:text-red-500 transition-colors">
+                              <Trash2 size={13} />
+                            </button>
+                          </>
+                        )}
+                      </div>
+                    </td>
+                  </tr>
+                );
+              })}
+            </tbody>
+            <tfoot>
+              <tr style={{ background: '#F8FAFC', borderTop: `2px solid ${T.gold}` }}>
+                <td colSpan={6} className="px-4 py-3 font-bold" style={{ color: T.navy, fontSize: 13 }}>Totals</td>
+                <td className="px-4 py-3 text-right font-bold kpi-value" style={{ color: T.gold, fontSize: 14 }}>
+                  {fmt(totalLaborCost)}
+                </td>
+                <td colSpan={2} className="px-4 py-3 text-xs" style={{ color: T.textMuted }}>
+                  {totalHours.toLocaleString()} total hours
+                </td>
+              </tr>
+            </tfoot>
+          </table>
+        </div>
       </div>
 
-      {/* ════════════════════════════════════════════════════════════
-          STAFF SELECTION TABLE — interactive filter & select
-          ════════════════════════════════════════════════════════════ */}
-      <StaffSelectionTable roles={plan.roles} />
+      {/* ── Phase allocation summary ─────────────────────── */}
+      <PhaseAllocationSummary derivedRoles={derivedRoles} />
 
     </div>
   );
 }
 
-// ── Staff Selection interfaces ────────────────────────────────
-interface StaffRow {
-  id:         string;
-  name:       string;
-  role:       string;
-  band:       IBMBand;
-  staffType:  'Onshore' | 'Geo' | 'Nearshore';
-  count:      number;
-  allocation: number;
-  startDate:  string;
-  endDate:    string;
-  effHrsWk:   number;
-  selected:   boolean;
+// ── Phase Allocation Summary Chart ────────────────────────────
+interface DerivedRole extends StaffingRole {
+  ov: { deployType: DeployType; phases: Set<ProjectPhase>; count: number; band: IBMBand };
+  effHrs: number; totalHrs: number; utilPct: number; totalCost: number;
+  resolvedBand: IBMBand; resolvedCount: number;
 }
 
-const STAFF_TYPES = ['Onshore', 'Geo', 'Nearshore'] as const;
-type StaffType = typeof STAFF_TYPES[number];
-const STAFF_HOURS: Record<StaffType, number> = { Onshore: 45, Geo: 40, Nearshore: 40 };
-
-// Derive a deterministic weekly start/end from role index
-function roleDate(offset: number, add: number) {
-  const d = new Date(Date.now() + offset * 7 * 24 * 60 * 60 * 1000 + add * 7 * 24 * 60 * 60 * 1000);
-  return d.toISOString().slice(0, 10);
-}
-
-// ── Staff Selection Table Component ──────────────────────────
-function StaffSelectionTable({ roles }: { roles: StaffingRole[] }) {
-  const [staffSelect, setStaffSelect] = useState<string>('');
-  const [bandFilter,  setBandFilter]  = useState<string>('');
-
-  // Build initial staff rows from roles (one row per unique role, not per resource)
-  const allRows = useMemo<StaffRow[]>(() => roles.map((r, ri) => ({
-    id:         r.id,
-    name:       r.roleName,
-    role:       r.roleName,
-    band:       r.band,
-    staffType:  STAFF_TYPES[ri % STAFF_TYPES.length],
-    count:      r.numberOfResources,
-    allocation: Math.round((r.hoursPerResource / 40) * 100),
-    startDate:  roleDate(ri * 2, 0),
-    endDate:    roleDate(ri * 2, r.hoursPerResource / 40),
-    effHrsWk:   STAFF_HOURS[STAFF_TYPES[ri % STAFF_TYPES.length]],
-    selected:   false,
-  })), [roles]);
-
-  const [rows, setRows] = useState<StaffRow[]>(allRows);
-
-  // active type tiles (multi-select)
-  const [activeTypes, setActiveTypes] = useState<Set<StaffType>>(new Set());
-
-  const filtered = useMemo(() => rows.filter(r => {
-    if (staffSelect && !r.name.toLowerCase().includes(staffSelect.toLowerCase()) &&
-        !r.role.toLowerCase().includes(staffSelect.toLowerCase())) return false;
-    if (bandFilter  && r.band      !== bandFilter)  return false;
-    if (activeTypes.size > 0 && !activeTypes.has(r.staffType)) return false;
-    return true;
-  }), [rows, staffSelect, bandFilter, activeTypes]);
-
-  const uniqueBands = Array.from(new Set(roles.map(r => r.band)));
-
-  const toggleRow     = (id: string) =>
-    setRows(prev => prev.map(r => r.id === id ? { ...r, selected: !r.selected } : r));
-  const setBand       = (id: string, band: IBMBand) =>
-    setRows(prev => prev.map(r => r.id === id ? { ...r, band, effHrsWk: STAFF_HOURS[r.staffType] } : r));
-  const setCount      = (id: string, delta: number) =>
-    setRows(prev => prev.map(r => r.id === id ? { ...r, count: Math.max(1, r.count + delta) } : r));
-  const setCountDirect = (id: string, val: number) =>
-    setRows(prev => prev.map(r => r.id === id ? { ...r, count: Math.max(1, val) } : r));
-
-  const toggleType = (t: StaffType) => {
-    setActiveTypes(prev => {
-      const next = new Set(prev);
-      if (next.has(t)) next.delete(t); else next.add(t);
-      return next;
+function PhaseAllocationSummary({ derivedRoles }: { derivedRoles: DerivedRole[] }) {
+  const phaseHours = useMemo(() => {
+    const map: Record<string, number> = {};
+    PROJECT_PHASES.forEach((ph) => { map[ph] = 0; });
+    derivedRoles.forEach((r) => {
+      const hrsPerPhase = r.totalHrs / Math.max(1, r.ov.phases.size);
+      r.ov.phases.forEach((ph) => { map[ph] = (map[ph] ?? 0) + hrsPerPhase; });
     });
-  };
-  const allTypesActive = activeTypes.size === 0;
-  const toggleAllTypes = () => setActiveTypes(new Set());
-
-  const selectedCount = rows.filter(r => r.selected).length;
+    return PROJECT_PHASES.map((ph) => ({ phase: ph, hours: Math.round(map[ph]) }));
+  }, [derivedRoles]);
 
   return (
-    <div className="bg-white rounded-2xl border overflow-hidden" style={{ borderColor: T.border }}>
-      {/* Header */}
-      <div className="px-5 py-4 border-b flex items-center justify-between flex-wrap gap-3"
-        style={{ borderColor: T.border }}>
-        <div>
-          <h3 style={{ fontSize: 16, fontWeight: 600, color: T.navy }}>Staff Selection</h3>
-          <p style={{ fontSize: 12, color: T.textMuted, marginTop: 2 }}>
-            {filtered.length} of {allRows.length} roles
-            {selectedCount > 0 && ` · ${selectedCount} selected`}
-          </p>
-        </div>
-
-        {/* Filter controls */}
-        <div className="flex items-center gap-3 flex-wrap">
-          {/* Staff search */}
-          <div className="flex items-center gap-2 border rounded-xl px-3 py-1.5"
-            style={{ borderColor: T.border, background: '#F8FAFC' }}>
-            <span style={{ fontSize: 11, color: T.textMuted }}>Staff</span>
-            <input
-              value={staffSelect}
-              onChange={e => setStaffSelect(e.target.value)}
-              placeholder="Search name / role…"
-              className="outline-none bg-transparent text-sm"
-              style={{ width: 160, color: T.navy }}
-            />
-          </div>
-
-          {/* Band dropdown */}
-          <select
-            value={bandFilter}
-            onChange={e => setBandFilter(e.target.value)}
-            className="border rounded-xl px-3 py-1.5 text-sm outline-none"
-            style={{ borderColor: T.border, color: T.navy, background: '#F8FAFC' }}>
-            <option value="">All Bands</option>
-            {uniqueBands.map(b => <option key={b} value={b}>{b} — {BAND_DESC[b]}</option>)}
-          </select>
-
-          {/* Staff Type — clickable tiles (multi-select) */}
-          <div className="flex items-center gap-1.5">
-            {/* "All Types" master toggle */}
-            <button
-              onClick={toggleAllTypes}
-              className="px-3 py-1.5 rounded-xl text-xs font-semibold border transition-all"
-              style={{
-                background:   allTypesActive ? T.navy   : '#F8FAFC',
-                color:        allTypesActive ? '#fff'   : T.textMuted,
-                borderColor:  allTypesActive ? T.navy   : T.border,
-              }}>
-              All Types
-            </button>
-            {STAFF_TYPES.map(t => {
-              const active = activeTypes.has(t);
-              const tileColor = t === 'Onshore' ? '#0f62fe' : t === 'Geo' ? '#42be65' : '#a56eff';
-              return (
-                <button key={t} onClick={() => toggleType(t)}
-                  className="flex flex-col items-center px-3 py-1.5 rounded-xl border transition-all"
-                  style={{
-                    background:  active ? tileColor : '#F8FAFC',
-                    color:       active ? '#fff'     : T.textMuted,
-                    borderColor: active ? tileColor  : T.border,
-                    minWidth: 64,
-                  }}>
-                  <span className="text-xs font-semibold">{t}</span>
-                  <span style={{ fontSize: 10, opacity: 0.85 }}>{STAFF_HOURS[t]}H</span>
-                </button>
-              );
-            })}
-          </div>
-
-          {(staffSelect || bandFilter || activeTypes.size > 0) && (
-            <button
-              onClick={() => { setStaffSelect(''); setBandFilter(''); setActiveTypes(new Set()); }}
-              className="text-xs font-semibold px-3 py-1.5 rounded-xl border"
-              style={{ borderColor: T.border, color: T.textMuted }}>
-              Clear
-            </button>
-          )}
-        </div>
-      </div>
-
-      {/* Table */}
-      <div className="overflow-x-auto">
-        <table className="w-full" style={{ fontSize: 13, minWidth: 820 }}>
-          <thead>
-            <tr style={{ background: '#F8FAFC', color: T.textMuted, fontSize: 11 }}>
-              <th className="px-4 py-3 text-left" style={{ width: 28 }}></th>
-              <th className="px-4 py-3 text-left font-semibold uppercase tracking-wider">Role</th>
-              <th className="px-4 py-3 text-center font-semibold uppercase tracking-wider" style={{ minWidth: 130 }}>Staff Type</th>
-              <th className="px-4 py-3 text-center font-semibold uppercase tracking-wider">Band</th>
-              <th className="px-4 py-3 text-center font-semibold uppercase tracking-wider">Count</th>
-              <th className="px-4 py-3 text-center font-semibold uppercase tracking-wider">Util.&nbsp;%</th>
-              <th className="px-4 py-3 text-center font-semibold uppercase tracking-wider">Eff.&nbsp;Hrs/Wk</th>
-            </tr>
-          </thead>
-          <tbody>
-            {filtered.length === 0 && (
-              <tr>
-                <td colSpan={7} className="px-5 py-10 text-center text-sm" style={{ color: T.textMuted }}>
-                  No staff members match the current filters.
-                </td>
-              </tr>
-            )}
-            {filtered.map((row) => {
-              const tileColor = row.staffType === 'Onshore' ? '#0f62fe' : row.staffType === 'Geo' ? '#42be65' : '#a56eff';
-              return (
-              <tr key={row.id} className="border-t hover:bg-gray-50/40 transition-colors"
-                style={{ borderColor: T.border, background: row.selected ? '#EEF2FF' : undefined }}>
-                {/* Checkbox */}
-                <td className="px-4 py-3 text-center">
-                  <input type="checkbox" checked={row.selected}
-                    onChange={() => toggleRow(row.id)}
-                    className="w-4 h-4 rounded cursor-pointer accent-blue-600" />
-                </td>
-
-                {/* Role name */}
-                <td className="px-4 py-3 font-medium" style={{ color: T.navy }}>
-                  {row.name}
-                </td>
-
-                {/* Staff Type indicator */}
-                <td className="px-4 py-3 text-center">
-                  <span className="inline-flex flex-col items-center px-3 py-1 rounded-xl text-xs font-semibold"
-                    style={{ background: `${tileColor}18`, color: tileColor, border: `1px solid ${tileColor}40` }}>
-                    <span>{row.staffType}</span>
-                    <span style={{ fontSize: 10, fontWeight: 400 }}>{STAFF_HOURS[row.staffType]}H</span>
-                  </span>
-                </td>
-
-                {/* Band dropdown — fully functional */}
-                <td className="px-4 py-3 text-center">
-                  <select
-                    value={row.band}
-                    onChange={e => setBand(row.id, e.target.value as IBMBand)}
-                    className="border rounded-lg px-2 py-1 text-xs font-semibold outline-none cursor-pointer"
-                    style={{ borderColor: T.border, color: T.navy, background: '#F8FAFC' }}>
-                    {IBM_BANDS.map(b => <option key={b} value={b}>{b}</option>)}
-                  </select>
-                </td>
-
-                {/* Count stepper — increment / decrement / direct edit */}
-                <td className="px-4 py-3 text-center">
-                  <div className="inline-flex items-center gap-1 border rounded-lg overflow-hidden"
-                    style={{ borderColor: T.border }}>
-                    <button
-                      onClick={() => setCount(row.id, -1)}
-                      className="px-2 py-1 text-sm font-bold hover:bg-gray-100 transition-colors"
-                      style={{ color: T.textMuted }}>−</button>
-                    <input
-                      type="number" min={1}
-                      value={row.count}
-                      onChange={e => setCountDirect(row.id, parseInt(e.target.value, 10) || 1)}
-                      className="w-8 text-center text-xs font-semibold outline-none bg-transparent"
-                      style={{ color: T.navy }}
-                    />
-                    <button
-                      onClick={() => setCount(row.id, 1)}
-                      className="px-2 py-1 text-sm font-bold hover:bg-gray-100 transition-colors"
-                      style={{ color: T.textMuted }}>+</button>
-                  </div>
-                </td>
-
-                {/* Utilization % */}
-                <td className="px-4 py-3 text-center">
-                  <span className="kpi-value" style={{ color: row.allocation >= 90 ? '#da1e28' : row.allocation >= 75 ? '#f97316' : T.navy, fontWeight: 600 }}>
-                    {row.allocation}%
-                  </span>
-                </td>
-
-                {/* Eff Hrs/Wk */}
-                <td className="px-4 py-3 text-center">
-                  <span className="kpi-value font-bold" style={{ color: T.navy }}>
-                    {row.effHrsWk}h
-                  </span>
-                </td>
-              </tr>
-              );
-            })}
-          </tbody>
-        </table>
+    <div className="bg-white rounded-2xl border p-5" style={{ borderColor: T.border }}>
+      <h3 style={{ fontSize: 16, fontWeight: 600, color: T.navy, marginBottom: 20 }}>Phase Allocation (Hours)</h3>
+      <div className="space-y-3">
+        {phaseHours.map(({ phase, hours }) => {
+          const maxH = Math.max(...phaseHours.map((p) => p.hours), 1);
+          const pct  = Math.round((hours / maxH) * 100);
+          const color = PHASE_COLORS[phase as ProjectPhase];
+          return (
+            <div key={phase}>
+              <div className="flex items-center justify-between mb-1">
+                <span className="text-xs font-semibold" style={{ color: T.navy }}>{phase}</span>
+                <span className="text-xs kpi-value font-bold" style={{ color }}>{hours.toLocaleString()}h</span>
+              </div>
+              <div className="h-2 rounded-full overflow-hidden" style={{ background: '#F1F5F9' }}>
+                <div className="h-full rounded-full transition-all duration-500"
+                  style={{ width: `${pct}%`, background: color }} />
+              </div>
+            </div>
+          );
+        })}
       </div>
     </div>
   );

@@ -99,14 +99,26 @@ export default function ScopeDeliverables() {
 
   if (!result) return <div className="p-6 text-gray-400 text-sm text-center mt-20">Upload a document to see scope items</div>;
 
-  const scopeItems = result.scopeItems ?? [];
-  const deliverableItems = result.deliverableItems ?? [];
+  // Issue 3: strip placeholder text and binary artifacts before display
+  const PLACEHOLDERS = /^(not found|n\/a|placeholder|tbd|–|—|-|\?|null|undefined|none)$/i;
+  function cleanDesc(d: string): string {
+    return d.replace(/[\x00-\x08\x0B\x0C\x0E-\x1F\x7F]/g, '').replace(/\s+/g, ' ').trim();
+  }
+  function isValidDesc(d: string): boolean {
+    const c = cleanDesc(d);
+    return c.length > 5 && !PLACEHOLDERS.test(c);
+  }
+
+  const scopeItems = (result.scopeItems ?? []).filter((i) => isValidDesc(i.description));
+  const deliverableItems = (result.deliverableItems ?? []).filter((i) => isValidDesc(i.description));
 
   const filteredScope = scopeItems.filter((i) =>
-    i.description.toLowerCase().includes(search.toLowerCase()) || i.referenceSection.toLowerCase().includes(search.toLowerCase())
+    cleanDesc(i.description).toLowerCase().includes(search.toLowerCase()) ||
+    i.referenceSection.toLowerCase().includes(search.toLowerCase())
   );
   const filteredDel = deliverableItems.filter((i) =>
-    i.description.toLowerCase().includes(search.toLowerCase()) || i.phase.toLowerCase().includes(search.toLowerCase())
+    cleanDesc(i.description).toLowerCase().includes(search.toLowerCase()) ||
+    i.phase.toLowerCase().includes(search.toLowerCase())
   );
 
   const addScope = () => {
