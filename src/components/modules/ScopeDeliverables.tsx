@@ -22,11 +22,19 @@ const PRIO_COLORS = {
   low:    { bg: '#defbe6', text: '#0e6027' },
 };
 
-// ── ISSUE 3 FIX: Functional reference links ──────────────────
-// These navigate within the app to the document-analyzer tab
-// where the user can view the source document. We can't link to
-// PDF page numbers in a browser without a PDF viewer — so we
-// navigate to the document tab and show a toast-style indicator.
+// ── Scope & Deliverable reference links ──────────────────────
+// Clicking navigates to the Document Analyzer tab (where the raw
+// document text and metadata live). A brief flash banner on the
+// Document Analyzer page (via sessionStorage key) guides the user
+// to the referenced section/page.
+function navigateToSection(setActiveTab: (t: 'document-analyzer') => void, section: string, page: string) {
+  // Write hint into sessionStorage so DocumentAnalyzer can surface it
+  try {
+    sessionStorage.setItem('rfp-scroll-hint', JSON.stringify({ section, page, ts: Date.now() }));
+  } catch {}
+  setActiveTab('document-analyzer');
+}
+
 function RefLink({ section, page }: { section: string; page: string }) {
   const [show, setShow] = useState(false);
   const { setActiveTab } = useRFPStore();
@@ -35,19 +43,20 @@ function RefLink({ section, page }: { section: string; page: string }) {
     <div className="relative inline-flex items-center gap-1">
       <button
         type="button"
-        onClick={() => setActiveTab('document-analyzer')}
+        onClick={() => navigateToSection(setActiveTab, section, page)}
         onMouseEnter={() => setShow(true)}
         onMouseLeave={() => setShow(false)}
-        className="inline-flex items-center gap-1 text-xs underline underline-offset-2 font-medium transition-colors hover:opacity-80 cursor-pointer"
+        className="inline-flex items-center gap-1 text-xs underline underline-offset-2 font-medium transition-all hover:opacity-70 cursor-pointer"
         style={{ color: TEAL }}
-        title={`Go to: ${section} — ${page}`}
+        title={`View source: ${section} — ${page}`}
       >
         {section}
         <FileText size={10} />
       </button>
       {show && (
-        <div className="absolute left-0 bottom-full mb-1 z-20 bg-gray-800 text-white text-[10px] rounded-lg px-2.5 py-1.5 whitespace-nowrap shadow-xl pointer-events-none">
-          📄 Navigate to: <span className="font-semibold">{section}</span> — {page}
+        <div className="absolute left-0 bottom-full mb-1 z-20 text-white text-[10px] rounded-lg px-2.5 py-1.5 whitespace-nowrap shadow-xl pointer-events-none"
+          style={{ background: T.navy }}>
+          📄 View in document: <span className="font-semibold">{section}</span> — {page}
         </div>
       )}
     </div>
@@ -62,19 +71,20 @@ function PageLink({ page, section }: { page: string; section: string }) {
     <div className="relative inline-flex items-center gap-1">
       <button
         type="button"
-        onClick={() => setActiveTab('document-analyzer')}
+        onClick={() => navigateToSection(setActiveTab, section, page)}
         onMouseEnter={() => setShow(true)}
         onMouseLeave={() => setShow(false)}
-        className="inline-flex items-center gap-1 text-xs underline underline-offset-2 font-medium transition-colors hover:opacity-80 cursor-pointer"
+        className="inline-flex items-center gap-1 text-xs underline underline-offset-2 font-medium transition-all hover:opacity-70 cursor-pointer"
         style={{ color: ACCENT }}
-        title={`Go to: ${section} — ${page}`}
+        title={`View source: ${section} — ${page}`}
       >
         {page}
         <FileText size={10} />
       </button>
       {show && (
-        <div className="absolute left-0 bottom-full mb-1 z-20 bg-gray-800 text-white text-[10px] rounded-lg px-2.5 py-1.5 whitespace-nowrap shadow-xl pointer-events-none">
-          📄 Navigate to: <span className="font-semibold">{section}</span> — {page}
+        <div className="absolute left-0 bottom-full mb-1 z-20 text-white text-[10px] rounded-lg px-2.5 py-1.5 whitespace-nowrap shadow-xl pointer-events-none"
+          style={{ background: T.navy }}>
+          📄 View in document: <span className="font-semibold">{section}</span> — {page}
         </div>
       )}
     </div>

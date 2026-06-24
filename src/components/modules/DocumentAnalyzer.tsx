@@ -1,13 +1,13 @@
 'use client';
-// DocumentAnalyzer — unified page count (single source of truth from parser)
-import React, { useCallback, useState } from 'react';
+// DocumentAnalyzer — canonical page count + scroll-hint banner from scope links
+import React, { useCallback, useState, useEffect } from 'react';
 import { useDropzone } from 'react-dropzone';
-import { motion } from 'framer-motion';
-import { FileText, Upload, CheckCircle, AlertCircle, Loader2, Zap, Trash2 } from 'lucide-react';
+import { motion, AnimatePresence } from 'framer-motion';
+import { FileText, Upload, CheckCircle, AlertCircle, Loader2, Zap, Trash2, BookOpen, X } from 'lucide-react';
 import { useRFPStore } from '@/lib/store';
 import { T } from '@/lib/theme';
 import { runFullAnalysis } from '@/lib/mockEngine';
-import { extractTextFromFile, generateSummary } from '@/lib/parser';
+import { extractFromFile, generateSummary } from '@/lib/parser';
 import { v4 as uuid } from 'uuid';
 
 const ACCENT = T.slate;
@@ -27,18 +27,32 @@ export default function DocumentAnalyzer() {
   } = useRFPStore();
   const [dragActive, setDragActive] = useState(false);
   const activeDoc = documents.find((d) => d.id === activeDocumentId);
-  void activeDoc; // used below
+  void activeDoc;
+
+  // ── Scroll-hint banner: surfaced when user clicks a scope/deliverable link ──
+  const [scrollHint, setScrollHint] = useState<{ section: string; page: string } | null>(null);
+  useEffect(() => {
+    try {
+      const raw = sessionStorage.getItem('rfp-scroll-hint');
+      if (raw) {
+        const hint = JSON.parse(raw) as { section: string; page: string; ts: number };
+        // Only show if hint was set within the last 3 seconds
+        if (Date.now() - hint.ts < 3000) setScrollHint({ section: hint.section, page: hint.page });
+        sessionStorage.removeItem('rfp-scroll-hint');
+      }
+    } catch {}
+  }, []);
 
   const processFile = useCallback(async (file: File) => {
     const docId = uuid();
     addDocument({ id: docId, name: file.name, size: file.size, type: file.type, status: 'processing', uploadedAt: new Date().toISOString() });
     setActiveDocument(docId);
     try {
-      const rawText = await extractTextFromFile(file);
-      // ── ISSUE 1 FIX: single source of truth for pageCount ──
-      // generateSummary() in parser.ts computes pageCount = Math.max(1, Math.round(wordCount / 300))
-      // We call it once and reuse the value everywhere — no duplication.
-      const summary = generateSummary(rawText, file.name);
+      // ── PAGE COUNT FIX: extractFromFile() returns the real numpages for PDFs
+      // (pdf-parse metadata), not a word-count estimate. generateSummary receives
+      // the canonical value so both the card and any downstream widget show the same number.
+      const { text: rawText, pageCount } = await extractFromFile(file);
+      const summary = generateSummary(rawText, file.name, pageCount);
       updateDocument(docId, {
         status: 'ready', rawText, processedAt: new Date().toISOString(),
         summary,
@@ -67,6 +81,27 @@ export default function DocumentAnalyzer() {
 
   return (
     <div className="p-6 max-w-5xl mx-auto">
+
+      {/* ── Scroll hint banner (from scope/deliverable link click) ── */}
+      <AnimatePresence>
+        {scrollHint && (
+          <motion.div
+            initial={{ opacity: 0, y: -8 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -8 }}
+            className="mb-4 flex items-center gap-3 px-4 py-3 rounded-xl border text-sm"
+            style={{ background: `${T.gold}18`, borderColor: T.gold }}>
+            <BookOpen size={16} style={{ color: T.gold, flexShrink: 0 }} />
+            <span style={{ color: T.navy }}>
+              Navigated from scope reference — look for{' '}
+              <strong>{scrollHint.section}</strong>{scrollHint.page ? `, ${scrollHint.page}` : ''}{' '}
+              in the document text below.
+            </span>
+            <button onClick={() => setScrollHint(null)} className="ml-auto" style={{ color: T.textMuted }}>
+              <X size={14} />
+            </button>
+          </motion.div>
+        )}
+      </AnimatePresence>
+
       <div className="mb-6 flex items-start justify-between gap-4">
         <div>
           <h2 className="text-xl font-bold mb-1" style={{ color: '#1A202C' }}>Document Analyzer</h2>

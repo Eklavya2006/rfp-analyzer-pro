@@ -6,15 +6,27 @@
 
 import type { DocumentSummary, ExtractedSections } from '@/types';
 
-// ── Text extraction ──────────────────────────────────────────
+// ── Extraction result — carries both text AND authoritative page count ──
+export interface ExtractionResult {
+  text: string;
+  /** Actual page count from the document metadata (numpages for PDF,
+   *  estimated from word count for DOCX/TXT). Always the canonical value. */
+  pageCount: number;
+}
+
+// ── Text + metadata extraction ───────────────────────────────
 
 /**
- * Extract plain text from a File/Blob.
- * - PDF  → pdf-parse (server-side only, imported dynamically)
- * - DOCX → mammoth  (server-side only, imported dynamically)
- * - TXT  → file.text()
+ * Extract plain text AND authoritative page count from a File/Blob.
+ * - PDF  → pdf-parse (numpages is the real page count — NOT word count / 300)
+ * - DOCX → mammoth  (page count estimated from word count)
+ * - TXT  → file.text() (page count estimated from word count)
+ *
+ * FIX: The old approach derived pageCount = Math.round(wordCount / 300) even for
+ * PDFs, producing wildly inaccurate numbers (e.g. 174 for a 90-page document).
+ * Now we use `parsed.numpages` from pdf-parse as the single source of truth for PDFs.
  */
-export async function extractTextFromFile(file: File): Promise<string> {
+export async function extractFromFile(file: File): Promise<ExtractionResult> {
   const name = file.name.toLowerCase();
   const type = file.type;
 
@@ -23,19 +35,24 @@ export async function extractTextFromFile(file: File): Promise<string> {
     try {
       const arrayBuffer = await file.arrayBuffer();
       const buffer = Buffer.from(arrayBuffer);
-      // Use dynamic import to avoid SSR issues (fixes "pdfParse is not a function")
       const pdfParseModule = await import('pdf-parse');
-      // pdf-parse v2 exports directly; v1 exports via .default — handle both
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      const pdfParse = ((pdfParseModule as any).default ?? pdfParseModule) as (buf: Buffer) => Promise<{ text: string }>;
+      const pdfParse = ((pdfParseModule as any).default ?? pdfParseModule) as (
+        buf: Buffer
+      ) => Promise<{ text: string; numpages: number }>;
       const parsed = await pdfParse(buffer);
       const text = parsed.text?.trim() ?? '';
-      if (text.length > 50) return text;
+      // Use the real page count from the PDF metadata
+      const pageCount = parsed.numpages > 0 ? parsed.numpages : estimatePageCount(text);
+      if (text.length > 50) return { text, pageCount };
+      // PDF parsed but text too short — still keep real page count
+      const fallbackText = await file.text().catch(() => '');
+      return { text: fallbackText, pageCount };
     } catch (err) {
       console.warn('[parser] pdf-parse failed, falling back to text():', err);
     }
-    // Fallback: read as plain text (works for text-based PDFs)
-    return file.text().catch(() => '');
+    const fallbackText = await file.text().catch(() => '');
+    return { text: fallbackText, pageCount: estimatePageCount(fallbackText) };
   }
 
   // ── DOCX ─────────────────────────────────────────────────
@@ -50,15 +67,32 @@ export async function extractTextFromFile(file: File): Promise<string> {
       const mammoth = await import('mammoth');
       const result = await mammoth.extractRawText({ arrayBuffer });
       const text = result.value?.trim() ?? '';
-      if (text.length > 50) return text;
+      if (text.length > 50) return { text, pageCount: estimatePageCount(text) };
     } catch (err) {
       console.warn('[parser] mammoth failed, falling back to text():', err);
     }
-    return file.text().catch(() => '');
+    const fallback = await file.text().catch(() => '');
+    return { text: fallback, pageCount: estimatePageCount(fallback) };
   }
 
   // ── TXT / fallback ────────────────────────────────────────
-  return file.text().catch(() => '');
+  const txt = await file.text().catch(() => '');
+  return { text: txt, pageCount: estimatePageCount(txt) };
+}
+
+/**
+ * Kept for backwards compatibility — wraps extractFromFile and returns only text.
+ * New callers should use extractFromFile() to get both text and pageCount.
+ */
+export async function extractTextFromFile(file: File): Promise<string> {
+  const result = await extractFromFile(file);
+  return result.text;
+}
+
+/** Estimate page count from word count when real metadata is unavailable (DOCX / TXT). */
+function estimatePageCount(text: string): number {
+  const words = text.split(/\s+/).filter(Boolean).length;
+  return Math.max(1, Math.round(words / 300));
 }
 
 // ── Section extraction ───────────────────────────────────────
@@ -113,10 +147,20 @@ export function extractSections(text: string): ExtractedSections {
 
 // ── Summary generation ───────────────────────────────────────
 
-export function generateSummary(text: string, filename: string): DocumentSummary {
+/**
+ * Generate a DocumentSummary from raw text.
+ * @param canonicalPageCount  When provided (e.g. numpages from pdf-parse), this value
+ *   is used directly instead of estimating from word count.  Pass it from extractFromFile().
+ */
+export function generateSummary(
+  text: string,
+  filename: string,
+  canonicalPageCount?: number,
+): DocumentSummary {
   const lower = text.toLowerCase();
   const wordCount = text.split(/\s+/).filter(Boolean).length;
-  const pageCount = Math.max(1, Math.round(wordCount / 300));
+  // Use the authoritative page count when available, fall back to word-count estimate
+  const pageCount = canonicalPageCount ?? Math.max(1, Math.round(wordCount / 300));
 
   // ── Budget detection ─────────────────────────────────────
   const budgetMatch = text.match(/\$[\d,.]+\s*(?:M|million|B|billion|K|thousand)?(?:\s*(?:to|-)\s*\$[\d,.]+\s*(?:M|million|B|billion|K|thousand)?)?/i);
