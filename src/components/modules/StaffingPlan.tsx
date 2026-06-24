@@ -464,7 +464,8 @@ interface StaffRow {
   name:       string;
   role:       string;
   band:       IBMBand;
-  staffType:  'FNC' | 'Geo' | 'Nearshore';
+  staffType:  'Onshore' | 'Geo' | 'Nearshore';
+  count:      number;
   allocation: number;
   startDate:  string;
   endDate:    string;
@@ -472,7 +473,9 @@ interface StaffRow {
   selected:   boolean;
 }
 
-const STAFF_TYPES = ['FNC', 'Geo', 'Nearshore'] as const;
+const STAFF_TYPES = ['Onshore', 'Geo', 'Nearshore'] as const;
+type StaffType = typeof STAFF_TYPES[number];
+const STAFF_HOURS: Record<StaffType, number> = { Onshore: 45, Geo: 40, Nearshore: 40 };
 
 // Derive a deterministic weekly start/end from role index
 function roleDate(offset: number, add: number) {
@@ -484,38 +487,55 @@ function roleDate(offset: number, add: number) {
 function StaffSelectionTable({ roles }: { roles: StaffingRole[] }) {
   const [staffSelect, setStaffSelect] = useState<string>('');
   const [bandFilter,  setBandFilter]  = useState<string>('');
-  const [typeFilter,  setTypeFilter]  = useState<string>('');
 
-  // Build initial staff rows from roles
-  const allRows = useMemo<StaffRow[]>(() => roles.flatMap((r, ri) =>
-    Array.from({ length: r.numberOfResources }, (_, ni) => ({
-      id:         `${r.id}-${ni}`,
-      name:       r.numberOfResources > 1 ? `${r.roleName} ${ni + 1}` : r.roleName,
-      role:       r.roleName,
-      band:       r.band,
-      staffType:  STAFF_TYPES[ri % STAFF_TYPES.length],
-      allocation: Math.round((r.hoursPerResource / 40) * 10),   // % of 40h week
-      startDate:  roleDate(ri * 2, 0),
-      endDate:    roleDate(ri * 2, r.hoursPerResource / 40),
-      effHrsWk:   Math.min(40, Math.round(r.hoursPerResource / 10)),
-      selected:   false,
-    }))
-  ), [roles]);
+  // Build initial staff rows from roles (one row per unique role, not per resource)
+  const allRows = useMemo<StaffRow[]>(() => roles.map((r, ri) => ({
+    id:         r.id,
+    name:       r.roleName,
+    role:       r.roleName,
+    band:       r.band,
+    staffType:  STAFF_TYPES[ri % STAFF_TYPES.length],
+    count:      r.numberOfResources,
+    allocation: Math.round((r.hoursPerResource / 40) * 100),
+    startDate:  roleDate(ri * 2, 0),
+    endDate:    roleDate(ri * 2, r.hoursPerResource / 40),
+    effHrsWk:   STAFF_HOURS[STAFF_TYPES[ri % STAFF_TYPES.length]],
+    selected:   false,
+  })), [roles]);
 
   const [rows, setRows] = useState<StaffRow[]>(allRows);
+
+  // active type tiles (multi-select)
+  const [activeTypes, setActiveTypes] = useState<Set<StaffType>>(new Set());
 
   const filtered = useMemo(() => rows.filter(r => {
     if (staffSelect && !r.name.toLowerCase().includes(staffSelect.toLowerCase()) &&
         !r.role.toLowerCase().includes(staffSelect.toLowerCase())) return false;
     if (bandFilter  && r.band      !== bandFilter)  return false;
-    if (typeFilter  && r.staffType !== typeFilter)  return false;
+    if (activeTypes.size > 0 && !activeTypes.has(r.staffType)) return false;
     return true;
-  }), [rows, staffSelect, bandFilter, typeFilter]);
+  }), [rows, staffSelect, bandFilter, activeTypes]);
 
   const uniqueBands = Array.from(new Set(roles.map(r => r.band)));
 
-  const toggleRow = (id: string) =>
+  const toggleRow     = (id: string) =>
     setRows(prev => prev.map(r => r.id === id ? { ...r, selected: !r.selected } : r));
+  const setBand       = (id: string, band: IBMBand) =>
+    setRows(prev => prev.map(r => r.id === id ? { ...r, band, effHrsWk: STAFF_HOURS[r.staffType] } : r));
+  const setCount      = (id: string, delta: number) =>
+    setRows(prev => prev.map(r => r.id === id ? { ...r, count: Math.max(1, r.count + delta) } : r));
+  const setCountDirect = (id: string, val: number) =>
+    setRows(prev => prev.map(r => r.id === id ? { ...r, count: Math.max(1, val) } : r));
+
+  const toggleType = (t: StaffType) => {
+    setActiveTypes(prev => {
+      const next = new Set(prev);
+      if (next.has(t)) next.delete(t); else next.add(t);
+      return next;
+    });
+  };
+  const allTypesActive = activeTypes.size === 0;
+  const toggleAllTypes = () => setActiveTypes(new Set());
 
   const selectedCount = rows.filter(r => r.selected).length;
 
@@ -527,14 +547,14 @@ function StaffSelectionTable({ roles }: { roles: StaffingRole[] }) {
         <div>
           <h3 style={{ fontSize: 16, fontWeight: 600, color: T.navy }}>Staff Selection</h3>
           <p style={{ fontSize: 12, color: T.textMuted, marginTop: 2 }}>
-            {filtered.length} of {allRows.length} staff members
+            {filtered.length} of {allRows.length} roles
             {selectedCount > 0 && ` · ${selectedCount} selected`}
           </p>
         </div>
 
         {/* Filter controls */}
         <div className="flex items-center gap-3 flex-wrap">
-          {/* Staff search/select */}
+          {/* Staff search */}
           <div className="flex items-center gap-2 border rounded-xl px-3 py-1.5"
             style={{ borderColor: T.border, background: '#F8FAFC' }}>
             <span style={{ fontSize: 11, color: T.textMuted }}>Staff</span>
@@ -547,7 +567,7 @@ function StaffSelectionTable({ roles }: { roles: StaffingRole[] }) {
             />
           </div>
 
-          {/* Band Type dropdown */}
+          {/* Band dropdown */}
           <select
             value={bandFilter}
             onChange={e => setBandFilter(e.target.value)}
@@ -557,19 +577,41 @@ function StaffSelectionTable({ roles }: { roles: StaffingRole[] }) {
             {uniqueBands.map(b => <option key={b} value={b}>{b} — {BAND_DESC[b]}</option>)}
           </select>
 
-          {/* Staff Type dropdown */}
-          <select
-            value={typeFilter}
-            onChange={e => setTypeFilter(e.target.value)}
-            className="border rounded-xl px-3 py-1.5 text-sm outline-none"
-            style={{ borderColor: T.border, color: T.navy, background: '#F8FAFC' }}>
-            <option value="">All Types</option>
-            {STAFF_TYPES.map(t => <option key={t} value={t}>{t}</option>)}
-          </select>
-
-          {(staffSelect || bandFilter || typeFilter) && (
+          {/* Staff Type — clickable tiles (multi-select) */}
+          <div className="flex items-center gap-1.5">
+            {/* "All Types" master toggle */}
             <button
-              onClick={() => { setStaffSelect(''); setBandFilter(''); setTypeFilter(''); }}
+              onClick={toggleAllTypes}
+              className="px-3 py-1.5 rounded-xl text-xs font-semibold border transition-all"
+              style={{
+                background:   allTypesActive ? T.navy   : '#F8FAFC',
+                color:        allTypesActive ? '#fff'   : T.textMuted,
+                borderColor:  allTypesActive ? T.navy   : T.border,
+              }}>
+              All Types
+            </button>
+            {STAFF_TYPES.map(t => {
+              const active = activeTypes.has(t);
+              const tileColor = t === 'Onshore' ? '#0f62fe' : t === 'Geo' ? '#42be65' : '#a56eff';
+              return (
+                <button key={t} onClick={() => toggleType(t)}
+                  className="flex flex-col items-center px-3 py-1.5 rounded-xl border transition-all"
+                  style={{
+                    background:  active ? tileColor : '#F8FAFC',
+                    color:       active ? '#fff'     : T.textMuted,
+                    borderColor: active ? tileColor  : T.border,
+                    minWidth: 64,
+                  }}>
+                  <span className="text-xs font-semibold">{t}</span>
+                  <span style={{ fontSize: 10, opacity: 0.85 }}>{STAFF_HOURS[t]}H</span>
+                </button>
+              );
+            })}
+          </div>
+
+          {(staffSelect || bandFilter || activeTypes.size > 0) && (
+            <button
+              onClick={() => { setStaffSelect(''); setBandFilter(''); setActiveTypes(new Set()); }}
               className="text-xs font-semibold px-3 py-1.5 rounded-xl border"
               style={{ borderColor: T.border, color: T.textMuted }}>
               Clear
@@ -585,25 +627,26 @@ function StaffSelectionTable({ roles }: { roles: StaffingRole[] }) {
             <tr style={{ background: '#F8FAFC', color: T.textMuted, fontSize: 11 }}>
               <th className="px-4 py-3 text-left" style={{ width: 28 }}></th>
               <th className="px-4 py-3 text-left font-semibold uppercase tracking-wider">Role</th>
-              <th className="px-4 py-3 text-center font-semibold uppercase tracking-wider" style={{ minWidth: 150 }}>Staff Type</th>
+              <th className="px-4 py-3 text-center font-semibold uppercase tracking-wider" style={{ minWidth: 130 }}>Staff Type</th>
               <th className="px-4 py-3 text-center font-semibold uppercase tracking-wider">Band</th>
               <th className="px-4 py-3 text-center font-semibold uppercase tracking-wider">Count</th>
               <th className="px-4 py-3 text-center font-semibold uppercase tracking-wider">Util.&nbsp;%</th>
               <th className="px-4 py-3 text-center font-semibold uppercase tracking-wider">Eff.&nbsp;Hrs/Wk</th>
-              <th className="px-4 py-3 text-center" style={{ width: 24 }}></th>
             </tr>
           </thead>
           <tbody>
             {filtered.length === 0 && (
               <tr>
-                <td colSpan={8} className="px-5 py-10 text-center text-sm" style={{ color: T.textMuted }}>
+                <td colSpan={7} className="px-5 py-10 text-center text-sm" style={{ color: T.textMuted }}>
                   No staff members match the current filters.
                 </td>
               </tr>
             )}
-            {filtered.map((row) => (
+            {filtered.map((row) => {
+              const tileColor = row.staffType === 'Onshore' ? '#0f62fe' : row.staffType === 'Geo' ? '#42be65' : '#a56eff';
+              return (
               <tr key={row.id} className="border-t hover:bg-gray-50/40 transition-colors"
-                style={{ borderColor: T.border, background: row.selected ? `${T.chart[3]}08` : undefined }}>
+                style={{ borderColor: T.border, background: row.selected ? '#EEF2FF' : undefined }}>
                 {/* Checkbox */}
                 <td className="px-4 py-3 text-center">
                   <input type="checkbox" checked={row.selected}
@@ -616,61 +659,64 @@ function StaffSelectionTable({ roles }: { roles: StaffingRole[] }) {
                   {row.name}
                 </td>
 
-                {/* Staff Type chips — FNC / Geo / Nearshore */}
-                <td className="px-4 py-3">
-                  <div className="flex items-center gap-1 justify-center flex-wrap">
-                    {STAFF_TYPES.map(t => (
-                      <span key={t}
-                        className="text-[11px] font-semibold px-2 py-0.5 rounded"
-                        style={{
-                          background: row.staffType === t ? T.navy : '#F1F5F9',
-                          color:      row.staffType === t ? '#fff' : T.textMuted,
-                        }}>
-                        {t}<br/>
-                        <span className="kpi-value font-normal" style={{ fontSize: 10 }}>
-                          {t === 'FNC' ? '45h' : t === 'Geo' ? '40h' : '40h'}
-                        </span>
-                      </span>
-                    ))}
-                  </div>
+                {/* Staff Type indicator */}
+                <td className="px-4 py-3 text-center">
+                  <span className="inline-flex flex-col items-center px-3 py-1 rounded-xl text-xs font-semibold"
+                    style={{ background: `${tileColor}18`, color: tileColor, border: `1px solid ${tileColor}40` }}>
+                    <span>{row.staffType}</span>
+                    <span style={{ fontSize: 10, fontWeight: 400 }}>{STAFF_HOURS[row.staffType]}H</span>
+                  </span>
                 </td>
 
-                {/* Band dropdown */}
+                {/* Band dropdown — fully functional */}
                 <td className="px-4 py-3 text-center">
-                  <div className="flex items-center justify-center gap-1">
-                    <span className="text-xs font-semibold px-2 py-0.5 rounded border"
-                      style={{ borderColor: T.border, color: T.navy }}>
-                      {row.band}
-                    </span>
-                    <span style={{ color: T.textMuted, fontSize: 14 }}>▾</span>
-                  </div>
+                  <select
+                    value={row.band}
+                    onChange={e => setBand(row.id, e.target.value as IBMBand)}
+                    className="border rounded-lg px-2 py-1 text-xs font-semibold outline-none cursor-pointer"
+                    style={{ borderColor: T.border, color: T.navy, background: '#F8FAFC' }}>
+                    {IBM_BANDS.map(b => <option key={b} value={b}>{b}</option>)}
+                  </select>
                 </td>
 
-                {/* Count */}
+                {/* Count stepper — increment / decrement / direct edit */}
                 <td className="px-4 py-3 text-center">
-                  <span className="kpi-value" style={{ color: T.navy, fontWeight: 600 }}>1</span>
+                  <div className="inline-flex items-center gap-1 border rounded-lg overflow-hidden"
+                    style={{ borderColor: T.border }}>
+                    <button
+                      onClick={() => setCount(row.id, -1)}
+                      className="px-2 py-1 text-sm font-bold hover:bg-gray-100 transition-colors"
+                      style={{ color: T.textMuted }}>−</button>
+                    <input
+                      type="number" min={1}
+                      value={row.count}
+                      onChange={e => setCountDirect(row.id, parseInt(e.target.value, 10) || 1)}
+                      className="w-8 text-center text-xs font-semibold outline-none bg-transparent"
+                      style={{ color: T.navy }}
+                    />
+                    <button
+                      onClick={() => setCount(row.id, 1)}
+                      className="px-2 py-1 text-sm font-bold hover:bg-gray-100 transition-colors"
+                      style={{ color: T.textMuted }}>+</button>
+                  </div>
                 </td>
 
                 {/* Utilization % */}
                 <td className="px-4 py-3 text-center">
-                  <span className="kpi-value" style={{ color: row.allocation >= 80 ? '#da1e28' : T.navy, fontWeight: 600 }}>
-                    {row.allocation}
+                  <span className="kpi-value" style={{ color: row.allocation >= 90 ? '#da1e28' : row.allocation >= 75 ? '#f97316' : T.navy, fontWeight: 600 }}>
+                    {row.allocation}%
                   </span>
                 </td>
 
                 {/* Eff Hrs/Wk */}
                 <td className="px-4 py-3 text-center">
                   <span className="kpi-value font-bold" style={{ color: T.navy }}>
-                    {row.effHrsWk}
+                    {row.effHrsWk}h
                   </span>
                 </td>
-
-                {/* Remove */}
-                <td className="px-4 py-3 text-center">
-                  <button style={{ color: '#CBD5E1' }} className="hover:text-red-400 transition-colors">✕</button>
-                </td>
               </tr>
-            ))}
+              );
+            })}
           </tbody>
         </table>
       </div>

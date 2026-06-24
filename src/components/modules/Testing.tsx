@@ -249,11 +249,12 @@ export default function TestingModule() {
       </div>
 
       {/* ── Action bar + Add form ───────────────────────── */}
-      <div className="flex justify-end">
+      <div className="flex items-center justify-between gap-3">
+        <div style={{ fontSize: 14, fontWeight: 600, color: T.navy }}>Test Types & Criteria</div>
         <button onClick={() => setShowAdd(true)}
           className="flex items-center gap-1.5 text-sm font-semibold px-4 py-2 rounded-xl text-white hover:opacity-90"
           style={{ background: T.navy }}>
-          <Plus size={14} /> Add Test Type
+          <Plus size={14} /> Add Test Criteria
         </button>
       </div>
 
@@ -283,6 +284,18 @@ export default function TestingModule() {
       )}
 
       {/* ── Test sections ───────────────────────────────── */}
+      {strategy.sections.length === 0 && (
+        <div className="bg-white rounded-2xl border p-10 text-center" style={{ borderColor: T.border }}>
+          <div style={{ fontSize: 32, marginBottom: 8 }}>🧪</div>
+          <div style={{ fontSize: 15, fontWeight: 600, color: T.navy, marginBottom: 6 }}>No test criteria added yet</div>
+          <div style={{ fontSize: 13, color: T.textMuted, marginBottom: 16 }}>Click "Add Test Criteria" above to define your first test type and entry/exit criteria.</div>
+          <button onClick={() => setShowAdd(true)}
+            className="inline-flex items-center gap-1.5 text-sm font-semibold px-4 py-2 rounded-xl text-white hover:opacity-90"
+            style={{ background: T.navy }}>
+            <Plus size={14} /> Add Test Criteria
+          </button>
+        </div>
+      )}
       <div className="space-y-4">
         {strategy.sections.map((section) => {
           const color = TYPE_COLORS[section.type] ?? T.slate;
@@ -306,8 +319,11 @@ export default function TestingModule() {
                     {section.enabled ? <ToggleRight size={22} /> : <ToggleLeft size={22} />}
                   </button>
                   <button onClick={() => activeDocumentId && removeTestSection(activeDocumentId, section.id)}
-                    className="text-gray-300 hover:text-red-500 transition-colors">
+                    title="Remove Test Criteria"
+                    className="text-gray-300 hover:text-red-500 transition-colors flex items-center gap-1 text-xs"
+                    style={{ color: '#CBD5E1' }}>
                     <Trash2 size={14} />
+                    <span className="hidden sm:inline" style={{ color: 'inherit', fontSize: 10 }}>Remove</span>
                   </button>
                 </div>
               </div>

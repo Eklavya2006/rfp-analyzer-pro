@@ -41,6 +41,53 @@ const VIEW_LABELS: Record<AgenticView, string> = {
   client:  '👤 Client View',
 };
 
+// ── Info Tooltip for chart headings ──────────────────────────
+function ChartTooltip({ text }: { text: string }) {
+  const [show, setShow] = useState(false);
+  return (
+    <div className="relative inline-flex" style={{ verticalAlign: 'middle' }}>
+      <button
+        type="button"
+        onMouseEnter={() => setShow(true)}
+        onMouseLeave={() => setShow(false)}
+        onFocus={() => setShow(true)}
+        onBlur={() => setShow(false)}
+        aria-label="More information"
+        style={{
+          width: 18, height: 18, borderRadius: '50%',
+          background: '#E2E8F0', color: '#4A5568',
+          fontSize: 11, fontWeight: 700,
+          border: 'none', cursor: 'pointer',
+          display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
+          flexShrink: 0,
+        }}>
+        ⓘ
+      </button>
+      {show && (
+        <div style={{
+          position: 'absolute', bottom: '100%', left: '50%', transform: 'translateX(-50%)',
+          marginBottom: 8, zIndex: 50,
+          background: '#1A202C', color: '#F7FAFC',
+          fontSize: 11, lineHeight: 1.55,
+          borderRadius: 10, padding: '10px 14px',
+          width: 280, boxShadow: '0 8px 24px rgba(0,0,0,0.3)',
+          pointerEvents: 'none',
+          whiteSpace: 'normal',
+        }}>
+          {text}
+          {/* caret */}
+          <div style={{
+            position: 'absolute', top: '100%', left: '50%', transform: 'translateX(-50%)',
+            width: 0, height: 0,
+            borderLeft: '6px solid transparent', borderRight: '6px solid transparent',
+            borderTop: '6px solid #1A202C',
+          }} />
+        </div>
+      )}
+    </div>
+  );
+}
+
 // ── IBM View ──────────────────────────────────────────────────
 function IBMView({ ai }: { ai: AIImpact }) {
   const totalTokens = ai.roleRows.reduce((a: number, r: AIRoleRow) => a + (r.tokenUsage ?? 8000), 0);
@@ -383,7 +430,10 @@ export default function AgenticImpactModule() {
       {/* ── Agent Activity Timeline + Task Type Pie ── */}
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
         <div className="lg:col-span-2 bg-white rounded-2xl border p-5" style={{ borderColor: '#E2E8F0' }}>
-          <h3 style={{ fontSize: 16, fontWeight: 600, color: '#0A1628', marginBottom: 20 }}>Agent Activity Timeline (24h)</h3>
+          <div className="flex items-center gap-2 mb-5">
+            <span style={{ fontSize: 16, fontWeight: 600, color: '#0A1628' }}>Agent Activity Timeline (24h)</span>
+            <ChartTooltip text="Shows the distribution of agent actions over a 24-hour window. Peaks indicate high automation activity periods — typically during business hours (08:00–18:00). Use this to identify efficiency gains, bottlenecks, and optimal scheduling windows. Higher activity directly correlates with reduced manual hours and faster turnaround, contributing to measurable ROI." />
+          </div>
           <ResponsiveContainer width="100%" height={220}>
             <AreaChart data={activityData} margin={{ left: -10, right: 10 }}>
               <defs>
@@ -411,7 +461,10 @@ export default function AgenticImpactModule() {
         </div>
 
         <div className="bg-white rounded-2xl border p-5" style={{ borderColor: '#E2E8F0' }}>
-          <h3 style={{ fontSize: 16, fontWeight: 600, color: '#0A1628', marginBottom: 20 }}>Task Type Distribution</h3>
+          <div className="flex items-center gap-2 mb-5">
+            <span style={{ fontSize: 16, fontWeight: 600, color: '#0A1628' }}>Task Type Distribution</span>
+            <ChartTooltip text="Breaks down agent tasks by category: Analysis, Extraction, Scoring, Summarization, and Validation. Identifies which task types benefit most from automation and where cost savings are highest. Higher automation coverage per task type reduces per-task cost and improves overall delivery quality. ROI is driven by shifting high-volume, repetitive tasks to AI agents." />
+          </div>
           <ResponsiveContainer width={200} height={200}>
             <PieChart>
               <Pie data={taskTypeData} cx="50%" cy="50%" innerRadius={55} outerRadius={85}

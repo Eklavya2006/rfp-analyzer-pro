@@ -23,31 +23,80 @@ const IBM_BAND_RATES: Record<IBMBand, { desc: string; rate: number }> = {
   'D':  { desc: 'Distinguished / Senior Executive', rate: 200 },
 };
 
+// ── Extract a short description for a given section tag from raw text ──
+function extractSectionDesc(text: string, sectionTag: string, fallback: string): string {
+  // Try to find the section heading and grab the first substantive sentence after it
+  const tagLower = sectionTag.toLowerCase().replace('section ', '');
+  // patterns: "2.1", "section 2.1", "2.1.", etc.
+  const patterns = [
+    new RegExp(`(?:section\\s*)?${tagLower.replace('.', '\\.')}[:\\s.]+([^\\n.]{15,120})`, 'i'),
+    new RegExp(`(?:section\\s*)?${tagLower.replace('.', '\\.')}\\s*[:\\-–]?\\s*([^\\n]{15,120})`, 'i'),
+  ];
+  for (const pat of patterns) {
+    const m = text.match(pat);
+    if (m?.[1]) {
+      const desc = m[1].trim().replace(/\s+/g, ' ');
+      if (desc.length > 10) return desc.charAt(0).toUpperCase() + desc.slice(1);
+    }
+  }
+  // Try keyword-based extraction
+  const keywordMap: Record<string, string[]> = {
+    cloud:        ['cloud', 'infrastructure', 'migration', 'hybrid'],
+    ai:           ['ai', 'ml', 'machine learning', 'watson', 'artificial intelligence'],
+    data:         ['data', 'etl', 'pipeline', 'lakehouse', 'integration'],
+    security:     ['security', 'compliance', 'siem', 'qradar'],
+    training:     ['training', 'change management', 'knowledge transfer'],
+    saas:         ['saas', 'licensing', 'third-party'],
+    hardware:     ['hardware', 'procurement', 'equipment'],
+    legacy:       ['legacy', 'existing data', 'data quality'],
+    architecture: ['architecture', 'design', 'blueprint'],
+    mvp:          ['mvp', 'platform', 'release', 'deployment'],
+    testing:      ['test', 'uat', 'qa', 'quality'],
+    support:      ['support', 'hypercare', 'post-go-live', 'maintenance'],
+  };
+  const lower = text.toLowerCase();
+  for (const [, keywords] of Object.entries(keywordMap)) {
+    if (keywords.some(k => fallback.toLowerCase().includes(k))) {
+      // Find a sentence in the doc containing the keyword
+      for (const kw of keywords) {
+        const idx = lower.indexOf(kw);
+        if (idx >= 0) {
+          const start = Math.max(0, lower.lastIndexOf('\n', idx) + 1);
+          const end   = Math.min(lower.length, lower.indexOf('\n', idx + kw.length));
+          const snippet = text.slice(start, end > start ? end : start + 120).trim().replace(/\s+/g, ' ');
+          if (snippet.length > 15) return snippet.charAt(0).toUpperCase() + snippet.slice(1);
+        }
+      }
+    }
+  }
+  return fallback;
+}
+
 export function runFullAnalysis(docId: string, text: string): AnalysisResult {
   const lower = text.toLowerCase();
 
-  // ── Scope Items ──────────────────────────────────────────
+  // ── Scope Items — descriptions populated from document text ──
   const scopeItems: ScopeItem[] = [
-    { id: uuid(), description: 'Cloud infrastructure setup and migration', referenceSection: 'Section 2.1', pageNumber: 'Page 4', category: 'in-scope' },
-    { id: uuid(), description: 'AI/ML model development and training', referenceSection: 'Section 2.3', pageNumber: 'Page 7', category: 'in-scope' },
-    { id: uuid(), description: 'Data integration and ETL pipeline development', referenceSection: 'Section 3.1', pageNumber: 'Page 10', category: 'in-scope' },
-    { id: uuid(), description: 'Security implementation and compliance', referenceSection: 'Section 3.4', pageNumber: 'Page 14', category: 'in-scope' },
-    { id: uuid(), description: 'End-user training and change management', referenceSection: 'Section 4.2', pageNumber: 'Page 18', category: 'in-scope' },
-    { id: uuid(), description: 'Third-party SaaS licensing', referenceSection: 'Section 5.1', pageNumber: 'Page 22', category: 'out-of-scope' },
-    { id: uuid(), description: 'Hardware procurement', referenceSection: 'Section 5.2', pageNumber: 'Page 23', category: 'out-of-scope' },
-    { id: uuid(), description: 'Existing legacy data is clean and accessible', referenceSection: 'Section 6.1', pageNumber: 'Page 26', category: 'assumption' },
+    { id: uuid(), description: extractSectionDesc(text, 'Section 2.1', lower.includes('cloud') ? 'Cloud infrastructure setup and migration' : 'Not found in document'), referenceSection: 'Section 2.1', pageNumber: 'Page 4', category: 'in-scope' },
+    { id: uuid(), description: extractSectionDesc(text, 'Section 2.3', lower.includes('ai') || lower.includes('ml') ? 'AI/ML model development and training' : 'Not found in document'), referenceSection: 'Section 2.3', pageNumber: 'Page 7', category: 'in-scope' },
+    { id: uuid(), description: extractSectionDesc(text, 'Section 3.1', lower.includes('data') || lower.includes('etl') ? 'Data integration and ETL pipeline development' : 'Not found in document'), referenceSection: 'Section 3.1', pageNumber: 'Page 10', category: 'in-scope' },
+    { id: uuid(), description: extractSectionDesc(text, 'Section 3.4', lower.includes('security') ? 'Security implementation and compliance' : 'Not found in document'), referenceSection: 'Section 3.4', pageNumber: 'Page 14', category: 'in-scope' },
+    { id: uuid(), description: extractSectionDesc(text, 'Section 4.2', lower.includes('training') || lower.includes('change') ? 'End-user training and change management' : 'Not found in document'), referenceSection: 'Section 4.2', pageNumber: 'Page 18', category: 'in-scope' },
+    { id: uuid(), description: extractSectionDesc(text, 'Section 5.1', 'Third-party SaaS licensing'), referenceSection: 'Section 5.1', pageNumber: 'Page 22', category: 'out-of-scope' },
+    { id: uuid(), description: extractSectionDesc(text, 'Section 5.2', 'Hardware procurement'), referenceSection: 'Section 5.2', pageNumber: 'Page 23', category: 'out-of-scope' },
+    { id: uuid(), description: extractSectionDesc(text, 'Section 6.1', 'Existing legacy data is clean and accessible'), referenceSection: 'Section 6.1', pageNumber: 'Page 26', category: 'assumption' },
   ];
 
-  // ── Deliverables ─────────────────────────────────────────
+  // ── Deliverables — descriptions populated from document text ──
   const deliverableItems: DeliverableItem[] = [
-    { id: uuid(), description: 'Solution Architecture Document', referenceSection: 'Section 2.1', pageNumber: 'Page 5', phase: 'Discovery', priority: 'high' },
-    { id: uuid(), description: 'Data Model & Schema Design', referenceSection: 'Section 2.3', pageNumber: 'Page 8', phase: 'Design', priority: 'high' },
-    { id: uuid(), description: 'MVP Release — Core Platform', referenceSection: 'Section 3.1', pageNumber: 'Page 11', phase: 'Development', priority: 'high' },
-    { id: uuid(), description: 'Test Strategy & Test Cases', referenceSection: 'Section 3.3', pageNumber: 'Page 13', phase: 'Testing', priority: 'medium' },
-    { id: uuid(), description: 'UAT Sign-off Report', referenceSection: 'Section 3.4', pageNumber: 'Page 15', phase: 'Testing', priority: 'high' },
-    { id: uuid(), description: 'Production Deployment Runbook', referenceSection: 'Section 4.1', pageNumber: 'Page 17', phase: 'Deployment', priority: 'medium' },
-    { id: uuid(), description: 'Knowledge Transfer & Training Material', referenceSection: 'Section 4.2', pageNumber: 'Page 19', phase: 'Hypercare', priority: 'medium' },
-    { id: uuid(), description: 'Post-Go-Live Support Plan', referenceSection: 'Section 4.3', pageNumber: 'Page 20', phase: 'Hypercare', priority: 'low' },
+    { id: uuid(), description: extractSectionDesc(text, 'Section 2.1', lower.includes('architecture') ? 'Solution Architecture Document' : 'Not found in document'), referenceSection: 'Section 2.1', pageNumber: 'Page 5', phase: 'Discovery', priority: 'high' },
+    { id: uuid(), description: extractSectionDesc(text, 'Section 2.3', lower.includes('data') ? 'Data Model & Schema Design' : 'Not found in document'), referenceSection: 'Section 2.3', pageNumber: 'Page 8', phase: 'Design', priority: 'high' },
+    { id: uuid(), description: extractSectionDesc(text, 'Section 3.1', lower.includes('mvp') || lower.includes('platform') ? 'MVP Release — Core Platform' : 'Not found in document'), referenceSection: 'Section 3.1', pageNumber: 'Page 11', phase: 'Development', priority: 'high' },
+    { id: uuid(), description: extractSectionDesc(text, 'Section 3.3', lower.includes('test') ? 'Test Strategy & Test Cases' : 'Not found in document'), referenceSection: 'Section 3.3', pageNumber: 'Page 13', phase: 'Testing', priority: 'medium' },
+    { id: uuid(), description: extractSectionDesc(text, 'Section 3.4', lower.includes('uat') ? 'UAT Sign-off Report' : 'Not found in document'), referenceSection: 'Section 3.4', pageNumber: 'Page 15', phase: 'Testing', priority: 'high' },
+    { id: uuid(), description: extractSectionDesc(text, 'Section 4.1', lower.includes('deployment') ? 'Production Deployment Runbook' : 'Not found in document'), referenceSection: 'Section 4.1', pageNumber: 'Page 17', phase: 'Deployment', priority: 'medium' },
+    { id: uuid(), description: extractSectionDesc(text, 'Section 4.2', lower.includes('training') || lower.includes('knowledge') ? 'Knowledge Transfer & Training Material' : 'Not found in document'), referenceSection: 'Section 4.2', pageNumber: 'Page 19', phase: 'Hypercare', priority: 'medium' },
+    { id: uuid(), description: extractSectionDesc(text, 'Section 4.3', lower.includes('support') ? 'Post-Go-Live Support Plan' : 'Not found in document'), referenceSection: 'Section 4.3', pageNumber: 'Page 20', phase: 'Hypercare', priority: 'low' },
   ];
 
   // ── IBM Offerings ─────────────────────────────────────────

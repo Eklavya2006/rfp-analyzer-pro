@@ -1,6 +1,6 @@
 'use client';
-// DocumentAnalyzer — canonical page count + scroll-hint banner from scope links
-import React, { useCallback, useState, useEffect } from 'react';
+// DocumentAnalyzer — canonical page count + scroll-hint banner + highlighted page navigation
+import React, { useCallback, useState, useEffect, useRef } from 'react';
 import { useDropzone } from 'react-dropzone';
 import { motion, AnimatePresence } from 'framer-motion';
 import { FileText, Upload, CheckCircle, AlertCircle, Loader2, Zap, Trash2, BookOpen, X, Paperclip } from 'lucide-react';
@@ -29,19 +29,31 @@ export default function DocumentAnalyzer() {
   const activeDoc = documents.find((d) => d.id === activeDocumentId);
   void activeDoc;
 
-  // ── Scroll-hint banner: surfaced when user clicks a scope/deliverable link ──
+  // ── Scroll-hint banner + in-page text highlight for scope/deliverable links ──
   const [scrollHint, setScrollHint] = useState<{ section: string; page: string } | null>(null);
+  const textPreviewRef = useRef<HTMLDivElement>(null);
+
   useEffect(() => {
     try {
       const raw = sessionStorage.getItem('rfp-scroll-hint');
       if (raw) {
         const hint = JSON.parse(raw) as { section: string; page: string; ts: number };
-        // Only show if hint was set within the last 3 seconds
-        if (Date.now() - hint.ts < 3000) setScrollHint({ section: hint.section, page: hint.page });
+        // Accept hints set within the last 10 seconds
+        if (Date.now() - hint.ts < 10000) setScrollHint({ section: hint.section, page: hint.page });
         sessionStorage.removeItem('rfp-scroll-hint');
       }
     } catch {}
   }, []);
+
+  // Scroll to and highlight the referenced text when hint is set
+  useEffect(() => {
+    if (!scrollHint || !textPreviewRef.current) return;
+    const container = textPreviewRef.current;
+    const marks = container.querySelectorAll<HTMLElement>('.rfp-highlight');
+    if (marks.length > 0) {
+      marks[0].scrollIntoView({ behavior: 'smooth', block: 'center' });
+    }
+  }, [scrollHint]);
 
   const processFile = useCallback(async (file: File) => {
     const docId = uuid();
@@ -202,7 +214,55 @@ export default function DocumentAnalyzer() {
           ))}
         </div>
       )}
-      {/* NOTE: Extracted Content Preview section intentionally removed (Section 2 requirement) */}
+      {/* ── Document Text Preview with Section Highlight (Issue 1) ── */}
+      {activeDoc?.rawText && (
+        <div className="mt-8">
+          <div className="flex items-center justify-between mb-3">
+            <h3 className="text-sm font-bold" style={{ color: '#374151' }}>
+              Document Content
+              {scrollHint && (
+                <span className="ml-2 text-xs font-normal" style={{ color: TEAL }}>
+                  ↳ Showing: {scrollHint.section}{scrollHint.page ? `, ${scrollHint.page}` : ''}
+                </span>
+              )}
+            </h3>
+            {scrollHint && (
+              <button onClick={() => setScrollHint(null)}
+                className="text-xs text-gray-400 hover:text-gray-600 flex items-center gap-1">
+                <X size={12} /> Clear highlight
+              </button>
+            )}
+          </div>
+          <div
+            ref={textPreviewRef}
+            className="rounded-2xl border p-5 overflow-y-auto"
+            style={{ borderColor: '#E2E8F0', background: '#F8FAFC', maxHeight: 420, fontSize: 12, lineHeight: 1.7, color: '#374151', fontFamily: 'var(--font-mono)', whiteSpace: 'pre-wrap' }}>
+            {scrollHint
+              ? (() => {
+                  const raw = activeDoc.rawText ?? '';
+                  const needle = scrollHint.section.replace('Section ', '');
+                  const idx = raw.toLowerCase().indexOf(needle.toLowerCase());
+                  if (idx < 0) return <span>{raw}</span>;
+                  const before = raw.slice(0, idx);
+                  const match  = raw.slice(idx, idx + needle.length + 150);
+                  const after  = raw.slice(idx + needle.length + 150);
+                  return (
+                    <>
+                      {before}
+                      <mark
+                        className="rfp-highlight"
+                        style={{ background: '#FFF3CD', borderRadius: 4, padding: '1px 3px', outline: '2px solid #F59E0B', outlineOffset: 1, color: '#78350F', fontWeight: 600 }}>
+                        {match}
+                      </mark>
+                      {after}
+                    </>
+                  );
+                })()
+              : activeDoc.rawText
+            }
+          </div>
+        </div>
+      )}
     </div>
   );
 }
