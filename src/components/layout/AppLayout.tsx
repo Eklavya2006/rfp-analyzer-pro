@@ -1,6 +1,7 @@
 'use client';
 // ============================================================
-// AppLayout — IBM Blue sidebar (preserved) + new palette header + modern avatar
+// AppLayout — Dark Glassmorphism · Deep navy bg · Indigo/cyan accents
+// IBM Blue sidebar preserved · Frosted glass header + content
 // ============================================================
 import React, { useState, useRef, useEffect } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
@@ -10,16 +11,26 @@ import type { TabId } from '@/types';
 import { ChevronLeft, ChevronRight, User, Settings, LogOut, ChevronDown } from 'lucide-react';
 import ChangeNotificationModal from '@/components/ChangeNotificationModal';
 
-// ── New professional palette (main area only) ─────────────────
+// ── Dark theme palette tokens ─────────────────────────────────
 export const P = {
-  primary:   '#1E3A5F',
-  teal:      '#0D7377',
-  amber:     '#F4A261',
-  surface:   '#F8FAFC',
-  white:     '#FFFFFF',
-  border:    '#E2E8F0',
-  textPri:   '#1A202C',
-  textSec:   '#4A5568',
+  bg:        '#0A0F1E',
+  bg2:       '#0D1424',
+  glass:     'rgba(255,255,255,0.04)',
+  glassBd:   'rgba(255,255,255,0.08)',
+  glassHi:   'rgba(99,102,241,0.3)',
+  indigo:    '#6366F1',
+  indigoLt:  '#818CF8',
+  cyan:      '#06B6D4',
+  textPri:   '#F1F5F9',
+  textSec:   '#94A3B8',
+  textMuted: '#475569',
+  // Legacy aliases used by other components
+  primary:   '#6366F1',
+  teal:      '#06B6D4',
+  amber:     '#F59E0B',
+  surface:   '#0A0F1E',
+  white:     '#F1F5F9',
+  border:    'rgba(255,255,255,0.08)',
 };
 
 interface NavItem {
@@ -29,25 +40,26 @@ interface NavItem {
   requiresDoc?: boolean;
 }
 
-// ── Animated SVG icons (unchanged from original) ─────────────
+// ── Animated SVG icons (stroke colour adapts to dark theme) ───
 function IconDocAnalyzer({ active }: { active: boolean }) {
+  const c = active ? '#fff' : 'rgba(165,180,252,0.7)';
   return (
     <svg width="20" height="20" viewBox="0 0 24 24" fill="none">
-      <motion.rect x="4" y="2" width="12" height="16" rx="2" stroke={active ? '#fff' : '#a8c8ff'} strokeWidth="1.5"
+      <motion.rect x="4" y="2" width="12" height="16" rx="2" stroke={c} strokeWidth="1.5"
         animate={{ opacity: [1, 0.6, 1] }} transition={{ duration: 2, repeat: Infinity }} />
-      <motion.line x1="7" y1="7" x2="13" y2="7" stroke={active ? '#fff' : '#a8c8ff'} strokeWidth="1.5"
+      <motion.line x1="7" y1="7" x2="13" y2="7" stroke={c} strokeWidth="1.5"
         animate={{ x2: [13, 11, 13] }} transition={{ duration: 1.8, repeat: Infinity }} />
-      <line x1="7" y1="10" x2="13" y2="10" stroke={active ? '#fff' : '#a8c8ff'} strokeWidth="1.5" />
-      <line x1="7" y1="13" x2="11" y2="13" stroke={active ? '#fff' : '#a8c8ff'} strokeWidth="1.5" />
-      <motion.circle cx="18" cy="18" r="4" stroke={active ? '#fff' : '#a8c8ff'} strokeWidth="1.5"
+      <line x1="7" y1="10" x2="13" y2="10" stroke={c} strokeWidth="1.5" />
+      <line x1="7" y1="13" x2="11" y2="13" stroke={c} strokeWidth="1.5" />
+      <motion.circle cx="18" cy="18" r="4" stroke={c} strokeWidth="1.5"
         animate={{ r: [4, 4.8, 4] }} transition={{ duration: 1.5, repeat: Infinity }} />
-      <motion.line x1="21" y1="21" x2="23" y2="23" stroke={active ? '#fff' : '#a8c8ff'} strokeWidth="1.5"
+      <motion.line x1="21" y1="21" x2="23" y2="23" stroke={c} strokeWidth="1.5"
         animate={{ x2: [23, 24, 23], y2: [23, 24, 23] }} transition={{ duration: 1.5, repeat: Infinity }} />
     </svg>
   );
 }
 function IconDashboard({ active }: { active: boolean }) {
-  const c = active ? '#fff' : '#a8c8ff';
+  const c = active ? '#fff' : 'rgba(165,180,252,0.7)';
   return (
     <svg width="20" height="20" viewBox="0 0 24 24" fill="none">
       <motion.rect x="3" y="12" width="4" height="9" rx="1" fill={c} animate={{ height: [9, 12, 9] }} transition={{ duration: 1.4, repeat: Infinity }} />
@@ -57,7 +69,7 @@ function IconDashboard({ active }: { active: boolean }) {
   );
 }
 function IconScope({ active }: { active: boolean }) {
-  const c = active ? '#fff' : '#a8c8ff';
+  const c = active ? '#fff' : 'rgba(165,180,252,0.7)';
   return (
     <svg width="20" height="20" viewBox="0 0 24 24" fill="none">
       <rect x="3" y="3" width="18" height="18" rx="3" stroke={c} strokeWidth="1.5" />
@@ -67,7 +79,7 @@ function IconScope({ active }: { active: boolean }) {
   );
 }
 function IconOfferings({ active }: { active: boolean }) {
-  const c = active ? '#fff' : '#a8c8ff';
+  const c = active ? '#fff' : 'rgba(165,180,252,0.7)';
   return (
     <svg width="20" height="20" viewBox="0 0 24 24" fill="none">
       <motion.path d="M12 2l2 4 5 .7-3.5 3.4.8 5L12 13l-4.3 2.1.8-5L5 6.7 10 6z" stroke={c} strokeWidth="1.5" strokeLinejoin="round"
@@ -77,7 +89,7 @@ function IconOfferings({ active }: { active: boolean }) {
   );
 }
 function IconProjectPlan({ active }: { active: boolean }) {
-  const c = active ? '#fff' : '#a8c8ff';
+  const c = active ? '#fff' : 'rgba(165,180,252,0.7)';
   return (
     <svg width="20" height="20" viewBox="0 0 24 24" fill="none">
       <rect x="3" y="4" width="18" height="16" rx="2" stroke={c} strokeWidth="1.5" />
@@ -88,7 +100,7 @@ function IconProjectPlan({ active }: { active: boolean }) {
   );
 }
 function IconStaffing({ active }: { active: boolean }) {
-  const c = active ? '#fff' : '#a8c8ff';
+  const c = active ? '#fff' : 'rgba(165,180,252,0.7)';
   return (
     <svg width="20" height="20" viewBox="0 0 24 24" fill="none">
       <circle cx="12" cy="7" r="3.5" stroke={c} strokeWidth="1.5" />
@@ -101,7 +113,7 @@ function IconStaffing({ active }: { active: boolean }) {
   );
 }
 function IconTesting({ active }: { active: boolean }) {
-  const c = active ? '#fff' : '#a8c8ff';
+  const c = active ? '#fff' : 'rgba(165,180,252,0.7)';
   return (
     <svg width="20" height="20" viewBox="0 0 24 24" fill="none">
       <motion.path d="M9 3h6l3 8H6z" stroke={c} strokeWidth="1.5" strokeLinejoin="round"
@@ -113,7 +125,7 @@ function IconTesting({ active }: { active: boolean }) {
   );
 }
 function IconEstimation({ active }: { active: boolean }) {
-  const c = active ? '#fff' : '#a8c8ff';
+  const c = active ? '#fff' : 'rgba(165,180,252,0.7)';
   return (
     <svg width="20" height="20" viewBox="0 0 24 24" fill="none">
       <rect x="4" y="2" width="16" height="20" rx="2" stroke={c} strokeWidth="1.5" />
@@ -126,7 +138,7 @@ function IconEstimation({ active }: { active: boolean }) {
   );
 }
 function IconAgenticImpact({ active }: { active: boolean }) {
-  const c = active ? '#fff' : '#a8c8ff';
+  const c = active ? '#fff' : 'rgba(165,180,252,0.7)';
   return (
     <svg width="20" height="20" viewBox="0 0 24 24" fill="none">
       <motion.ellipse cx="8" cy="12" rx="5" ry="7" stroke={c} strokeWidth="1.5"
@@ -139,7 +151,7 @@ function IconAgenticImpact({ active }: { active: boolean }) {
   );
 }
 function IconProposal({ active }: { active: boolean }) {
-  const c = active ? '#fff' : '#a8c8ff';
+  const c = active ? '#fff' : 'rgba(165,180,252,0.7)';
   return (
     <svg width="20" height="20" viewBox="0 0 24 24" fill="none">
       <rect x="4" y="2" width="13" height="17" rx="2" stroke={c} strokeWidth="1.5" />
@@ -152,16 +164,16 @@ function IconProposal({ active }: { active: boolean }) {
 }
 
 const NAV_ITEMS: NavItem[] = [
-  { id: 'document-analyzer', label: 'Document Analyzer',    description: 'Upload & analyze RFP' },
-  { id: 'dashboard',         label: 'Dashboard',            description: 'Overview & metrics',          requiresDoc: true },
-  { id: 'scope',             label: 'Scope & Deliverables', description: 'Scope items & deliverables',  requiresDoc: true },
-  { id: 'offerings',         label: 'Offerings / Technology', description: 'IBM offerings & tech',      requiresDoc: true },
-  { id: 'project-plan',      label: 'Project Plan',         description: 'Phases & Gantt timeline',     requiresDoc: true },
-  { id: 'staffing',          label: 'Staffing Plan',        description: 'IBM Band staffing',           requiresDoc: true },
-  { id: 'testing',           label: 'Testing',              description: 'QA strategy',                 requiresDoc: true },
-  { id: 'estimation',        label: 'Estimation',           description: 'Effort & cost breakdown',     requiresDoc: true },
-  { id: 'agentic-impact',    label: 'Agentic Impact',       description: 'AI vs traditional',           requiresDoc: true },
-  { id: 'proposal',          label: 'Create Proposal',      description: 'Generate client proposal',    requiresDoc: true },
+  { id: 'document-analyzer', label: 'Document Analyzer',      description: 'Upload & analyze RFP' },
+  { id: 'dashboard',         label: 'Dashboard',              description: 'Overview & metrics',            requiresDoc: true },
+  { id: 'scope',             label: 'Scope & Deliverables',   description: 'Scope items & deliverables',    requiresDoc: true },
+  { id: 'offerings',         label: 'Offerings / Technology', description: 'IBM offerings & tech',          requiresDoc: true },
+  { id: 'project-plan',      label: 'Project Plan',           description: 'Phases & Gantt timeline',       requiresDoc: true },
+  { id: 'staffing',          label: 'Staffing Plan',          description: 'IBM Band staffing',             requiresDoc: true },
+  { id: 'testing',           label: 'Testing',                description: 'QA strategy',                   requiresDoc: true },
+  { id: 'estimation',        label: 'Estimation',             description: 'Effort & cost breakdown',       requiresDoc: true },
+  { id: 'agentic-impact',    label: 'Agentic Impact',         description: 'AI vs traditional',             requiresDoc: true },
+  { id: 'proposal',          label: 'Create Proposal',        description: 'Generate client proposal',      requiresDoc: true },
 ];
 
 function NavIcon({ id, active }: { id: TabId; active: boolean }) {
@@ -180,7 +192,7 @@ function NavIcon({ id, active }: { id: TabId; active: boolean }) {
   }
 }
 
-// ── Modern illustrated SVG Avatar ────────────────────────────
+// ── Dark avatar with gradient ring ───────────────────────────
 function ModernAvatar() {
   const [open, setOpen] = useState(false);
   const ref = useRef<HTMLDivElement>(null);
@@ -197,38 +209,30 @@ function ModernAvatar() {
     <div ref={ref} className="relative">
       <button
         onClick={() => setOpen((o) => !o)}
-        className="flex items-center gap-2 rounded-xl px-2 py-1.5 hover:bg-slate-50 transition-colors"
+        className="flex items-center gap-2 rounded-xl px-2 py-1.5 transition-all duration-200"
+        style={{ background: 'rgba(255,255,255,0.05)', border: '1px solid rgba(255,255,255,0.08)' }}
         aria-label="User menu"
       >
-        {/* Illustrated SVG avatar */}
         <div className="relative">
-          <svg width="36" height="36" viewBox="0 0 36 36" fill="none" xmlns="http://www.w3.org/2000/svg">
-            {/* Gradient ring */}
+          <svg width="34" height="34" viewBox="0 0 36 36" fill="none">
             <defs>
-              <linearGradient id="avatarRing" x1="0" y1="0" x2="36" y2="36" gradientUnits="userSpaceOnUse">
-                <stop stopColor="#1E3A5F" />
-                <stop offset="0.5" stopColor="#0D7377" />
-                <stop offset="1" stopColor="#F4A261" />
+              <linearGradient id="avatarRingDark" x1="0" y1="0" x2="36" y2="36" gradientUnits="userSpaceOnUse">
+                <stop stopColor="#6366F1" />
+                <stop offset="0.5" stopColor="#06B6D4" />
+                <stop offset="1" stopColor="#8B5CF6" />
               </linearGradient>
             </defs>
-            <circle cx="18" cy="18" r="17" stroke="url(#avatarRing)" strokeWidth="2" fill="white" />
-            {/* Face background */}
-            <circle cx="18" cy="18" r="14" fill="#EFF6FF" />
-            {/* Hair */}
-            <ellipse cx="18" cy="10" rx="8" ry="5" fill="#1E3A5F" />
-            <rect x="10" y="10" width="16" height="5" fill="#1E3A5F" />
-            {/* Face */}
-            <ellipse cx="18" cy="18" rx="7" ry="7.5" fill="#FDDCB5" />
-            {/* Eyes */}
+            <circle cx="18" cy="18" r="17" stroke="url(#avatarRingDark)" strokeWidth="2" fill="rgba(255,255,255,0.05)" />
+            <circle cx="18" cy="18" r="14" fill="#1E2744" />
+            <ellipse cx="18" cy="10" rx="8" ry="5" fill="#6366F1" />
+            <rect x="10" y="10" width="16" height="5" fill="#6366F1" />
+            <ellipse cx="18" cy="18" rx="7" ry="7.5" fill="#C9A67E" />
             <circle cx="15.5" cy="17" r="1.2" fill="#1A202C" />
             <circle cx="20.5" cy="17" r="1.2" fill="#1A202C" />
-            {/* Eye highlights */}
             <circle cx="16" cy="16.5" r="0.4" fill="white" />
             <circle cx="21" cy="16.5" r="0.4" fill="white" />
-            {/* Smile */}
-            <path d="M15 20.5 Q18 23 21 20.5" stroke="#C07A4A" strokeWidth="1" fill="none" strokeLinecap="round" />
-            {/* Collar */}
-            <path d="M11 30 L14 24 L18 26 L22 24 L25 30" fill="#1E3A5F" />
+            <path d="M15 20.5 Q18 23 21 20.5" stroke="#A07040" strokeWidth="1" fill="none" strokeLinecap="round" />
+            <path d="M11 30 L14 24 L18 26 L22 24 L25 30" fill="#6366F1" />
           </svg>
         </div>
         <div className="hidden sm:block text-left">
@@ -245,10 +249,14 @@ function ModernAvatar() {
             animate={{ opacity: 1, y: 0, scale: 1 }}
             exit={{ opacity: 0, y: -6, scale: 0.95 }}
             transition={{ duration: 0.14 }}
-            className="absolute right-0 top-full mt-2 w-48 rounded-2xl shadow-xl border z-50 overflow-hidden"
-            style={{ background: P.white, borderColor: P.border }}
+            className="absolute right-0 top-full mt-2 w-48 rounded-2xl shadow-2xl z-50 overflow-hidden"
+            style={{
+              background: 'rgba(17,24,39,0.95)',
+              backdropFilter: 'blur(16px)',
+              border: '1px solid rgba(99,102,241,0.25)',
+            }}
           >
-            <div className="px-4 py-3 border-b" style={{ borderColor: P.border }}>
+            <div className="px-4 py-3" style={{ borderBottom: '1px solid rgba(255,255,255,0.07)' }}>
               <div className="text-xs font-bold" style={{ color: P.textPri }}>IBMer</div>
               <div className="text-[10px]" style={{ color: P.textSec }}>ibmer@ibm.com</div>
             </div>
@@ -256,13 +264,21 @@ function ModernAvatar() {
               { icon: User, label: 'Profile' },
               { icon: Settings, label: 'Settings' },
             ].map(({ icon: Icon, label }) => (
-              <button key={label} className="w-full flex items-center gap-3 px-4 py-2.5 text-sm hover:bg-slate-50 transition-colors" style={{ color: P.textPri }}>
+              <button key={label} className="w-full flex items-center gap-3 px-4 py-2.5 text-sm transition-colors"
+                style={{ color: P.textPri }}
+                onMouseEnter={(e) => (e.currentTarget.style.background = 'rgba(99,102,241,0.1)')}
+                onMouseLeave={(e) => (e.currentTarget.style.background = 'transparent')}
+              >
                 <Icon size={14} style={{ color: P.textSec }} />
                 {label}
               </button>
             ))}
-            <div className="border-t" style={{ borderColor: P.border }} />
-            <button className="w-full flex items-center gap-3 px-4 py-2.5 text-sm text-red-500 hover:bg-red-50 transition-colors">
+            <div style={{ borderTop: '1px solid rgba(255,255,255,0.07)' }} />
+            <button className="w-full flex items-center gap-3 px-4 py-2.5 text-sm transition-colors"
+              style={{ color: '#F87171' }}
+              onMouseEnter={(e) => (e.currentTarget.style.background = 'rgba(244,63,94,0.08)')}
+              onMouseLeave={(e) => (e.currentTarget.style.background = 'transparent')}
+            >
               <LogOut size={14} />
               Sign Out
             </button>
@@ -279,8 +295,9 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
   const activeNavItem = NAV_ITEMS.find((n) => n.id === activeTab);
 
   return (
-    <div className="flex h-screen overflow-hidden" style={{ background: P.surface }}>
-      {/* ── IBM Blue Sidebar — UNCHANGED ── */}
+    <div className="flex h-screen overflow-hidden" style={{ background: P.bg }}>
+
+      {/* ── IBM Blue Sidebar — preserved, icon colours updated ── */}
       <motion.aside
         initial={false}
         animate={{ width: sidebarOpen ? 240 : 64 }}
@@ -289,7 +306,8 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
         className="flex flex-col h-full shrink-0 z-20 overflow-hidden shadow-2xl"
       >
         {/* Logo */}
-        <div className="flex items-center justify-between px-4 h-16 shrink-0" style={{ borderBottom: '1px solid rgba(255,255,255,0.15)' }}>
+        <div className="flex items-center justify-between px-4 h-16 shrink-0"
+          style={{ borderBottom: '1px solid rgba(255,255,255,0.15)' }}>
           <div className="flex items-center gap-2.5 min-w-0 overflow-hidden">
             <div className="w-8 h-8 rounded-lg bg-white flex items-center justify-center shrink-0 shadow-sm">
               <span className="text-xs font-black" style={{ color: '#0F62FE' }}>IBM</span>
@@ -311,7 +329,8 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
 
         {/* Active Document Badge */}
         {sidebarOpen && activeDoc && (
-          <div className="mx-3 my-2 bg-white/10 rounded-xl p-2.5">
+          <div className="mx-3 my-2 rounded-xl p-2.5"
+            style={{ background: 'rgba(255,255,255,0.12)', border: '1px solid rgba(255,255,255,0.18)' }}>
             <div className="text-[10px] text-blue-200 mb-0.5">Active Document</div>
             <div className="text-xs font-semibold text-white truncate">{activeDoc.name}</div>
           </div>
@@ -320,7 +339,7 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
         {/* Navigation */}
         <nav className="flex-1 px-2 py-2 space-y-0.5 overflow-y-auto">
           {NAV_ITEMS.map((item) => {
-            const isActive = activeTab === item.id;
+            const isActive   = activeTab === item.id;
             const isDisabled = !!(item.requiresDoc && !activeDocumentId);
             return (
               <button
@@ -375,11 +394,18 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
         )}
       </motion.aside>
 
-      {/* ── Main Content (new palette) ── */}
+      {/* ── Main Content Area ── */}
       <main className="flex-1 flex flex-col min-w-0 overflow-hidden">
-        {/* Top bar — new palette */}
-        <header className="h-16 border-b flex items-center justify-between px-6 shrink-0 shadow-sm"
-          style={{ background: P.white, borderColor: P.border }}>
+
+        {/* ── Frosted glass header ── */}
+        <header className="h-16 flex items-center justify-between px-6 shrink-0"
+          style={{
+            background: 'rgba(13,20,36,0.85)',
+            backdropFilter: 'blur(16px)',
+            WebkitBackdropFilter: 'blur(16px)',
+            borderBottom: '1px solid rgba(255,255,255,0.07)',
+            boxShadow: '0 1px 0 rgba(99,102,241,0.12)',
+          }}>
           <div>
             <h1 className="text-base font-bold" style={{ color: P.textPri }}>
               {activeNavItem?.label ?? 'RFP Analyzer Pro'}
@@ -389,22 +415,25 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
           <div className="flex items-center gap-3">
             {activeDoc && (
               <div className="hidden sm:flex items-center gap-2 rounded-xl px-3 py-1.5"
-                style={{ background: '#EFF6F6', border: `1px solid ${P.teal}33` }}>
-                <div className="w-2 h-2 rounded-full animate-pulse" style={{ background: P.teal }} />
-                <span className="text-xs font-medium" style={{ color: P.teal }}>Analysis Ready</span>
+                style={{
+                  background: 'rgba(6,182,212,0.1)',
+                  border: '1px solid rgba(6,182,212,0.25)',
+                }}>
+                <div className="w-2 h-2 rounded-full animate-pulse" style={{ background: '#06B6D4' }} />
+                <span className="text-xs font-medium" style={{ color: '#06B6D4' }}>Analysis Ready</span>
               </div>
             )}
             <ModernAvatar />
           </div>
         </header>
 
-        {/* Page content */}
-        <div className="flex-1 overflow-y-auto">
+        {/* ── Page content ── */}
+        <div className="flex-1 overflow-y-auto" style={{ background: P.bg }}>
           <motion.div
             key={activeTab}
-            initial={{ opacity: 0, y: 6 }}
+            initial={{ opacity: 0, y: 8 }}
             animate={{ opacity: 1, y: 0 }}
-            transition={{ duration: 0.18, ease: 'easeOut' }}
+            transition={{ duration: 0.2, ease: 'easeOut' }}
             className="min-h-full"
           >
             {children}

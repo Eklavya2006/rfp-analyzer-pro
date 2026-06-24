@@ -1,5 +1,5 @@
 'use client';
-// DocumentAnalyzer — progress steps + multi-format support + section highlight
+// DocumentAnalyzer — Dark glassmorphism + progress steps + multi-format support
 import React, { useCallback, useState, useEffect, useRef } from 'react';
 import { useDropzone } from 'react-dropzone';
 import { motion, AnimatePresence } from 'framer-motion';
@@ -8,13 +8,15 @@ import {
   Zap, Trash2, BookOpen, X, Paperclip,
 } from 'lucide-react';
 import { useRFPStore } from '@/lib/store';
-import { T } from '@/lib/theme';
 import { runFullAnalysis } from '@/lib/mockEngine';
 import { extractFromFile, generateSummary, type ParseStep } from '@/lib/parser';
 import { v4 as uuid } from 'uuid';
 
-const ACCENT = T.slate;
-const TEAL   = T.chart[5];
+// ── Dark palette ──────────────────────────────────────────────
+const INDIGO = '#6366F1';
+const CYAN   = '#06B6D4';
+const GLASS  = 'rgba(255,255,255,0.04)';
+const BORDER = 'rgba(255,255,255,0.08)';
 
 function formatBytes(bytes: number) {
   if (bytes < 1024) return `${bytes} B`;
@@ -36,32 +38,32 @@ function ProcessingSteps({ step, pct }: { step: ParseStep; pct: number }) {
   return (
     <div className="mt-3 space-y-2">
       {/* Progress bar */}
-      <div className="h-1.5 rounded-full overflow-hidden" style={{ background: `${ACCENT}20` }}>
+      <div className="h-1.5 rounded-full overflow-hidden" style={{ background: 'rgba(99,102,241,0.2)' }}>
         <motion.div
           className="h-full rounded-full"
-          style={{ background: ACCENT }}
+          style={{ background: `linear-gradient(90deg, ${INDIGO}, ${CYAN})` }}
           animate={{ width: `${pct}%` }}
           transition={{ duration: 0.4, ease: 'easeOut' }}
         />
       </div>
-      {/* Step labels */}
+      {/* Step dots + labels */}
       <div className="flex items-center gap-1">
         {STEPS.map((s, i) => (
           <div key={s.key} className="flex items-center gap-1">
             <div
               className="w-2 h-2 rounded-full transition-all duration-300"
               style={{
-                background: i <= stepIdx ? ACCENT : '#E2E8F0',
+                background: i <= stepIdx ? INDIGO : 'rgba(255,255,255,0.15)',
                 transform: i === stepIdx ? 'scale(1.4)' : 'scale(1)',
+                boxShadow: i === stepIdx ? `0 0 6px ${INDIGO}` : 'none',
               }}
             />
-            <span
-              className="text-[10px] font-medium transition-colors duration-200"
-              style={{ color: i <= stepIdx ? ACCENT : '#94A3B8' }}>
+            <span className="text-[10px] font-medium transition-colors duration-200"
+              style={{ color: i <= stepIdx ? '#818CF8' : 'rgba(255,255,255,0.3)' }}>
               {s.label}
             </span>
             {i < STEPS.length - 1 && (
-              <span className="text-[10px] mx-0.5" style={{ color: '#CBD5E1' }}>›</span>
+              <span className="text-[10px] mx-0.5" style={{ color: 'rgba(255,255,255,0.2)' }}>›</span>
             )}
           </div>
         ))}
@@ -77,8 +79,8 @@ export default function DocumentAnalyzer() {
     setAnalysisResult, setActiveTab, reset,
   } = useRFPStore();
   const [dragActive, setDragActive] = useState(false);
-  const [parseStep, setParseStep] = useState<ParseStep>('uploading');
-  const [parsePct,  setParsePct]  = useState(0);
+  const [parseStep, setParseStep]   = useState<ParseStep>('uploading');
+  const [parsePct,  setParsePct]    = useState(0);
   const [processingDocId, setProcessingDocId] = useState<string | null>(null);
 
   const activeDoc = documents.find((d) => d.id === activeDocumentId);
@@ -120,21 +122,13 @@ export default function DocumentAnalyzer() {
         setParseStep(step);
         setParsePct(pct);
       });
-
       const summary = generateSummary(rawText, file.name, pageCount);
-      updateDocument(docId, {
-        status: 'ready', rawText,
-        processedAt: new Date().toISOString(),
-        summary,
-      });
+      updateDocument(docId, { status: 'ready', rawText, processedAt: new Date().toISOString(), summary });
       const result = runFullAnalysis(docId, rawText);
       setAnalysisResult(docId, result);
     } catch (err) {
       console.error('[DocumentAnalyzer] Processing failed:', err);
-      updateDocument(docId, {
-        status: 'error',
-        errorMessage: err instanceof Error ? err.message : 'Unknown error',
-      });
+      updateDocument(docId, { status: 'error', errorMessage: err instanceof Error ? err.message : 'Unknown error' });
     } finally {
       setProcessingDocId(null);
     }
@@ -176,85 +170,127 @@ export default function DocumentAnalyzer() {
         {scrollHint && (
           <motion.div
             initial={{ opacity: 0, y: -8 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -8 }}
-            className="mb-4 flex items-center gap-3 px-4 py-3 rounded-xl border text-sm"
-            style={{ background: `${T.gold}18`, borderColor: T.gold }}>
-            <BookOpen size={16} style={{ color: T.gold, flexShrink: 0 }} />
-            <span style={{ color: T.navy }}>
+            className="mb-4 flex items-center gap-3 px-4 py-3 rounded-xl text-sm"
+            style={{
+              background: 'rgba(245,158,11,0.1)',
+              border: '1px solid rgba(245,158,11,0.3)',
+            }}>
+            <BookOpen size={16} style={{ color: '#F59E0B', flexShrink: 0 }} />
+            <span style={{ color: '#F1F5F9' }}>
               Navigated from scope reference — look for{' '}
-              <strong>{scrollHint.section}</strong>
+              <strong style={{ color: '#F59E0B' }}>{scrollHint.section}</strong>
               {scrollHint.page ? `, ${scrollHint.page}` : ''} in the document text below.
             </span>
-            <button onClick={() => setScrollHint(null)} className="ml-auto" style={{ color: T.textMuted }}>
+            <button onClick={() => setScrollHint(null)} className="ml-auto" style={{ color: '#94A3B8' }}>
               <X size={14} />
             </button>
           </motion.div>
         )}
       </AnimatePresence>
 
+      {/* ── Header ─────────────────────────────────────── */}
       <div className="mb-6 flex items-start justify-between gap-4">
         <div>
-          <h2 className="text-xl font-bold mb-1" style={{ color: '#1A202C' }}>Document Analyzer</h2>
-          <p className="text-sm" style={{ color: '#4A5568' }}>
+          <h2 className="text-xl font-bold mb-1" style={{ color: '#F1F5F9' }}>Document Analyzer</h2>
+          <p className="text-sm" style={{ color: '#94A3B8' }}>
             Upload PDF, DOCX, XLSX, PPTX, or TXT — text extracted automatically, binary content sanitized
           </p>
         </div>
         {documents.length > 0 && (
           <button onClick={() => reset()}
-            className="flex items-center gap-1.5 text-xs font-semibold px-3 py-1.5 rounded-lg border border-gray-200 text-gray-500 hover:bg-gray-50">
+            className="flex items-center gap-1.5 text-xs font-semibold px-3 py-1.5 rounded-lg transition-colors"
+            style={{
+              background: 'rgba(255,255,255,0.06)',
+              border: '1px solid rgba(255,255,255,0.1)',
+              color: '#94A3B8',
+            }}>
             <Trash2 size={12} /> Clear All
           </button>
         )}
       </div>
 
-      {/* Upload zone */}
+      {/* ── Upload zone ────────────────────────────────── */}
       <div {...getRootProps()}
         className="border-2 border-dashed rounded-2xl p-10 text-center cursor-pointer transition-all duration-200"
         style={dragActive
-          ? { borderColor: ACCENT, background: '#EFF6FF' }
-          : { borderColor: '#E2E8F0', background: '#F8FAFC' }}>
+          ? {
+              borderColor: INDIGO,
+              background: 'rgba(99,102,241,0.08)',
+              boxShadow: `0 0 0 4px rgba(99,102,241,0.1), inset 0 0 40px rgba(99,102,241,0.05)`,
+            }
+          : {
+              borderColor: BORDER,
+              background: GLASS,
+            }}>
         <input {...getInputProps()} />
         <div className="flex flex-col items-center gap-3">
-          <div className="w-14 h-14 rounded-2xl flex items-center justify-center" style={{ background: `${ACCENT}15` }}>
-            <Upload size={24} style={{ color: ACCENT }} />
+          <div className="w-14 h-14 rounded-2xl flex items-center justify-center"
+            style={{
+              background: dragActive ? 'rgba(99,102,241,0.2)' : 'rgba(99,102,241,0.1)',
+              border: `1px solid rgba(99,102,241,0.25)`,
+              boxShadow: dragActive ? `0 0 20px rgba(99,102,241,0.3)` : 'none',
+              transition: 'all 0.2s ease',
+            }}>
+            <Upload size={24} style={{ color: INDIGO }} />
           </div>
           <div>
-            <p className="text-sm font-semibold" style={{ color: '#1A202C' }}>Drag & drop or click to upload</p>
-            <p className="text-xs mt-1" style={{ color: '#4A5568' }}>PDF · DOCX · XLSX · PPTX · TXT — max 25 MB</p>
+            <p className="text-sm font-semibold" style={{ color: '#F1F5F9' }}>Drag & drop or click to upload</p>
+            <p className="text-xs mt-1" style={{ color: '#94A3B8' }}>PDF · DOCX · XLSX · PPTX · TXT — max 25 MB</p>
           </div>
         </div>
       </div>
 
-      {/* Demo button */}
+      {/* ── Demo button ─────────────────────────────────── */}
       <div className="text-center mt-4">
         <button onClick={loadDemo}
-          className="inline-flex items-center gap-2 text-sm font-medium rounded-xl px-4 py-2 transition-colors"
-          style={{ color: TEAL, background: `${TEAL}15` }}>
+          className="inline-flex items-center gap-2 text-sm font-medium rounded-xl px-4 py-2 transition-all duration-200"
+          style={{
+            color: CYAN,
+            background: 'rgba(6,182,212,0.1)',
+            border: '1px solid rgba(6,182,212,0.2)',
+          }}
+          onMouseEnter={(e) => (e.currentTarget.style.background = 'rgba(6,182,212,0.18)')}
+          onMouseLeave={(e) => (e.currentTarget.style.background = 'rgba(6,182,212,0.1)')}>
           <Zap size={14} /> Load Demo RFP
         </button>
       </div>
 
-      {/* Document list */}
+      {/* ── Document list ───────────────────────────────── */}
       {documents.length > 0 && (
         <div className="mt-8 space-y-4">
-          <h3 className="text-sm font-bold" style={{ color: '#374151' }}>Documents ({documents.length})</h3>
+          <h3 className="text-sm font-bold" style={{ color: '#94A3B8', textTransform: 'uppercase', letterSpacing: '0.06em', fontSize: 11 }}>
+            Documents ({documents.length})
+          </h3>
           {documents.map((doc) => (
             <motion.div key={doc.id} initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }}
-              className="rounded-2xl border p-4 cursor-pointer transition-all"
+              className="rounded-2xl p-4 cursor-pointer transition-all duration-200"
               style={doc.id === activeDocumentId
-                ? { borderColor: ACCENT, background: `${ACCENT}08` }
-                : { borderColor: '#E2E8F0', background: '#fff' }}
+                ? {
+                    border: `1px solid rgba(99,102,241,0.4)`,
+                    background: 'rgba(99,102,241,0.07)',
+                    boxShadow: '0 0 0 1px rgba(99,102,241,0.15), 0 4px 20px rgba(0,0,0,0.3)',
+                  }
+                : {
+                    border: `1px solid ${BORDER}`,
+                    background: GLASS,
+                  }}
               onClick={() => setActiveDocument(doc.id)}>
               <div className="flex items-start justify-between gap-4">
                 <div className="flex items-center gap-3 min-w-0">
-                  <div className="w-10 h-10 rounded-xl flex items-center justify-center shrink-0" style={{ background: ACCENT }}>
-                    <FileText size={18} className="text-white" />
+                  <div className="w-10 h-10 rounded-xl flex items-center justify-center shrink-0"
+                    style={{
+                      background: `linear-gradient(135deg, ${INDIGO}33, ${CYAN}22)`,
+                      border: `1px solid rgba(99,102,241,0.3)`,
+                    }}>
+                    <FileText size={18} style={{ color: INDIGO }} />
                   </div>
                   <div className="min-w-0">
-                    <div className="text-sm font-semibold truncate" style={{ color: '#1A202C' }}>{doc.name}</div>
-                    <div className="text-xs flex items-center gap-2" style={{ color: '#4A5568' }}>
+                    <div className="text-sm font-semibold truncate" style={{ color: '#F1F5F9' }}>{doc.name}</div>
+                    <div className="text-xs flex items-center gap-2 mt-0.5" style={{ color: '#64748B' }}>
                       <span>{formatBytes(doc.size)}</span>
                       {doc.type && (
-                        <span className="text-[10px] bg-gray-100 text-gray-500 px-1.5 py-0.5 rounded">
+                        <span className="text-[10px] px-1.5 py-0.5 rounded"
+                          style={{ background: 'rgba(255,255,255,0.07)', color: '#94A3B8' }}>
                           {doc.type.includes('pdf') ? 'PDF'
                             : doc.type.includes('word') || doc.name.endsWith('.docx') ? 'DOCX'
                             : doc.type.includes('sheet') || doc.name.endsWith('.xlsx') ? 'XLSX'
@@ -266,9 +302,9 @@ export default function DocumentAnalyzer() {
                   </div>
                 </div>
                 <div className="shrink-0">
-                  {doc.status === 'processing' && <Loader2 size={18} className="animate-spin text-blue-500" />}
-                  {doc.status === 'ready'      && <CheckCircle size={18} className="text-green-500" />}
-                  {doc.status === 'error'      && <AlertCircle size={18} className="text-red-500" />}
+                  {doc.status === 'processing' && <Loader2 size={18} className="animate-spin" style={{ color: INDIGO }} />}
+                  {doc.status === 'ready'      && <CheckCircle size={18} style={{ color: '#10B981' }} />}
+                  {doc.status === 'error'      && <AlertCircle size={18} style={{ color: '#F43F5E' }} />}
                 </div>
               </div>
 
@@ -278,25 +314,33 @@ export default function DocumentAnalyzer() {
               )}
               {doc.status === 'processing' && doc.id !== processingDocId && (
                 <div className="mt-3">
-                  <div className="h-1.5 rounded-full overflow-hidden" style={{ background: `${ACCENT}20` }}>
-                    <motion.div className="h-full rounded-full" style={{ background: ACCENT }}
+                  <div className="h-1.5 rounded-full overflow-hidden" style={{ background: 'rgba(99,102,241,0.15)' }}>
+                    <motion.div className="h-full rounded-full"
+                      style={{ background: `linear-gradient(90deg, ${INDIGO}, ${CYAN})` }}
                       animate={{ width: ['5%', '95%'] }} transition={{ duration: 2.5, ease: 'easeInOut' }} />
                   </div>
-                  <p className="text-xs mt-1" style={{ color: ACCENT }}>Processing document…</p>
+                  <p className="text-xs mt-1" style={{ color: '#818CF8' }}>Processing document…</p>
                 </div>
               )}
 
               {doc.status === 'error' && doc.errorMessage && (
-                <div className="mt-3 text-xs text-red-500 bg-red-50 rounded-lg px-3 py-2">❌ {doc.errorMessage}</div>
+                <div className="mt-3 text-xs rounded-lg px-3 py-2"
+                  style={{ background: 'rgba(244,63,94,0.1)', border: '1px solid rgba(244,63,94,0.25)', color: '#FDA4AF' }}>
+                  ❌ {doc.errorMessage}
+                </div>
               )}
               {doc.status === 'ready' && (
                 <div className="mt-3 flex items-center gap-2">
                   <span className="inline-flex items-center gap-1.5 text-xs font-semibold px-2.5 py-1 rounded-full"
-                    style={{ background: `${TEAL}18`, color: TEAL, border: `1px solid ${TEAL}40` }}>
+                    style={{
+                      background: 'rgba(16,185,129,0.1)',
+                      color: '#10B981',
+                      border: '1px solid rgba(16,185,129,0.25)',
+                    }}>
                     <Paperclip size={11} /> Attached
                   </span>
                   {doc.summary && (
-                    <span className="text-xs" style={{ color: '#94A3B8' }}>
+                    <span className="text-xs" style={{ color: '#64748B' }}>
                       {doc.summary.title && doc.summary.title !== 'Unknown Document' ? doc.summary.title : doc.name}
                     </span>
                   )}
@@ -305,8 +349,11 @@ export default function DocumentAnalyzer() {
               {doc.status === 'ready' && (
                 <div className="mt-3 flex justify-end">
                   <button onClick={(e) => { e.stopPropagation(); setActiveTab('dashboard'); }}
-                    className="text-xs font-semibold px-4 py-1.5 rounded-xl text-white transition-colors"
-                    style={{ background: ACCENT }}>
+                    className="text-xs font-semibold px-4 py-1.5 rounded-xl text-white transition-all duration-200"
+                    style={{
+                      background: `linear-gradient(135deg, ${INDIGO}, #4F46E5)`,
+                      boxShadow: `0 2px 12px rgba(99,102,241,0.4)`,
+                    }}>
                     View Analysis →
                   </button>
                 </div>
@@ -320,42 +367,47 @@ export default function DocumentAnalyzer() {
       {activeDoc?.rawText && (
         <div className="mt-8">
           <div className="flex items-center justify-between mb-3">
-            <h3 className="text-sm font-bold" style={{ color: '#374151' }}>
+            <h3 className="text-xs font-bold uppercase tracking-wider" style={{ color: '#64748B' }}>
               Document Content
               {scrollHint && (
-                <span className="ml-2 text-xs font-normal" style={{ color: TEAL }}>
+                <span className="ml-2 font-normal normal-case" style={{ color: CYAN }}>
                   ↳ Showing: {scrollHint.section}{scrollHint.page ? `, ${scrollHint.page}` : ''}
                 </span>
               )}
             </h3>
             {scrollHint && (
               <button onClick={() => setScrollHint(null)}
-                className="text-xs text-gray-400 hover:text-gray-600 flex items-center gap-1">
+                className="text-xs flex items-center gap-1 transition-colors"
+                style={{ color: '#475569' }}
+                onMouseEnter={(e) => (e.currentTarget.style.color = '#94A3B8')}
+                onMouseLeave={(e) => (e.currentTarget.style.color = '#475569')}>
                 <X size={12} /> Clear highlight
               </button>
             )}
           </div>
           <div
             ref={textPreviewRef}
-            className="rounded-2xl border p-5 overflow-y-auto"
+            className="rounded-2xl p-5 overflow-y-auto"
             style={{
-              borderColor: '#E2E8F0', background: '#F8FAFC',
-              maxHeight: 420, fontSize: 12, lineHeight: 1.7,
-              color: '#374151', fontFamily: 'var(--font-mono)', whiteSpace: 'pre-wrap',
+              background: 'rgba(255,255,255,0.03)',
+              border: '1px solid rgba(255,255,255,0.07)',
+              maxHeight: 420, fontSize: 12, lineHeight: 1.8,
+              color: '#94A3B8', fontFamily: 'var(--font-mono)', whiteSpace: 'pre-wrap',
             }}>
             {scrollHint
               ? (() => {
-                  const raw  = activeDoc.rawText ?? '';
+                  const raw    = activeDoc.rawText ?? '';
                   const needle = scrollHint.section.replace('Section ', '');
-                  const idx  = raw.toLowerCase().indexOf(needle.toLowerCase());
+                  const idx    = raw.toLowerCase().indexOf(needle.toLowerCase());
                   if (idx < 0) return <span>{raw}</span>;
                   return (
                     <>
                       {raw.slice(0, idx)}
                       <mark className="rfp-highlight" style={{
-                        background: '#FFF3CD', borderRadius: 4, padding: '1px 3px',
-                        outline: '2px solid #F59E0B', outlineOffset: 1,
-                        color: '#78350F', fontWeight: 600,
+                        background: 'rgba(245,158,11,0.25)',
+                        borderRadius: 4, padding: '1px 3px',
+                        outline: '2px solid rgba(245,158,11,0.5)', outlineOffset: 1,
+                        color: '#FCD34D', fontWeight: 600,
                       }}>
                         {raw.slice(idx, idx + needle.length + 150)}
                       </mark>
