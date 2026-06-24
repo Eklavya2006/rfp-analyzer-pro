@@ -23,16 +23,18 @@ export async function extractTextFromFile(file: File): Promise<string> {
     try {
       const arrayBuffer = await file.arrayBuffer();
       const buffer = Buffer.from(arrayBuffer);
-      // Dynamic import keeps pdf-parse server-side only
-      // eslint-disable-next-line @typescript-eslint/no-require-imports
-      const pdfParse = require('pdf-parse') as (buf: Buffer) => Promise<{ text: string }>;
+      // Use dynamic import to avoid SSR issues (fixes "pdfParse is not a function")
+      const pdfParseModule = await import('pdf-parse');
+      // pdf-parse v2 exports directly; v1 exports via .default — handle both
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const pdfParse = ((pdfParseModule as any).default ?? pdfParseModule) as (buf: Buffer) => Promise<{ text: string }>;
       const parsed = await pdfParse(buffer);
       const text = parsed.text?.trim() ?? '';
       if (text.length > 50) return text;
     } catch (err) {
       console.warn('[parser] pdf-parse failed, falling back to text():', err);
     }
-    // Fallback
+    // Fallback: read as plain text (works for text-based PDFs)
     return file.text().catch(() => '');
   }
 

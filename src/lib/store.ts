@@ -117,6 +117,11 @@ interface RFPStore {
 
   // Project plan edits
   updateProjectPhase: (docId: string, phaseId: string, updates: Partial<ProjectPhase>) => void;
+  addProjectPhase: (docId: string, phase: ProjectPhase) => void;
+  removeProjectPhase: (docId: string, phaseId: string) => void;
+
+  // Testing — editable hours (propagates to estimation + dashboard)
+  updateTestHours: (docId: string, sectionId: string, hours: number) => void;
 }
 
 const initialState = {
@@ -499,7 +504,6 @@ export const useRFPStore = create<RFPStore>()(
             merged.endWeek = merged.startWeek + merged.durationWeeks - 1;
             return merged;
           });
-          // Recalculate cumulative start weeks if duration changed
           let cursor = 1;
           const recalcPhases = phases.map((ph) => {
             const out = { ...ph, startWeek: cursor, endWeek: cursor + ph.durationWeeks - 1 };
@@ -517,6 +521,114 @@ export const useRFPStore = create<RFPStore>()(
                   totalDurationWeeks: cursor - 1,
                   lastUpdated: new Date().toISOString(),
                 },
+              },
+            },
+          };
+        });
+      },
+
+      addProjectPhase: (docId, phase) => {
+        set((s) => {
+          const existing = s.analysisResults[docId];
+          if (!existing?.projectPlan) return s;
+          const phases = [...existing.projectPlan.phases, phase];
+          let cursor = 1;
+          const recalcPhases = phases.map((ph) => {
+            const out = { ...ph, startWeek: cursor, endWeek: cursor + ph.durationWeeks - 1 };
+            cursor += ph.durationWeeks;
+            return out;
+          });
+          return {
+            analysisResults: {
+              ...s.analysisResults,
+              [docId]: {
+                ...existing,
+                projectPlan: {
+                  ...existing.projectPlan,
+                  phases: recalcPhases,
+                  totalDurationWeeks: cursor - 1,
+                  lastUpdated: new Date().toISOString(),
+                },
+              },
+            },
+          };
+        });
+      },
+
+      removeProjectPhase: (docId, phaseId) => {
+        set((s) => {
+          const existing = s.analysisResults[docId];
+          if (!existing?.projectPlan) return s;
+          const phases = existing.projectPlan.phases.filter((p) => p.id !== phaseId);
+          let cursor = 1;
+          const recalcPhases = phases.map((ph) => {
+            const out = { ...ph, startWeek: cursor, endWeek: cursor + ph.durationWeeks - 1 };
+            cursor += ph.durationWeeks;
+            return out;
+          });
+          return {
+            analysisResults: {
+              ...s.analysisResults,
+              [docId]: {
+                ...existing,
+                projectPlan: {
+                  ...existing.projectPlan,
+                  phases: recalcPhases,
+                  totalDurationWeeks: Math.max(1, cursor - 1),
+                  lastUpdated: new Date().toISOString(),
+                },
+              },
+            },
+          };
+        });
+      },
+
+      updateTestHours: (docId, sectionId, hours) => {
+        set((s) => {
+          const existing = s.analysisResults[docId];
+          if (!existing?.testingStrategy) return s;
+          const sections = existing.testingStrategy.sections.map((sec) =>
+            sec.id === sectionId ? { ...sec, estimatedHours: Math.max(0, hours) } : sec
+          );
+          // Recompute total QA hours from all enabled sections
+          const totalQAHours = sections
+            .filter((sec) => sec.enabled)
+            .reduce((sum, sec) => sum + sec.estimatedHours, 0);
+          // Also propagate to estimation: scale QA estimation rows proportionally
+          let updatedEstimation = existing.estimation;
+          if (existing.estimation) {
+            const oldTotal = existing.testingStrategy.totalQAHours || 1;
+            const ratio = totalQAHours / oldTotal;
+            const updatedRows = existing.estimation.rows.map((r) =>
+              r.phase?.toLowerCase().includes('test') || r.activity?.toLowerCase().includes('test')
+                ? { ...r, hours: Math.round(r.hours * ratio), cost: Math.round(r.cost * ratio) }
+                : r
+            );
+            const newTotalHours = updatedRows.reduce((a, r) => a + r.hours, 0);
+            const newTotalCost = updatedRows.reduce((a, r) => a + r.cost, 0);
+            const assumptions = s.costAssumptions[docId] ?? { ...DEFAULT_COST_ASSUMPTIONS };
+            const applied = applyAssumptions(newTotalCost, updatedRows, assumptions);
+            updatedEstimation = {
+              ...existing.estimation,
+              ...applied,
+              totalHours: newTotalHours,
+              personDays: Math.round(newTotalHours / 8),
+              personMonths: Math.round(newTotalHours / 160),
+              lastUpdated: new Date().toISOString(),
+            };
+          }
+          return {
+            analysisResults: {
+              ...s.analysisResults,
+              [docId]: {
+                ...existing,
+                testingStrategy: {
+                  ...existing.testingStrategy,
+                  sections,
+                  totalQAHours,
+                  lastUpdated: new Date().toISOString(),
+                },
+                estimation: updatedEstimation,
               },
             },
           };

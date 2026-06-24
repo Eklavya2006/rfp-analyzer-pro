@@ -1,5 +1,34 @@
 @import "tailwindcss";
 
+/* ================================================================
+   CENTRALIZED DESIGN TOKEN SYSTEM  — edit ONLY this file to
+   change the entire main-content color palette globally.
+   ================================================================ */
+:root {
+  /* ── Enterprise Palette (main content) ── */
+  --clr-navy:            #0A1628;
+  --clr-slate:           #1E3A5F;
+  --clr-gold:            #C9A84C;
+  --clr-gold-light:      #F0D98A;
+  --clr-white:           #FFFFFF;
+  --clr-surface:         #F4F6F9;
+  --clr-border:          #E2E8F0;
+  --clr-text-primary:    #0A1628;
+  --clr-text-secondary:  #4A5568;
+  --clr-text-muted:      #94A3B8;
+
+  /* ── Chart palette (6 steps) ── */
+  --clr-chart-1: #0A1628;
+  --clr-chart-2: #1E3A5F;
+  --clr-chart-3: #C9A84C;
+  --clr-chart-4: #4A7FB5;
+  --clr-chart-5: #7C5CBF;
+  --clr-chart-6: #2A9D8F;
+
+  /* ── IBM Sidebar (preserved — DO NOT CHANGE) ── */
+  --clr-ibm-blue: #0F62FE;
+}
+
 /* ── Custom scrollbar ───────────────────────────── */
 ::-webkit-scrollbar        { width: 6px; height: 6px; }
 ::-webkit-scrollbar-track  { background: transparent; }
@@ -8,58 +37,50 @@
 
 /* ── Base reset ─────────────────────────────────── */
 *, *::before, *::after { box-sizing: border-box; }
-
 html, body { height: 100%; margin: 0; padding: 0; }
-
 body {
   font-family: -apple-system, "Segoe UI", system-ui, sans-serif;
-  background: #f8fafc;
-  color: #1e293b;
+  background: var(--clr-surface);
+  color: var(--clr-text-primary);
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
 }
 
-/* ── Range input styling ────────────────────────── */
+/* ── Range input ────────────────────────────────── */
 input[type="range"] {
-  -webkit-appearance: none;
-  appearance: none;
-  width: 100%;
-  height: 6px;
-  background: #e2e8f0;
-  border-radius: 9999px;
-  outline: none;
-  cursor: pointer;
+  -webkit-appearance: none; appearance: none;
+  width: 100%; height: 6px;
+  background: #e2e8f0; border-radius: 9999px;
+  outline: none; cursor: pointer;
 }
 input[type="range"]::-webkit-slider-thumb {
-  -webkit-appearance: none;
-  appearance: none;
-  width: 16px;
-  height: 16px;
-  border-radius: 50%;
-  background: #6366f1;
-  cursor: pointer;
+  -webkit-appearance: none; appearance: none;
+  width: 16px; height: 16px; border-radius: 50%;
+  background: var(--clr-gold); cursor: pointer;
   border: 2px solid white;
-  box-shadow: 0 1px 3px rgba(0,0,0,0.2);
-  transition: transform 0.1s ease;
+  box-shadow: 0 1px 3px rgba(0,0,0,.2);
+  transition: transform .1s ease;
 }
-input[type="range"]::-webkit-slider-thumb:hover {
-  transform: scale(1.15);
-}
+input[type="range"]::-webkit-slider-thumb:hover { transform: scale(1.15); }
 input[type="range"]::-moz-range-thumb {
-  width: 16px;
-  height: 16px;
-  border-radius: 50%;
-  background: #6366f1;
-  cursor: pointer;
-  border: 2px solid white;
-  box-shadow: 0 1px 3px rgba(0,0,0,0.2);
+  width: 16px; height: 16px; border-radius: 50%;
+  background: var(--clr-gold); cursor: pointer;
+  border: 2px solid white; box-shadow: 0 1px 3px rgba(0,0,0,.2);
 }
 
-/* ── Recharts overrides ─────────────────────────── */
+/* ── Recharts ───────────────────────────────────── */
 .recharts-tooltip-wrapper { z-index: 50 !important; }
 .recharts-default-tooltip {
   border-radius: 10px !important;
   border: 1px solid #e2e8f0 !important;
-  box-shadow: 0 4px 12px rgba(0,0,0,0.08) !important;
+  box-shadow: 0 4px 12px rgba(0,0,0,.08) !important;
   font-size: 12px !important;
 }
+
+/* ── Editable field affordance ──────────────────── */
+.edit-cell {
+  border-bottom: 1px dashed var(--clr-border);
+  transition: border-color .15s;
+  cursor: pointer;
+}
+.edit-cell:hover { border-bottom-color: var(--clr-gold); }

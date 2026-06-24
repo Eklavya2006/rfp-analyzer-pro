@@ -1,15 +1,14 @@
 'use client';
-// ============================================================
-// ScopeDeliverables — S3: Hyperlinked page references with tooltip
-// ============================================================
+// ScopeDeliverables — S3: Hyperlinks fixed (navigate within app, not broken anchors)
 import React, { useState } from 'react';
-import { Plus, Trash2, Search, ExternalLink } from 'lucide-react';
+import { Plus, Trash2, Search, FileText } from 'lucide-react';
 import { useRFPStore } from '@/lib/store';
+import { T } from '@/lib/theme';
 import { v4 as uuid } from 'uuid';
 import type { ScopeItem, DeliverableItem } from '@/types';
 
-const ACCENT = '#1E3A5F';
-const TEAL   = '#0D7377';
+const ACCENT = T.slate;
+const TEAL   = T.chart[5];
 
 const CAT_COLORS = {
   'in-scope':     { bg: '#defbe6', text: '#0e6027', border: '#a7f0ba' },
@@ -23,29 +22,32 @@ const PRIO_COLORS = {
   low:    { bg: '#defbe6', text: '#0e6027' },
 };
 
-// ── Reference link with tooltip ───────────────────────────────
+// ── ISSUE 3 FIX: Functional reference links ──────────────────
+// These navigate within the app to the document-analyzer tab
+// where the user can view the source document. We can't link to
+// PDF page numbers in a browser without a PDF viewer — so we
+// navigate to the document tab and show a toast-style indicator.
 function RefLink({ section, page }: { section: string; page: string }) {
   const [show, setShow] = useState(false);
-  const pageNum = page.replace(/\D/g, '');
-  const href = pageNum ? `#page=${pageNum}` : '#';
+  const { setActiveTab } = useRFPStore();
 
   return (
     <div className="relative inline-flex items-center gap-1">
-      <a
-        href={href}
-        onClick={(e) => e.preventDefault()}
+      <button
+        type="button"
+        onClick={() => setActiveTab('document-analyzer')}
         onMouseEnter={() => setShow(true)}
         onMouseLeave={() => setShow(false)}
-        className="inline-flex items-center gap-1 text-xs underline underline-offset-2 font-medium transition-colors hover:opacity-80"
+        className="inline-flex items-center gap-1 text-xs underline underline-offset-2 font-medium transition-colors hover:opacity-80 cursor-pointer"
         style={{ color: TEAL }}
-        title={`Go to Section: ${section}, ${page}`}
+        title={`Go to: ${section} — ${page}`}
       >
         {section}
-        <ExternalLink size={10} />
-      </a>
+        <FileText size={10} />
+      </button>
       {show && (
         <div className="absolute left-0 bottom-full mb-1 z-20 bg-gray-800 text-white text-[10px] rounded-lg px-2.5 py-1.5 whitespace-nowrap shadow-xl pointer-events-none">
-          Go to Section: <span className="font-semibold">{section}</span>, {page}
+          📄 Navigate to: <span className="font-semibold">{section}</span> — {page}
         </div>
       )}
     </div>
@@ -54,25 +56,25 @@ function RefLink({ section, page }: { section: string; page: string }) {
 
 function PageLink({ page, section }: { page: string; section: string }) {
   const [show, setShow] = useState(false);
-  const pageNum = page.replace(/\D/g, '');
-  const href = pageNum ? `#page=${pageNum}` : '#';
+  const { setActiveTab } = useRFPStore();
 
   return (
     <div className="relative inline-flex items-center gap-1">
-      <a
-        href={href}
-        onClick={(e) => e.preventDefault()}
+      <button
+        type="button"
+        onClick={() => setActiveTab('document-analyzer')}
         onMouseEnter={() => setShow(true)}
         onMouseLeave={() => setShow(false)}
-        className="inline-flex items-center gap-1 text-xs underline underline-offset-2 font-medium transition-colors hover:opacity-80"
+        className="inline-flex items-center gap-1 text-xs underline underline-offset-2 font-medium transition-colors hover:opacity-80 cursor-pointer"
         style={{ color: ACCENT }}
+        title={`Go to: ${section} — ${page}`}
       >
         {page}
-        <ExternalLink size={10} />
-      </a>
+        <FileText size={10} />
+      </button>
       {show && (
         <div className="absolute left-0 bottom-full mb-1 z-20 bg-gray-800 text-white text-[10px] rounded-lg px-2.5 py-1.5 whitespace-nowrap shadow-xl pointer-events-none">
-          Go to Section: <span className="font-semibold">{section}</span>, {page}
+          📄 Navigate to: <span className="font-semibold">{section}</span> — {page}
         </div>
       )}
     </div>

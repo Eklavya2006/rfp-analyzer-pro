@@ -1,16 +1,15 @@
 'use client';
-// ============================================================
-// Estimation — S7: Dual view toggle (Client View vs IBM Internal View)
-// ============================================================
+// Estimation — Enterprise palette: navy/slate/gold
 import React, { useState } from 'react';
 import { RotateCcw, ChevronDown, ChevronUp, Info, Eye } from 'lucide-react';
 import { useRFPStore } from '@/lib/store';
-import type { CostAssumptions } from '@/types';
+import { T } from '@/lib/theme';
+import type { CostAssumptions, EstimationSummary, CostBreakdown } from '@/types';
 import { DEFAULT_COST_ASSUMPTIONS } from '@/types';
 
-const ACCENT = '#1E3A5F';
-const TEAL   = '#0D7377';
-const AMBER  = '#F4A261';
+const ACCENT = T.navy;
+const TEAL   = T.chart[5];
+const AMBER  = T.gold;
 
 function fmt(n: number) {
   return new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD', maximumFractionDigits: 0 }).format(n);
@@ -70,9 +69,9 @@ function BreakdownBar({ label, amount, total, color }: { label: string; amount: 
 
 // ── CLIENT VIEW ───────────────────────────────────────────────
 function ClientView({ est, adjustedTotal, bd }: {
-  est: NonNullable<ReturnType<typeof useRFPStore.getState>['analysisResults'][string]['estimation']>;
+  est: EstimationSummary;
   adjustedTotal: number;
-  bd: NonNullable<NonNullable<ReturnType<typeof useRFPStore.getState>['analysisResults'][string]['estimation']>['costBreakdown']>;
+  bd: CostBreakdown;
 }) {
   const milestones = [
     { label: 'Project Kickoff', pct: 15, desc: 'Discovery & architecture sign-off' },
@@ -155,9 +154,9 @@ function ClientView({ est, adjustedTotal, bd }: {
 
 // ── IBM INTERNAL VIEW ─────────────────────────────────────────
 function IBMInternalView({ est, adjustedTotal, bd, assumptions }: {
-  est: NonNullable<ReturnType<typeof useRFPStore.getState>['analysisResults'][string]['estimation']>;
+  est: EstimationSummary;
   adjustedTotal: number;
-  bd: NonNullable<NonNullable<ReturnType<typeof useRFPStore.getState>['analysisResults'][string]['estimation']>['costBreakdown']>;
+  bd: CostBreakdown;
   assumptions: CostAssumptions;
 }) {
   const ibmCost = bd.baseLaborCost;

@@ -1,18 +1,17 @@
 'use client';
-// ============================================================
-// DocumentAnalyzer — S2: Extracted Content Preview REMOVED
-// ============================================================
+// DocumentAnalyzer — unified page count (single source of truth from parser)
 import React, { useCallback, useState } from 'react';
 import { useDropzone } from 'react-dropzone';
 import { motion } from 'framer-motion';
 import { FileText, Upload, CheckCircle, AlertCircle, Loader2, Zap, Trash2 } from 'lucide-react';
 import { useRFPStore } from '@/lib/store';
+import { T } from '@/lib/theme';
 import { runFullAnalysis } from '@/lib/mockEngine';
-import { extractTextFromFile } from '@/lib/parser';
+import { extractTextFromFile, generateSummary } from '@/lib/parser';
 import { v4 as uuid } from 'uuid';
 
-const ACCENT = '#1E3A5F';
-const TEAL   = '#0D7377';
+const ACCENT = T.slate;
+const TEAL   = T.chart[5];
 
 function formatBytes(bytes: number) {
   if (bytes < 1024) return `${bytes} B`;
@@ -36,46 +35,13 @@ export default function DocumentAnalyzer() {
     setActiveDocument(docId);
     try {
       const rawText = await extractTextFromFile(file);
-      const wordCount = rawText.split(/\s+/).filter(Boolean).length;
-      const pageCount = Math.max(1, Math.round(wordCount / 300));
-      const budgetMatch = rawText.match(/\$[\d,.]+\s*(?:M|million)?(?:\s*(?:to|-)\s*\$[\d,.]+\s*(?:M|million)?)?/i);
-      const timelineMatch = rawText.match(/(\d+)\s*(?:months?|weeks?)/i);
-      const lower = rawText.toLowerCase();
-      const techKeywords: [string, string][] = [
-        ['ibm cloud','IBM Cloud'],['watson','IBM Watson AI'],['watsonx','IBM watsonx'],['kubernetes','Kubernetes'],
-        ['react','React'],['node','Node.js'],['python','Python'],['azure','Microsoft Azure'],['aws','AWS'],
-        ['docker','Docker'],['postgresql','PostgreSQL'],['mongodb','MongoDB'],['openshift','Red Hat OpenShift'],['terraform','Terraform'],
-      ];
-      const technologies = techKeywords.filter(([kw]) => lower.includes(kw)).map(([,label]) => label).slice(0, 8);
-      if (technologies.length === 0) technologies.push('IBM Cloud', 'Watson AI', 'watsonx.data');
-      const reqKeywords: [string, string][] = [
-        ['cloud migration','Cloud Migration'],['ai/ml','AI/ML Implementation'],['machine learning','Machine Learning'],
-        ['data integration','Data Integration'],['security','Security & Compliance'],['devops','DevOps'],
-        ['microservices','Microservices'],['analytics','Analytics'],
-      ];
-      const keyRequirements = reqKeywords.filter(([kw]) => lower.includes(kw)).map(([,label]) => label).slice(0, 6);
-      if (keyRequirements.length === 0) keyRequirements.push('Cloud Infrastructure','AI/ML Implementation','Data Integration','Security & Compliance');
-      let confidence = 60;
-      if (wordCount > 500) confidence += 10;
-      if (wordCount > 1500) confidence += 10;
-      if (budgetMatch) confidence += 8;
-      if (timelineMatch) confidence += 7;
-      if (technologies.length >= 3) confidence += 5;
-      confidence = Math.min(99, confidence);
+      // ── ISSUE 1 FIX: single source of truth for pageCount ──
+      // generateSummary() in parser.ts computes pageCount = Math.max(1, Math.round(wordCount / 300))
+      // We call it once and reuse the value everywhere — no duplication.
+      const summary = generateSummary(rawText, file.name);
       updateDocument(docId, {
         status: 'ready', rawText, processedAt: new Date().toISOString(),
-        summary: {
-          title: file.name.replace(/\.[^.]+$/, '').replace(/[-_]/g, ' '),
-          client: 'Enterprise Client',
-          projectDescription: rawText.length > 100 ? rawText.slice(0, 200).replace(/\s+/g, ' ').trim() + '…' : 'Digital transformation initiative.',
-          estimatedBudget: budgetMatch ? budgetMatch[0].trim() : '$2.5M – $4M',
-          estimatedTimeline: timelineMatch ? timelineMatch[0] : '18–24 months',
-          keyRequirements, technologies,
-          deliverables: ['Architecture Document','MVP Release','UAT Sign-off','Deployment Runbook','Training Material'],
-          constraints: ['Go-live within 18 months','Budget not to exceed $4M'],
-          evaluationCriteria: ['Technical fit','Cost competitiveness','IBM expertise','Delivery track record'],
-          wordCount, pageCount, confidenceScore: confidence,
-        },
+        summary,
       });
       const result = runFullAnalysis(docId, rawText);
       setAnalysisResult(docId, result);
