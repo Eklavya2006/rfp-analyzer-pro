@@ -575,8 +575,12 @@ export default function CreateProposalModule() {
                   className="flex-1 border rounded-xl px-3 py-2 text-sm outline-none focus:border-teal-400"
                   style={{ borderColor: '#E2E8F0' }} />
                 <button onClick={handleFetchLogo} disabled={fetchingLogo || !websiteUrl}
-                  className="px-4 py-2 text-xs font-semibold rounded-xl text-white transition-colors"
-                  style={{ background: fetchingLogo ? '#CBD5E0' : TEAL }}>
+                  className="px-4 py-2 text-xs font-semibold rounded-xl transition-colors"
+                  style={{
+                    background: fetchingLogo ? '#CBD5E0' : TEAL,
+                    color: '#FFFFFF',
+                    opacity: fetchingLogo || !websiteUrl ? 0.7 : 1,
+                  }}>
                   {fetchingLogo ? 'Fetching…' : 'Fetch Logo'}
                 </button>
                 {logoDataUrl && (
