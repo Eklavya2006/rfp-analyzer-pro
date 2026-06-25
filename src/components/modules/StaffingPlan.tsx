@@ -2,7 +2,7 @@
 // StaffingPlan — Full IBM rate-card staffing with animated avatars,
 //               25-role dataset, AI phase suggestions, FTE matrix,
 //               Phase Summary tables, WCAG-AA form contrast, real-time recalculation
-import React, { useState, useMemo, useRef } from 'react';
+import React, { useState, useMemo, useRef, useCallback } from 'react';
 import ReactDOM from 'react-dom';
 import { Plus, Trash2, Search, Info, ChevronDown } from 'lucide-react';
 import {
@@ -418,10 +418,40 @@ function buildRolesFromCanonical(): StaffingRole[] {
   });
 }
 
+// ── Custom XAxis tick for Phase Allocation chart ──────────────
+function PhaseTick({
+  x, y, payload, activeIdx, phaseColors,
+}: {
+  x?: number; y?: number;
+  payload?: { value: string; index: number };
+  activeIdx: number;
+  phaseColors: Record<string, string>;
+}) {
+  if (!payload) return null;
+  const idx   = payload.index;
+  const color = activeIdx === idx ? (phaseColors[payload.value] ?? INDIGO) : '#F1F5F9';
+  return (
+    <g transform={`translate(${x},${y})`}>
+      <text
+        x={0} y={0} dy={4}
+        textAnchor="end"
+        transform="rotate(-20)"
+        fontSize={10}
+        fill={color}
+        style={{ transition: 'fill 0.2s' }}
+      >
+        {payload.value}
+      </text>
+    </g>
+  );
+}
+
 // ══════════════════════════════════════════════════════════════
 // PHASE ALLOCATION CHART
 // ══════════════════════════════════════════════════════════════
 function PhaseAllocationChart({ roles }: { roles: StaffingRole[] }) {
+  const [activeBarIdx, setActiveBarIdx] = useState(-1);
+
   const phaseHours = useMemo(() => {
     const totals: Record<IBMPhase, number> = { Prepare:0, Explore:0, 'Realize-Build':0, 'Realize-Test':0, Training:0, Deploy:0, Hypercare:0 };
     roles.forEach((r) => {
@@ -432,18 +462,34 @@ function PhaseAllocationChart({ roles }: { roles: StaffingRole[] }) {
     return IBM_PHASES.map((ph) => ({ phase: ph, hours: Math.round(totals[ph]), color: PHASE_COLORS[ph] }));
   }, [roles]);
 
+  const handleMouseEnter = useCallback((_: unknown, index: number) => setActiveBarIdx(index), []);
+  const handleMouseLeave = useCallback(() => setActiveBarIdx(-1), []);
+
   return (
     <div className="rounded-2xl p-5" style={{ background: GLASS, border: `1px solid ${BORDER}` }}>
       <h3 className="text-sm font-bold mb-4" style={{ color: TEXT }}>Phase Allocation (Hours)</h3>
       <ResponsiveContainer width="100%" height={220}>
         <BarChart data={phaseHours} margin={{ left: -10, right: 10, bottom: 20 }}>
           <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.05)" vertical={false} />
-          <XAxis dataKey="phase" tick={{ fontSize: 10, fill: MUTED }} axisLine={false} tickLine={false}
-            interval={0} angle={-20} textAnchor="end" height={55} />
-          <YAxis tick={{ fontSize: 10, fill: MUTED }} axisLine={false} tickLine={false} />
+          <XAxis
+            dataKey="phase"
+            axisLine={false} tickLine={false}
+            interval={0} height={55}
+            tick={(props) => (
+              <PhaseTick
+                {...props}
+                activeIdx={activeBarIdx}
+                phaseColors={PHASE_COLORS}
+              />
+            )}
+          />
+          <YAxis tick={{ fontSize: 10, fill: '#F1F5F9' }} axisLine={false} tickLine={false} />
           <Tooltip contentStyle={tooltipStyle} wrapperStyle={tooltipWrapperStyle} labelStyle={tooltipLabelStyle}
             formatter={(v: number) => [v.toLocaleString(), 'Hours']} />
-          <Bar dataKey="hours" name="Hours" radius={[5,5,0,0]}>
+          <Bar dataKey="hours" name="Hours" radius={[5,5,0,0]}
+            onMouseEnter={handleMouseEnter}
+            onMouseLeave={handleMouseLeave}
+          >
             {phaseHours.map((e, i) => <Cell key={i} fill={e.color} />)}
           </Bar>
         </BarChart>

@@ -92,6 +92,7 @@ export default function DocumentAnalyzer() {
     documents, activeDocumentId,
     addDocument, updateDocument, setActiveDocument,
     setAnalysisResult, setActiveTab, reset,
+    activeTab,
   } = useRFPStore();
   const [dragActive, setDragActive] = useState(false);
   const [parseStep, setParseStep]   = useState<ParseStep>('uploading');
@@ -104,21 +105,35 @@ export default function DocumentAnalyzer() {
   const [scrollHint, setScrollHint] = useState<{ section: string; page: string } | null>(null);
   const textPreviewRef = useRef<HTMLDivElement>(null);
 
+  // Re-read hint every time this tab becomes active (not just on mount)
   useEffect(() => {
+    if (activeTab !== 'document-analyzer') return;
     try {
       const raw = sessionStorage.getItem('rfp-scroll-hint');
       if (raw) {
         const hint = JSON.parse(raw) as { section: string; page: string; ts: number };
-        if (Date.now() - hint.ts < 10000) setScrollHint({ section: hint.section, page: hint.page });
+        if (Date.now() - hint.ts < 15000) setScrollHint({ section: hint.section, page: hint.page });
         sessionStorage.removeItem('rfp-scroll-hint');
       }
     } catch {}
-  }, []);
+  }, [activeTab]);
 
+  // Scroll to highlighted mark after render + trigger pulse animation
   useEffect(() => {
     if (!scrollHint || !textPreviewRef.current) return;
-    const marks = textPreviewRef.current.querySelectorAll<HTMLElement>('.rfp-highlight');
-    if (marks.length > 0) marks[0].scrollIntoView({ behavior: 'smooth', block: 'center' });
+    // Small delay so the DOM re-renders with the highlight mark first
+    const timer = setTimeout(() => {
+      if (!textPreviewRef.current) return;
+      const marks = textPreviewRef.current.querySelectorAll<HTMLElement>('.rfp-highlight');
+      if (marks.length > 0) {
+        marks[0].scrollIntoView({ behavior: 'smooth', block: 'center' });
+        // Trigger CSS pulse animation
+        marks[0].classList.remove('rfp-pulse');
+        void marks[0].offsetWidth; // reflow to restart animation
+        marks[0].classList.add('rfp-pulse');
+      }
+    }, 80);
+    return () => clearTimeout(timer);
   }, [scrollHint]);
 
   const processFile = useCallback(async (file: File) => {
@@ -179,6 +194,17 @@ export default function DocumentAnalyzer() {
 
   return (
     <div className="p-6 max-w-5xl mx-auto">
+      {/* ── Pulse animation keyframes ───────────────────── */}
+      <style>{`
+        @keyframes rfpPulse {
+          0%   { box-shadow: 0 0 0 0 rgba(245,158,11,0.7), 0 0 0 0 rgba(245,158,11,0.4); background: rgba(245,158,11,0.35); }
+          40%  { box-shadow: 0 0 0 8px rgba(245,158,11,0.2), 0 0 0 16px rgba(245,158,11,0.1); background: rgba(245,158,11,0.5); }
+          100% { box-shadow: 0 0 0 14px rgba(245,158,11,0), 0 0 0 28px rgba(245,158,11,0); background: rgba(245,158,11,0.25); }
+        }
+        .rfp-pulse {
+          animation: rfpPulse 1.2s ease-out 2;
+        }
+      `}</style>
 
       {/* ── Scroll hint banner ─────────────────────────── */}
       <AnimatePresence>

@@ -83,48 +83,39 @@ export async function extractFromFile(
 
   onProgress?.('uploading', 10);
 
-  // ── PDF ──────────────────────────────────────────────────────
+  // ── PDF — parsed server-side via /api/parse-pdf ──────────────
+  // pdf-parse uses Node.js fs internally and crashes in the browser.
+  // We POST the file to our Next.js API route which runs in Node.js.
   if (type === 'application/pdf' || name.endsWith('.pdf')) {
     onProgress?.('parsing', 25);
     try {
-      const arrayBuffer = await file.arrayBuffer();
-      const buffer = Buffer.from(arrayBuffer);
-      const pdfParseModule = await import('pdf-parse');
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      const pdfParse = ((pdfParseModule as any).default ?? pdfParseModule) as (
-        buf: Buffer,
-        opts?: object,
-      ) => Promise<{ text: string; numpages: number }>;
+      const formData = new FormData();
+      formData.append('file', file);
       onProgress?.('extracting', 50);
-      const parsed = await pdfParse(buffer, { max: 0 });
-      const rawText = parsed.text?.trim() ?? '';
-      const pageCount = parsed.numpages > 0 ? parsed.numpages : estimatePageCount(rawText);
-      onProgress?.('rendering', 80);
-      const text = sanitizeText(rawText);
-      // Guard: reject raw PDF structure masquerading as text
-      if (text.length > 50 && !isBinaryJunk(text) && !isRawPDFContent(text)) {
-        onProgress?.('done', 100);
-        return { text, pageCount };
+      const res = await fetch('/api/parse-pdf', { method: 'POST', body: formData });
+      if (!res.ok) {
+        const errBody = await res.json().catch(() => ({}));
+        throw new Error(errBody.error ?? `HTTP ${res.status}`);
       }
-      // pdf-parse returned usable but short text — that is fine if not junk
+      const { text: rawText, pageCount: pc } = await res.json() as { text: string; pageCount: number };
+      onProgress?.('rendering', 80);
+      const text = sanitizeText(rawText ?? '');
+      const pageCount = pc > 0 ? pc : estimatePageCount(text);
       if (text.length > 20 && !isBinaryJunk(text) && !isRawPDFContent(text)) {
         onProgress?.('done', 100);
         return { text, pageCount };
       }
-      // Fallback — still junk/raw; do NOT use file.text() on a PDF (binary)
       onProgress?.('done', 100);
       return {
         text: text.length > 20 ? text : '[PDF text extraction yielded no readable content — the PDF may be image-only or encrypted]',
         pageCount,
       };
     } catch (err) {
-      console.warn('[parser] pdf-parse failed:', err);
+      console.warn('[parser] /api/parse-pdf failed:', err);
     }
-    // pdf-parse itself threw — do NOT fall back to file.text() for PDFs
-    // as that returns raw binary bytes
     onProgress?.('done', 100);
     return {
-      text: '[PDF could not be read — try uploading as DOCX or TXT]',
+      text: '[PDF could not be parsed — try uploading as DOCX or TXT]',
       pageCount: 1,
     };
   }

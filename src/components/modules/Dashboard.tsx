@@ -1,6 +1,6 @@
 'use client';
 // Dashboard — Dark glassmorphism · indigo/cyan chart palette
-import React, { useMemo } from 'react';
+import React, { useMemo, useState } from 'react';
 import {
   BarChart, Bar, AreaChart, Area,
   XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Cell,
@@ -159,9 +159,38 @@ function AiBar({ label, subLabel, pct, value, color }: AiBarProps) {
 }
 
 // ── Main Dashboard ────────────────────────────────────────────
+// ── Custom XAxis tick for Cost-by-Phase bar chart ─────────────
+function PhaseTickDash({
+  x, y, payload, activeIdx, colors,
+}: {
+  x?: number; y?: number;
+  payload?: { value: string; index: number };
+  activeIdx: number;
+  colors: readonly string[];
+}) {
+  if (!payload) return null;
+  const idx   = payload.index;
+  const color = activeIdx === idx ? colors[idx % colors.length] : '#F1F5F9';
+  return (
+    <g transform={`translate(${x},${y})`}>
+      <text
+        x={0} y={0} dy={4}
+        textAnchor="end"
+        transform="rotate(-35)"
+        fontSize={10}
+        fill={color}
+        style={{ transition: 'fill 0.2s' }}
+      >
+        {payload.value}
+      </text>
+    </g>
+  );
+}
+
 export default function Dashboard() {
   const { activeDocumentId, analysisResults, setActiveTab } = useRFPStore();
   const result = activeDocumentId ? analysisResults[activeDocumentId] : null;
+  const [activeBarIdx, setActiveBarIdx] = useState(-1);
 
   const navigate = (tab: TabId) => setActiveTab(tab);
 
@@ -253,14 +282,28 @@ export default function Dashboard() {
             <ResponsiveContainer width="100%" height={210}>
               <BarChart data={phaseData} barSize={28} margin={{ left: -10, right: 8, bottom: 20 }}>
                 <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.05)" vertical={false} />
-                <XAxis dataKey="name" tick={{ fill: D.muted, fontSize: 10 }} axisLine={false} tickLine={false}
-                  interval={0} angle={-35} textAnchor="end" height={60} />
-                <YAxis tick={{ fill: D.muted, fontSize: 10 }} axisLine={false} tickLine={false}
+                <XAxis
+                  dataKey="name"
+                  axisLine={false} tickLine={false}
+                  interval={0} height={60}
+                  tick={(props) => (
+                    <PhaseTickDash
+                      {...props}
+                      activeIdx={activeBarIdx}
+                      colors={D.distColors}
+                    />
+                  )}
+                />
+                <YAxis tick={{ fill: '#F1F5F9', fontSize: 10 }} axisLine={false} tickLine={false}
                   tickFormatter={v => `$${v}K`} />
                 <Tooltip contentStyle={tooltipStyle} wrapperStyle={tooltipWrapperStyle}
                   labelStyle={tooltipLabelStyle}
                   formatter={(v: number) => [`$${v}K`, 'Cost']} />
-                <Bar dataKey="cost" radius={[5, 5, 0, 0]}>
+                <Bar
+                  dataKey="cost" radius={[5, 5, 0, 0]}
+                  onMouseEnter={(_: unknown, index: number) => setActiveBarIdx(index)}
+                  onMouseLeave={() => setActiveBarIdx(-1)}
+                >
                   {phaseData.map((_, i) => (
                     <Cell key={i} fill={D.distColors[i % D.distColors.length]} />
                   ))}
