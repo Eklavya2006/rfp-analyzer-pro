@@ -1,12 +1,12 @@
 'use client';
-// Dashboard — Dark glassmorphism · indigo/cyan chart palette
+// Dashboard — Light theme · indigo/cyan chart palette
 import React, { useMemo, useState } from 'react';
 import {
   BarChart, Bar, AreaChart, Area,
   XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Cell,
 } from 'recharts';
 import { useRFPStore } from '@/lib/store';
-import { DollarSign, Calendar, Users, CheckSquare, Zap, TrendingUp } from 'lucide-react';
+import { DollarSign, Calendar, Users, CheckSquare, Zap, TrendingUp, Upload, CalendarDays, Bot } from 'lucide-react';
 import type { TabId } from '@/types';
 
 // ── Dark palette ──────────────────────────────────────────────
@@ -159,6 +159,81 @@ function AiBar({ label, subLabel, pct, value, color }: AiBarProps) {
 }
 
 // ── Main Dashboard ────────────────────────────────────────────
+// ── Welcome state (shown when no document is loaded) ─────────
+function WelcomeState() {
+  const { setActiveTab } = useRFPStore();
+  const features = [
+    { icon: <DollarSign size={14} />, title: 'Cost Estimation',  sub: 'Detailed breakdown by phase and role' },
+    { icon: <CalendarDays size={14} />, title: 'Project Plan',   sub: 'Gantt-style phases and milestones' },
+    { icon: <Users size={14} />,       title: 'Staffing Plan',   sub: 'Team composition and allocation' },
+    { icon: <Bot size={14} />,         title: 'AI Comparison',   sub: 'AI vs traditional delivery analysis' },
+  ];
+  return (
+    <div className="flex items-center justify-center min-h-[80vh] p-6">
+      <div className="max-w-lg w-full text-center">
+
+        {/* Scale-in animation wrapper */}
+        <div
+          style={{
+            animation: 'welcomeScaleIn 0.3s ease-out forwards',
+            opacity: 0,
+            transform: 'scale(0.95)',
+          }}
+        >
+          <style>{`
+            @keyframes welcomeScaleIn {
+              to { opacity: 1; transform: scale(1); }
+            }
+          `}</style>
+
+          {/* Hero icon */}
+          <div className="mx-auto mb-6 w-20 h-20 rounded-3xl bg-gradient-to-br from-indigo-100 to-violet-100 flex items-center justify-center">
+            <Zap size={36} className="text-indigo-600" />
+          </div>
+
+          {/* Heading */}
+          <h2 className="text-2xl font-bold text-slate-900 mb-3">
+            Welcome to RFP Analyzer Pro
+          </h2>
+
+          {/* Description */}
+          <p className="text-slate-500 text-sm leading-relaxed mb-8">
+            Upload an RFP document to instantly generate cost estimates, project plans, staffing
+            recommendations, testing strategies, and AI impact analysis.
+          </p>
+
+          {/* Feature grid 2×2 */}
+          <div className="grid grid-cols-2 gap-3 text-left mb-8">
+            {features.map((f) => (
+              <div
+                key={f.title}
+                className="bg-slate-50 border border-slate-200 rounded-xl p-3 flex items-start gap-2.5"
+              >
+                <div className="w-7 h-7 bg-indigo-100 rounded-lg flex items-center justify-center text-indigo-600 shrink-0">
+                  {f.icon}
+                </div>
+                <div>
+                  <div className="text-xs font-semibold text-slate-800">{f.title}</div>
+                  <div className="text-xs text-slate-500">{f.sub}</div>
+                </div>
+              </div>
+            ))}
+          </div>
+
+          {/* CTA button */}
+          <button
+            onClick={() => setActiveTab('document-analyzer')}
+            className="inline-flex items-center justify-center gap-2.5 bg-indigo-600 hover:bg-indigo-700 text-white shadow-sm shadow-indigo-200 text-base px-6 py-3 rounded-xl font-medium transition-colors"
+          >
+            <Upload size={16} />
+            Upload RFP Document
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 // ── Custom XAxis tick for Cost-by-Phase bar chart ─────────────
 function PhaseTickDash({
   x, y, payload, activeIdx, colors,
@@ -170,7 +245,7 @@ function PhaseTickDash({
 }) {
   if (!payload) return null;
   const idx   = payload.index;
-  const color = activeIdx === idx ? colors[idx % colors.length] : '#F1F5F9';
+  const color = activeIdx === idx ? colors[idx % colors.length] : '#64748B';
   return (
     <g transform={`translate(${x},${y})`}>
       <text
@@ -195,14 +270,7 @@ export default function Dashboard() {
   const navigate = (tab: TabId) => setActiveTab(tab);
 
   if (!result) {
-    return (
-      <div style={{ background: D.bg, minHeight: '100%', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-        <div style={{ textAlign: 'center' }}>
-          <div style={{ fontSize: 48, marginBottom: 16 }}>📊</div>
-          <p style={{ fontSize: 14, color: D.muted }}>Upload and analyse a document to see the dashboard.</p>
-        </div>
-      </div>
-    );
+    return <WelcomeState />;
   }
 
   const staffing   = result.staffingPlan;
@@ -294,7 +362,7 @@ export default function Dashboard() {
                     />
                   )}
                 />
-                <YAxis tick={{ fill: '#F1F5F9', fontSize: 10 }} axisLine={false} tickLine={false}
+                <YAxis tick={{ fill: '#64748B', fontSize: 10 }} axisLine={false} tickLine={false}
                   tickFormatter={v => `$${v}K`} />
                 <Tooltip contentStyle={tooltipStyle} wrapperStyle={tooltipWrapperStyle}
                   labelStyle={tooltipLabelStyle}
@@ -327,9 +395,9 @@ export default function Dashboard() {
                   </linearGradient>
                 </defs>
                 <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.05)" vertical={false} />
-                <XAxis dataKey="week" tick={{ fill: D.muted, fontSize: 10 }} axisLine={false} tickLine={false}
+                <XAxis dataKey="week" tick={{ fill: '#64748B', fontSize: 10 }} axisLine={false} tickLine={false}
                   interval={Math.max(0, Math.floor(headData.length / 8) - 1)} />
-                <YAxis tick={{ fill: D.muted, fontSize: 10 }} axisLine={false} tickLine={false} allowDecimals={false} />
+                <YAxis tick={{ fill: '#64748B', fontSize: 10 }} axisLine={false} tickLine={false} allowDecimals={false} />
                 <Tooltip contentStyle={tooltipStyle} wrapperStyle={tooltipWrapperStyle}
                   labelStyle={tooltipLabelStyle}
                   formatter={(v: number) => [v, 'Headcount']} />

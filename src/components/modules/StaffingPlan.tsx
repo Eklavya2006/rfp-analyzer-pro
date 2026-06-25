@@ -429,7 +429,7 @@ function PhaseTick({
 }) {
   if (!payload) return null;
   const idx   = payload.index;
-  const color = activeIdx === idx ? (phaseColors[payload.value] ?? INDIGO) : '#F1F5F9';
+  const color = activeIdx === idx ? (phaseColors[payload.value] ?? INDIGO) : '#64748B';
   return (
     <g transform={`translate(${x},${y})`}>
       <text
@@ -483,7 +483,7 @@ function PhaseAllocationChart({ roles }: { roles: StaffingRole[] }) {
               />
             )}
           />
-          <YAxis tick={{ fontSize: 10, fill: '#F1F5F9' }} axisLine={false} tickLine={false} />
+          <YAxis tick={{ fontSize: 10, fill: '#64748B' }} axisLine={false} tickLine={false} />
           <Tooltip contentStyle={tooltipStyle} wrapperStyle={tooltipWrapperStyle} labelStyle={tooltipLabelStyle}
             formatter={(v: number) => [v.toLocaleString(), 'Hours']} />
           <Bar dataKey="hours" name="Hours" radius={[5,5,0,0]}
