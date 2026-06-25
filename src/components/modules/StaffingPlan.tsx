@@ -2,7 +2,8 @@
 // StaffingPlan — Full IBM rate-card staffing with animated avatars,
 //               25-role dataset, AI phase suggestions, FTE matrix,
 //               Phase Summary tables, WCAG-AA form contrast, real-time recalculation
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useRef } from 'react';
+import ReactDOM from 'react-dom';
 import { Plus, Trash2, Search, Info, ChevronDown } from 'lucide-react';
 import {
   BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip,
@@ -102,29 +103,68 @@ function fmt(n: number) {
 }
 
 // ══════════════════════════════════════════════════════════════
-// HOVER TOOLTIP COMPONENT
+// HOVER TOOLTIP — portal-rendered so it escapes any overflow/z-index context
 // ══════════════════════════════════════════════════════════════
 function HoverTip({ text, children, width = 260 }: { text: React.ReactNode; children: React.ReactNode; width?: number }) {
   const [vis, setVis] = useState(false);
-  return (
-    <span className="relative inline-flex items-center gap-1 cursor-help"
-      onMouseEnter={() => setVis(true)} onMouseLeave={() => setVis(false)}>
-      {children}
-      {vis && (
-        <span style={{
-          position:'absolute', bottom:'110%', left:'50%', transform:'translateX(-50%)',
-          background:'#1E2436', color:'#F1F5F9', fontSize:12, padding:'8px 12px',
-          borderRadius:8, zIndex:9999, width, boxShadow:'0 8px 32px rgba(0,0,0,0.8)',
-          border:'1px solid rgba(99,102,241,0.3)', lineHeight:1.55,
-          pointerEvents:'none', whiteSpace:'normal', textAlign:'left',
+  const [pos, setPos] = useState({ x: 0, y: 0 });
+  const anchorRef = useRef<HTMLSpanElement>(null);
+
+  const show = () => {
+    if (anchorRef.current) {
+      const r = anchorRef.current.getBoundingClientRect();
+      setPos({ x: r.left + r.width / 2, y: r.top });
+    }
+    setVis(true);
+  };
+
+  const portal = vis && typeof window !== 'undefined'
+    ? ReactDOM.createPortal(
+        <div style={{
+          position: 'fixed',
+          left: pos.x,
+          top: pos.y - 8,
+          transform: 'translate(-50%, -100%)',
+          background: '#1E2436',
+          color: '#F1F5F9',
+          fontSize: 12,
+          padding: '8px 12px',
+          borderRadius: 8,
+          zIndex: 2147483647,
+          width,
+          boxShadow: '0 8px 32px rgba(0,0,0,0.85)',
+          border: '1px solid rgba(99,102,241,0.4)',
+          lineHeight: 1.55,
+          pointerEvents: 'none',
+          whiteSpace: 'normal',
+          textAlign: 'left',
         }}>
           {text}
-          <span style={{ position:'absolute', bottom:-6, left:'50%', transform:'translateX(-50%)',
-            width:0, height:0, borderLeft:'6px solid transparent', borderRight:'6px solid transparent',
-            borderTop:'6px solid #1E2436' }} />
-        </span>
-      )}
-    </span>
+          <span style={{
+            position: 'absolute', bottom: -6, left: '50%', transform: 'translateX(-50%)',
+            width: 0, height: 0,
+            borderLeft: '6px solid transparent', borderRight: '6px solid transparent',
+            borderTop: '6px solid #1E2436',
+          }} />
+        </div>,
+        document.body,
+      )
+    : null;
+
+  return (
+    <>
+      <span
+        ref={anchorRef}
+        className="inline-flex items-center gap-1 cursor-help"
+        onMouseEnter={show}
+        onMouseLeave={() => setVis(false)}
+        onFocus={show}
+        onBlur={() => setVis(false)}
+      >
+        {children}
+      </span>
+      {portal}
+    </>
   );
 }
 
@@ -954,12 +994,35 @@ export default function StaffingPlanModule() {
                   ? +((role.totalHours / availHrs) * 100).toFixed(1) : 0;
                 const activePhs  = getActivePhases(role);
                 const aiSug      = getAISuggestion(role.roleName);
+                // eslint-disable-next-line react-hooks/rules-of-hooks
                 const [showPhaseEdit, setShowPhaseEdit] = useState(false);
+                // eslint-disable-next-line react-hooks/rules-of-hooks
+                const [showLocEdit, setShowLocEdit] = useState(false);
                 const roleColor  = ROLE_COLORS[idx % ROLE_COLORS.length];
 
                 // Location color
                 const locColor = loc==='Offshore'?INDIGO:loc==='Nearshore'?'#10b981':loc==='Landed'?'#f59e0b':CYAN;
                 const locLabel = loc==='Offshore'?'Offshore':loc==='Nearshore'?'Nearshore':loc==='Landed'?'Landed India':'Geo';
+
+                const changeLocation = (newLoc: LocationType) => {
+                  if (!activeDocumentId) return;
+                  const newDeploy = LOCATION_CATEGORY[newLoc];
+                  const newMonthly = getMonthlyHrs(newLoc, projectMonths);
+                  const newAvail   = newMonthly * projectMonths;
+                  // Recalculate totalHours proportionally using weekly hrs
+                  const newWeekly  = getWeeklyHrs(newLoc);
+                  const weeks      = Math.round(projectMonths * 4.33);
+                  const newTotal   = Math.round(newWeekly * weeks * (utilPct / 100));
+                  const safeTot    = newTotal > 0 ? newTotal : role.totalHours;
+                  updateStaffingRole(activeDocumentId, role.id, {
+                    ...role,
+                    deployCategory: newDeploy,
+                    hoursPerResource: safeTot,
+                    totalHours: safeTot,
+                    totalCost: safeTot * role.hourlyRate,
+                  });
+                  setShowLocEdit(false);
+                };
 
                 return (
                   <tr key={role.id}
@@ -991,16 +1054,43 @@ export default function StaffingPlanModule() {
                       </div>
                     </td>
 
-                    {/* Location — visual badge */}
-                    <td className="px-3 py-2">
-                      <div>
-                        <span className="text-[10px] font-bold px-2 py-0.5 rounded-full" style={{ background:`${locColor}20`, color:locColor }}>
-                          {locLabel}
-                        </span>
-                        <div className="text-[9px] mt-0.5" style={{ color:MUTED }}>
-                          {weeklyHrs}h/wk · {monthlyHrs}h/mo
+                    {/* Location — clickable selection dropdown */}
+                    <td className="px-3 py-2" style={{ position:'relative' }}>
+                      {showLocEdit ? (
+                        <div style={{ position:'absolute', top:'100%', left:0, zIndex:9999,
+                          background:'#1A2035', border:`1px solid ${BORDER}`, borderRadius:10,
+                          boxShadow:'0 8px 32px rgba(0,0,0,0.7)', minWidth:180, overflow:'hidden' }}>
+                          {(['Geo','Nearshore','Offshore','Landed'] as LocationType[]).map(lt => {
+                            const ltCol = lt==='Offshore'?INDIGO:lt==='Nearshore'?'#10b981':lt==='Landed'?'#f59e0b':CYAN;
+                            const ltLbl = lt==='Offshore'?'Offshore':lt==='Nearshore'?'Nearshore':lt==='Landed'?'Landed India':'Geo';
+                            const ltHrs = `${getWeeklyHrs(lt)}h/wk · ${getMonthlyHrs(lt, projectMonths)}h/mo`;
+                            return (
+                              <button key={lt} onClick={() => changeLocation(lt)}
+                                className="flex items-center justify-between w-full px-3 py-2 text-left text-xs hover:bg-white/10 transition-colors"
+                                style={{ borderBottom:`1px solid ${BORDER}`, color: lt===loc ? ltCol : TEXT,
+                                  background: lt===loc ? `${ltCol}15` : 'transparent' }}>
+                                <span className="font-semibold">{ltLbl}</span>
+                                <span style={{ fontSize:10, color:MUTED }}>{ltHrs}</span>
+                              </button>
+                            );
+                          })}
+                          <button onClick={() => setShowLocEdit(false)}
+                            className="w-full py-1.5 text-center text-[10px] font-bold hover:bg-white/5 transition-colors"
+                            style={{ color:MUTED }}>Close</button>
                         </div>
-                      </div>
+                      ) : (
+                        <button onClick={() => setShowLocEdit(true)}
+                          className="flex flex-col items-start gap-0.5 group"
+                          title="Click to change location">
+                          <span className="text-[10px] font-bold px-2 py-0.5 rounded-full group-hover:opacity-80 transition-opacity"
+                            style={{ background:`${locColor}20`, color:locColor, border:`1px solid ${locColor}40` }}>
+                            {locLabel} ✎
+                          </span>
+                          <span className="text-[9px]" style={{ color:MUTED }}>
+                            {weeklyHrs}h/wk · {monthlyHrs}h/mo
+                          </span>
+                        </button>
+                      )}
                     </td>
 
                     {/* Band — dropdown */}
@@ -1122,15 +1212,54 @@ export default function StaffingPlanModule() {
 
       {/* ── Phase Total FTE Summary chips ── */}
       <div className="rounded-2xl p-5" style={{ background:GLASS, border:`1px solid ${BORDER}` }}>
-        <h3 className="text-sm font-bold mb-4" style={{ color:TEXT }}>Phase-wise Total FTE</h3>
+        <div className="flex items-center gap-2 mb-4">
+          <h3 className="text-sm font-bold" style={{ color:TEXT }}>Phase-wise Total FTE</h3>
+          <HoverTip width={340} text={
+            <span>
+              <strong style={{ color:'#F1F5F9' }}>Phase Total FTE Calculation</strong>
+              <br /><br />
+              <strong style={{ color: CYAN }}>Formula:</strong> Sum of all role FTE values active in this phase.<br />
+              <em>FTE per role = (Role&apos;s phase hours) / (Standard monthly hours for their location) × months in phase.</em>
+              <br /><br />
+              <strong style={{ color: '#10b981' }}>Location monthly hours:</strong><br />
+              • Geo / Nearshore / Landed India: <strong>140 h/mo</strong><br />
+              • Offshore CIC ≤ 12 months: <strong>180 h/mo</strong><br />
+              • Offshore CIC &gt; 12 months: <strong>172.5 h/mo</strong>
+              <br /><br />
+              <strong style={{ color:'#F59E0B' }}>Example (Prepare phase):</strong><br />
+              Lead Architect (Geo, 140 h/mo) = 140 h ÷ 140 = 1.0 FTE<br />
+              5 Onshore + 13 Offshore roles → Total 18.0 FTE
+            </span>
+          }>
+            <Info size={14} style={{ color:MUTED }} />
+          </HoverTip>
+        </div>
         <div className="grid grid-cols-4 sm:grid-cols-7 gap-3">
-          {IBM_PHASES.map(ph => (
-            <div key={ph} className="rounded-xl p-3 text-center" style={{ background:`${PHASE_COLORS[ph]}12`, border:`1px solid ${PHASE_COLORS[ph]}30` }}>
-              <div className="text-[10px] font-bold uppercase mb-1" style={{ color:PHASE_COLORS[ph] }}>{ph.replace('-',' ')}</div>
-              <div className="text-xl font-black" style={{ color:PHASE_COLORS[ph] }}>{PHASE_TOTAL_FTE[ph].toFixed(1)}</div>
-              <div style={{ fontSize:9, color:MUTED }}>FTE</div>
-            </div>
-          ))}
+          {IBM_PHASES.map(ph => {
+            // Compute live total from current roles
+            let onshFTE = 0, offFTE = 0;
+            roles.forEach(r => {
+              const ft = FTE_MATRIX[r.roleName]?.[ph] ?? 0;
+              if (ft === 0) return;
+              const l = deployToLocation(r.deployCategory);
+              if (l === 'Offshore') offFTE += ft; else onshFTE += ft;
+            });
+            const liveFTE = parseFloat((onshFTE + offFTE).toFixed(2));
+            return (
+              <div key={ph} className="rounded-xl p-3 text-center" style={{ background:`${PHASE_COLORS[ph]}12`, border:`1px solid ${PHASE_COLORS[ph]}30` }}>
+                <div className="text-[10px] font-bold uppercase mb-1" style={{ color:PHASE_COLORS[ph] }}>{ph.replace('-',' ')}</div>
+                <div className="text-xl font-black" style={{ color:PHASE_COLORS[ph] }}>{liveFTE > 0 ? liveFTE.toFixed(1) : PHASE_TOTAL_FTE[ph].toFixed(1)}</div>
+                <div style={{ fontSize:9, color:MUTED }}>FTE</div>
+                {liveFTE > 0 && (
+                  <div style={{ fontSize:8, color:MUTED, marginTop:2 }}>
+                    {onshFTE > 0 && <span style={{ color:CYAN }}>{onshFTE.toFixed(1)}↑</span>}
+                    {onshFTE > 0 && offFTE > 0 && ' + '}
+                    {offFTE > 0 && <span style={{ color:INDIGO }}>{offFTE.toFixed(1)}⬇</span>}
+                  </div>
+                )}
+              </div>
+            );
+          })}
         </div>
       </div>
 

@@ -1,6 +1,7 @@
 'use client';
 // ProjectPlan — Dark Gantt-style redesign with status pills, progress bars, resource chart
 import React, { useState, useRef, useCallback } from 'react';
+import ReactDOM from 'react-dom';
 import { Pencil, Check, X, Plus, Trash2, Info } from 'lucide-react';
 import {
   BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip,
@@ -56,31 +57,65 @@ function statusPct(s: PhaseStatus): number {
   return 0;
 }
 
-// ── Hover tooltip component ───────────────────────────────────
+// ── Hover tooltip component — portal-based for z-index safety ──
 function HoverTooltip({ text, children }: { text: string; children: React.ReactNode }) {
   const [visible, setVisible] = useState(false);
+  const [pos, setPos] = useState({ x: 0, y: 0 });
+  const ref = React.useRef<HTMLSpanElement>(null);
+
+  const handleMouseEnter = () => {
+    if (ref.current) {
+      const r = ref.current.getBoundingClientRect();
+      setPos({ x: r.left + r.width / 2, y: r.top });
+    }
+    setVisible(true);
+  };
+
   return (
-    <span className="relative inline-flex items-center gap-1"
-      onMouseEnter={() => setVisible(true)}
-      onMouseLeave={() => setVisible(false)}>
-      {children}
-      {visible && (
-        <span
+    <>
+      <span
+        ref={ref}
+        className="relative inline-flex items-center gap-1"
+        onMouseEnter={handleMouseEnter}
+        onMouseLeave={() => setVisible(false)}
+        onFocus={handleMouseEnter}
+        onBlur={() => setVisible(false)}
+      >
+        {children}
+      </span>
+      {visible && typeof window !== 'undefined' && ReactDOM.createPortal(
+        <div
           style={{
-            position: 'absolute', bottom: '100%', left: '50%', transform: 'translateX(-50%)',
-            marginBottom: 8, background: '#1E2436', color: '#F1F5F9', fontSize: 12,
-            padding: '8px 12px', borderRadius: 8, zIndex: 9999, width: 300,
-            boxShadow: '0 8px 32px rgba(0,0,0,0.7)',
-            border: '1px solid rgba(99,102,241,0.3)', lineHeight: 1.5,
-            pointerEvents: 'none', whiteSpace: 'normal', textAlign: 'left',
-          }}>
+            position: 'fixed',
+            left: pos.x,
+            top: pos.y - 8,
+            transform: 'translate(-50%, -100%)',
+            background: '#1E2436',
+            color: '#F1F5F9',
+            fontSize: 12,
+            padding: '8px 12px',
+            borderRadius: 8,
+            zIndex: 2147483647,
+            width: 300,
+            boxShadow: '0 8px 32px rgba(0,0,0,0.85)',
+            border: '1px solid rgba(99,102,241,0.4)',
+            lineHeight: 1.5,
+            pointerEvents: 'none',
+            whiteSpace: 'normal',
+            textAlign: 'left',
+          }}
+        >
           {text}
-          <span style={{ position: 'absolute', bottom: -6, left: '50%', transform: 'translateX(-50%)',
-            width: 0, height: 0, borderLeft: '6px solid transparent', borderRight: '6px solid transparent',
-            borderTop: '6px solid #1E2436' }} />
-        </span>
+          <span style={{
+            position: 'absolute', bottom: -6, left: '50%', transform: 'translateX(-50%)',
+            width: 0, height: 0,
+            borderLeft: '6px solid transparent', borderRight: '6px solid transparent',
+            borderTop: '6px solid #1E2436',
+          }} />
+        </div>,
+        document.body,
       )}
-    </span>
+    </>
   );
 }
 

@@ -225,15 +225,26 @@ function CategoryAvatar({ category }: { category: 'critical' | 'common' | 'strat
   );
 }
 
-// ── Single objection entry card ────────────────────────────────
-function ObjectionCard({ obj }: { obj: ClientObjection }) {
+// ── Single objection entry card — fully editable ──────────────
+interface ObjectionCardProps {
+  obj: ClientObjection;
+  onUpdate: (id: string, field: keyof Pick<ClientObjection, 'objection' | 'response' | 'supportingData'>, value: string) => void;
+}
+function ObjectionCard({ obj, onUpdate }: ObjectionCardProps) {
   const [expanded, setExpanded] = useState(false);
   const cfg = CATEGORY_CONFIG[obj.category];
+
+  const taStyle: React.CSSProperties = {
+    width: '100%', background: 'rgba(255,255,255,0.7)', border: '1px solid #E2E8F0',
+    borderRadius: 8, padding: '8px 12px', fontSize: 13, color: '#1A202C',
+    outline: 'none', resize: 'vertical', lineHeight: 1.6,
+    transition: 'border-color 0.15s', fontFamily: 'inherit',
+  };
 
   return (
     <div className="rounded-2xl border overflow-hidden transition-all"
       style={{ borderColor: `${cfg.color}30`, background: `${cfg.bg}` }}>
-      {/* Header — always visible */}
+      {/* Header — always visible, heading text is editable on expand */}
       <button
         onClick={() => setExpanded(e => !e)}
         className="w-full flex items-center gap-3 px-5 py-4 text-left hover:brightness-105 transition-all"
@@ -247,41 +258,65 @@ function ObjectionCard({ obj }: { obj: ClientObjection }) {
             </span>
           </div>
           <div className="font-semibold text-sm leading-snug" style={{ color: '#1A202C' }}>
-            {obj.objection}
+            {obj.objection || <em style={{ color: '#9CA3AF' }}>Click ▶ to expand and edit…</em>}
           </div>
         </div>
         {/* Toggle arrow — rotates on expand */}
-        <span
-          style={{
-            fontSize: 12, color: cfg.color, fontWeight: 700, flexShrink: 0,
-            transition: 'transform 0.25s ease',
-            transform: expanded ? 'rotate(90deg)' : 'rotate(0deg)',
-            display: 'inline-block',
-          }}>
-          ▶
-        </span>
+        <span style={{
+          fontSize: 12, color: cfg.color, fontWeight: 700, flexShrink: 0,
+          transition: 'transform 0.25s ease',
+          transform: expanded ? 'rotate(90deg)' : 'rotate(0deg)',
+          display: 'inline-block',
+        }}>▶</span>
       </button>
 
-      {/* Expandable body */}
+      {/* Expandable body — all fields editable */}
       {expanded && (
-        <div className="px-5 pb-5 pt-1 space-y-4 border-t" style={{ borderColor: `${cfg.color}20` }}>
+        <div className="px-5 pb-5 pt-2 space-y-4 border-t" style={{ borderColor: `${cfg.color}20` }}>
+          {/* Objection / question text */}
+          <div>
+            <label className="text-[10px] font-bold uppercase tracking-wider block mb-1.5" style={{ color: '#64748B' }}>
+              Client Objection
+            </label>
+            <textarea
+              rows={2}
+              value={obj.objection}
+              onChange={e => onUpdate(obj.id, 'objection', e.target.value)}
+              onClick={e => e.stopPropagation()}
+              style={taStyle}
+              onFocus={e => { e.currentTarget.style.borderColor = cfg.color; }}
+              onBlur={e => { e.currentTarget.style.borderColor = '#E2E8F0'; }}
+            />
+          </div>
           {/* Recommended Response */}
           <div>
-            <div className="text-[10px] font-bold uppercase tracking-wider mb-2" style={{ color: TEAL }}>
+            <label className="text-[10px] font-bold uppercase tracking-wider block mb-1.5" style={{ color: TEAL }}>
               💬 Recommended Response
-            </div>
-            <p className="text-sm leading-relaxed" style={{ color: '#374151' }}>
-              {obj.response}
-            </p>
+            </label>
+            <textarea
+              rows={3}
+              value={obj.response}
+              onChange={e => onUpdate(obj.id, 'response', e.target.value)}
+              onClick={e => e.stopPropagation()}
+              style={taStyle}
+              onFocus={e => { e.currentTarget.style.borderColor = TEAL; }}
+              onBlur={e => { e.currentTarget.style.borderColor = '#E2E8F0'; }}
+            />
           </div>
           {/* Supporting Data */}
           <div className="rounded-xl p-3" style={{ background: 'rgba(255,255,255,0.6)', border: '1px solid #E2E8F0' }}>
-            <div className="text-[10px] font-bold uppercase tracking-wider mb-1.5" style={{ color: '#64748B' }}>
+            <label className="text-[10px] font-bold uppercase tracking-wider block mb-1.5" style={{ color: '#64748B' }}>
               📊 Supporting Data
-            </div>
-            <p className="text-xs leading-relaxed" style={{ color: '#475569' }}>
-              {obj.supportingData}
-            </p>
+            </label>
+            <textarea
+              rows={2}
+              value={obj.supportingData}
+              onChange={e => onUpdate(obj.id, 'supportingData', e.target.value)}
+              onClick={e => e.stopPropagation()}
+              style={{ ...taStyle, background: 'transparent', fontSize: 12, padding: '4px 8px' }}
+              onFocus={e => { e.currentTarget.style.borderColor = '#64748B'; }}
+              onBlur={e => { e.currentTarget.style.borderColor = '#E2E8F0'; }}
+            />
           </div>
         </div>
       )}
@@ -289,16 +324,20 @@ function ObjectionCard({ obj }: { obj: ClientObjection }) {
   );
 }
 
-// ── Full objections panel ──────────────────────────────────────
-function ObjectionsGuidePanel() {
+// ── Full objections panel — state-driven, all fields editable ──
+interface ObjectionsGuidePanelProps {
+  objections: ClientObjection[];
+  onUpdate: (id: string, field: keyof Pick<ClientObjection, 'objection' | 'response' | 'supportingData'>, value: string) => void;
+}
+function ObjectionsGuidePanel({ objections, onUpdate }: ObjectionsGuidePanelProps) {
   const [open, setOpen] = useState(true);
-  const criticalCount  = PRESET_OBJECTIONS.filter(o => o.category === 'critical').length;
-  const commonCount    = PRESET_OBJECTIONS.filter(o => o.category === 'common').length;
-  const strategicCount = PRESET_OBJECTIONS.filter(o => o.category === 'strategic').length;
+  const criticalCount  = objections.filter(o => o.category === 'critical').length;
+  const commonCount    = objections.filter(o => o.category === 'common').length;
+  const strategicCount = objections.filter(o => o.category === 'strategic').length;
 
   return (
     <>
-      {/* CSS keyframe animations injected via style tag */}
+      {/* CSS keyframe animations */}
       <style>{`
         @keyframes subtlePulseCritical {
           0%, 100% { box-shadow: 0 0 8px rgba(239,68,68,0.3); transform: scale(1); }
@@ -329,6 +368,7 @@ function ObjectionsGuidePanel() {
             </div>
             <div className="text-xs mt-1" style={{ color: '#64748B' }}>
               Prepared responses for common procurement challenges. Use when presenting the value-based pricing model.
+              <span className="ml-2 font-medium" style={{ color: '#0D7377' }}>All fields are editable — click ▶ to expand.</span>
             </div>
           </div>
           <div className="flex items-center gap-2 ml-4 shrink-0">
@@ -351,8 +391,8 @@ function ObjectionsGuidePanel() {
 
         {open && (
           <div className="p-5 space-y-3">
-            {PRESET_OBJECTIONS.map(obj => (
-              <ObjectionCard key={obj.id} obj={obj} />
+            {objections.map(obj => (
+              <ObjectionCard key={obj.id} obj={obj} onUpdate={onUpdate} />
             ))}
           </div>
         )}
@@ -374,6 +414,14 @@ export default function CreateProposalModule() {
   const [proposalHtml, setProposalHtml] = useState('');
   const [linkCopied, setLinkCopied] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
+
+  // ── Editable objections state — seeded from PRESET_OBJECTIONS ──
+  const [objections, setObjections] = useState<ClientObjection[]>(PRESET_OBJECTIONS);
+  const updateObjectionField = (
+    id: string,
+    field: keyof Pick<ClientObjection, 'objection' | 'response' | 'supportingData'>,
+    value: string,
+  ) => setObjections(prev => prev.map(o => o.id === id ? { ...o, [field]: value } : o));
 
   const clientName = doc?.summary?.client || 'Enterprise Client';
   const projectTitle = doc?.summary?.title || 'Enterprise Digital Transformation';
@@ -406,7 +454,7 @@ export default function CreateProposalModule() {
   };
 
   const generate = () => {
-    const html = buildProposalHTML({ clientName, projectTitle, date, result, logoDataUrl, withLogo, objections: PRESET_OBJECTIONS });
+    const html = buildProposalHTML({ clientName, projectTitle, date, result, logoDataUrl, withLogo, objections });
     setProposalHtml(html);
     setPreviewOpen(true);
   };
@@ -542,8 +590,8 @@ export default function CreateProposalModule() {
         )}
       </div>
 
-      {/* ── Client Objection Handling Guide (animated) ── */}
-      <ObjectionsGuidePanel />
+      {/* ── Client Objection Handling Guide (animated, editable) ── */}
+      <ObjectionsGuidePanel objections={objections} onUpdate={updateObjectionField} />
 
       {/* Generate button */}
       <div className="flex justify-center">

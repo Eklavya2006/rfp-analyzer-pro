@@ -1,10 +1,10 @@
 'use client';
-// ScopeDeliverables — Dark glassmorphism + hyperlinks + placeholder filter
+// Scope — Dark glassmorphism + hyperlinks with document-analyzer highlighting
 import React, { useState } from 'react';
 import { Plus, Trash2, Search, FileText } from 'lucide-react';
 import { useRFPStore } from '@/lib/store';
 import { v4 as uuid } from 'uuid';
-import type { ScopeItem, DeliverableItem } from '@/types';
+import type { ScopeItem } from '@/types';
 
 // ── Dark palette ──────────────────────────────────────────────
 const INDIGO = '#6366F1';
@@ -18,63 +18,105 @@ const CAT_COLORS = {
   'assumption':   { bg: 'rgba(245,158,11,0.12)',  text: '#FCD34D', border: 'rgba(245,158,11,0.25)' },
 };
 
-const PRIO_COLORS = {
-  high:   { bg: 'rgba(244,63,94,0.12)',  text: '#FB7185' },
-  medium: { bg: 'rgba(245,158,11,0.12)', text: '#FCD34D' },
-  low:    { bg: 'rgba(16,185,129,0.12)', text: '#34D399' },
-};
-
-function navigateToSection(setActiveTab: (t: 'document-analyzer') => void, section: string, page: string) {
+/**
+ * Navigates to the Document Analyzer tab and sets a scroll hint so the
+ * analyzer highlights and scrolls to the referenced section.
+ */
+function navigateToSection(
+  setActiveTab: (t: 'document-analyzer') => void,
+  setScrollHintInStore: ((hint: { section: string; page: string }) => void) | undefined,
+  section: string,
+  page: string,
+) {
+  // Persist hint in sessionStorage for the DocumentAnalyzer useEffect
   try {
     sessionStorage.setItem('rfp-scroll-hint', JSON.stringify({ section, page, ts: Date.now() }));
-  } catch {}
+  } catch { /* ignore SSR/private-mode errors */ }
   setActiveTab('document-analyzer');
 }
 
+// ── Ref-link component with tooltip ──────────────────────────
 function RefLink({ section, page }: { section: string; page: string }) {
   const [show, setShow] = useState(false);
   const { setActiveTab } = useRFPStore();
   return (
     <div className="relative inline-flex items-center gap-1">
-      <button type="button"
-        onClick={() => navigateToSection(setActiveTab, section, page)}
+      <button
+        type="button"
+        onClick={() => navigateToSection(setActiveTab, undefined, section, page)}
         onMouseEnter={() => setShow(true)}
         onMouseLeave={() => setShow(false)}
+        onFocus={() => setShow(true)}
+        onBlur={() => setShow(false)}
         className="inline-flex items-center gap-1 text-xs underline underline-offset-2 font-medium transition-all hover:opacity-70 cursor-pointer"
         style={{ color: CYAN }}
-        title={`View source: ${section} — ${page}`}>
+        aria-label={`View source: ${section} — ${page}`}
+      >
         {section}
         <FileText size={10} />
       </button>
       {show && (
-        <div className="absolute left-0 bottom-full mb-1 z-20 text-white text-[10px] rounded-lg px-2.5 py-1.5 whitespace-nowrap shadow-xl pointer-events-none"
-          style={{ background: '#1E2436', border: '1px solid rgba(99,102,241,0.3)' }}>
-          📄 View in document: <span className="font-semibold">{section}</span> — {page}
+        <div
+          className="absolute left-0 bottom-full mb-2 whitespace-nowrap pointer-events-none"
+          style={{
+            background: '#1E2436',
+            border: '1px solid rgba(99,102,241,0.35)',
+            borderRadius: 8,
+            padding: '5px 10px',
+            fontSize: 11,
+            color: '#F1F5F9',
+            zIndex: 99999,
+            boxShadow: '0 8px 32px rgba(0,0,0,0.8)',
+            lineHeight: 1.5,
+          }}
+        >
+          📄 View in document:{' '}
+          <span style={{ fontWeight: 700, color: '#F1F5F9' }}>{section}</span>{' '}
+          — {page}
         </div>
       )}
     </div>
   );
 }
 
+// ── Page-link component with tooltip ─────────────────────────
 function PageLink({ page, section }: { page: string; section: string }) {
   const [show, setShow] = useState(false);
   const { setActiveTab } = useRFPStore();
   return (
     <div className="relative inline-flex items-center gap-1">
-      <button type="button"
-        onClick={() => navigateToSection(setActiveTab, section, page)}
+      <button
+        type="button"
+        onClick={() => navigateToSection(setActiveTab, undefined, section, page)}
         onMouseEnter={() => setShow(true)}
         onMouseLeave={() => setShow(false)}
+        onFocus={() => setShow(true)}
+        onBlur={() => setShow(false)}
         className="inline-flex items-center gap-1 text-xs underline underline-offset-2 font-medium transition-all hover:opacity-70 cursor-pointer"
         style={{ color: INDIGO }}
-        title={`View source: ${section} — ${page}`}>
+        aria-label={`View source: ${section} — ${page}`}
+      >
         {page}
         <FileText size={10} />
       </button>
       {show && (
-        <div className="absolute left-0 bottom-full mb-1 z-20 text-white text-[10px] rounded-lg px-2.5 py-1.5 whitespace-nowrap shadow-xl pointer-events-none"
-          style={{ background: '#1E2436', border: '1px solid rgba(99,102,241,0.3)' }}>
-          📄 View in document: <span className="font-semibold">{section}</span> — {page}
+        <div
+          className="absolute left-0 bottom-full mb-2 whitespace-nowrap pointer-events-none"
+          style={{
+            background: '#1E2436',
+            border: '1px solid rgba(99,102,241,0.35)',
+            borderRadius: 8,
+            padding: '5px 10px',
+            fontSize: 11,
+            color: '#F1F5F9',
+            zIndex: 99999,
+            boxShadow: '0 8px 32px rgba(0,0,0,0.8)',
+            lineHeight: 1.5,
+          }}
+        >
+          📄 View in document:{' '}
+          <span style={{ fontWeight: 700, color: '#F1F5F9' }}>{section}</span>{' '}
+          — {page}
         </div>
       )}
     </div>
@@ -84,7 +126,6 @@ function PageLink({ page, section }: { page: string; section: string }) {
 export default function ScopeDeliverables() {
   const { activeDocumentId, analysisResults, setAnalysisResult } = useRFPStore();
   const result = activeDocumentId ? analysisResults[activeDocumentId] : null;
-  const [tab, setTab] = useState<'scope' | 'deliverables'>('scope');
   const [search, setSearch] = useState('');
 
   if (!result) return (
@@ -102,214 +143,162 @@ export default function ScopeDeliverables() {
     return c.length > 5 && !PLACEHOLDERS.test(c);
   }
 
-  const scopeItems        = (result.scopeItems ?? []).filter((i) => isValidDesc(i.description));
-  const deliverableItems  = (result.deliverableItems ?? []).filter((i) => isValidDesc(i.description));
+  const scopeItems = (result.scopeItems ?? []).filter((i) => isValidDesc(i.description));
 
   const filteredScope = scopeItems.filter((i) =>
     cleanDesc(i.description).toLowerCase().includes(search.toLowerCase()) ||
-    i.referenceSection.toLowerCase().includes(search.toLowerCase())
-  );
-  const filteredDel = deliverableItems.filter((i) =>
-    cleanDesc(i.description).toLowerCase().includes(search.toLowerCase()) ||
-    i.phase.toLowerCase().includes(search.toLowerCase())
+    i.referenceSection.toLowerCase().includes(search.toLowerCase()),
   );
 
   const addScope = () => {
-    const newItem: ScopeItem = { id: uuid(), description: 'New scope item', referenceSection: 'Section TBD', pageNumber: 'Page TBD', category: 'in-scope' };
+    const newItem: ScopeItem = {
+      id: uuid(),
+      description: 'New scope item',
+      referenceSection: 'Section TBD',
+      pageNumber: 'Page TBD',
+      category: 'in-scope',
+    };
     setAnalysisResult(activeDocumentId!, { ...result, scopeItems: [...scopeItems, newItem] });
   };
+
   const removeScope = (id: string) =>
-    setAnalysisResult(activeDocumentId!, { ...result, scopeItems: scopeItems.filter((i) => i.id !== id) });
-  const addDeliverable = () => {
-    const newItem: DeliverableItem = { id: uuid(), description: 'New deliverable', referenceSection: 'Section TBD', pageNumber: 'Page TBD', phase: 'Development', priority: 'medium' };
-    setAnalysisResult(activeDocumentId!, { ...result, deliverableItems: [...deliverableItems, newItem] });
-  };
-  const removeDeliverable = (id: string) =>
-    setAnalysisResult(activeDocumentId!, { ...result, deliverableItems: deliverableItems.filter((i) => i.id !== id) });
+    setAnalysisResult(activeDocumentId!, {
+      ...result,
+      scopeItems: scopeItems.filter((i) => i.id !== id),
+    });
+
   const updateScope = (id: string, field: keyof ScopeItem, value: string) =>
-    setAnalysisResult(activeDocumentId!, { ...result, scopeItems: scopeItems.map((i) => i.id === id ? { ...i, [field]: value } : i) });
-  const updateDeliverable = (id: string, field: keyof DeliverableItem, value: string) =>
-    setAnalysisResult(activeDocumentId!, { ...result, deliverableItems: deliverableItems.map((i) => i.id === id ? { ...i, [field]: value } : i) });
+    setAnalysisResult(activeDocumentId!, {
+      ...result,
+      scopeItems: scopeItems.map((i) => (i.id === id ? { ...i, [field]: value } : i)),
+    });
 
   return (
     <div className="p-6 max-w-7xl mx-auto space-y-4">
 
       {/* ── Header bar ── */}
       <div className="flex items-center justify-between flex-wrap gap-3">
-        {/* Animated tab pill */}
-        <div className="flex rounded-xl p-1 gap-1"
-          style={{ background: 'rgba(255,255,255,0.05)', border: `1px solid ${BORDER}` }}>
-          {(['scope', 'deliverables'] as const).map((t) => (
-            <button key={t} onClick={() => setTab(t)}
-              className="px-4 py-1.5 rounded-lg text-sm font-semibold transition-all duration-200"
-              style={tab === t
-                ? { background: `linear-gradient(135deg, ${INDIGO}, #4F46E5)`, color: '#fff', boxShadow: `0 2px 8px rgba(99,102,241,0.4)` }
-                : { color: '#94A3B8', background: 'transparent' }}>
-              {t === 'scope' ? `Scope Items (${scopeItems.length})` : `Deliverables (${deliverableItems.length})`}
-            </button>
-          ))}
+        <div>
+          <h2 className="text-lg font-bold" style={{ color: '#F1F5F9' }}>Scope</h2>
+          <p className="text-xs mt-0.5" style={{ color: '#94A3B8' }}>
+            {scopeItems.length} scope items · click any reference link to jump to the document section
+          </p>
         </div>
         <div className="flex items-center gap-2">
-          <div className="flex items-center gap-2 rounded-xl px-3 py-1.5"
-            style={{ background: GLASS, border: `1px solid ${BORDER}` }}>
+          <div
+            className="flex items-center gap-2 rounded-xl px-3 py-1.5"
+            style={{ background: GLASS, border: `1px solid ${BORDER}` }}
+          >
             <Search size={14} style={{ color: '#475569' }} />
-            <input value={search} onChange={(e) => setSearch(e.target.value)} placeholder="Search…"
+            <input
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
+              placeholder="Search…"
               className="text-sm outline-none w-40 bg-transparent"
-              style={{ color: '#F1F5F9' }} />
+              style={{ color: '#F1F5F9' }}
+            />
           </div>
-          <button onClick={tab === 'scope' ? addScope : addDeliverable}
+          <button
+            onClick={addScope}
             className="flex items-center gap-1.5 text-sm font-semibold px-3 py-1.5 rounded-xl text-white transition-all duration-200"
             style={{
               background: `linear-gradient(135deg, ${INDIGO}, #4F46E5)`,
               boxShadow: `0 2px 10px rgba(99,102,241,0.35)`,
-            }}>
+            }}
+          >
             <Plus size={14} /> Add
           </button>
         </div>
       </div>
 
       {/* ── Scope table ── */}
-      {tab === 'scope' ? (
-        <div className="rounded-2xl overflow-hidden" style={{ border: `1px solid ${BORDER}`, background: GLASS }}>
-          <div className="overflow-x-auto">
-            <table className="dark-table">
-              <thead>
-                <tr>
-                  <th>Description</th>
-                  <th>Reference Section ↗</th>
-                  <th>Page ↗</th>
-                  <th>Category</th>
-                  <th style={{ textAlign: 'center' }}>Actions</th>
-                </tr>
-              </thead>
-              <tbody>
-                {filteredScope.map((item) => {
-                  const colors = CAT_COLORS[item.category];
-                  return (
-                    <tr key={item.id}>
-                      <td>
-                        <input value={item.description} onChange={(e) => updateScope(item.id, 'description', e.target.value)}
-                          className="w-full text-sm outline-none bg-transparent transition-colors"
-                          style={{ color: '#F1F5F9', borderBottom: '1px dashed rgba(255,255,255,0.1)' }} />
-                      </td>
-                      <td>
-                        <div className="flex flex-col gap-1">
-                          <RefLink section={item.referenceSection} page={item.pageNumber} />
-                          <input value={item.referenceSection} onChange={(e) => updateScope(item.id, 'referenceSection', e.target.value)}
-                            className="text-[10px] outline-none bg-transparent w-full"
-                            style={{ color: '#475569' }} placeholder="Edit section…" />
-                        </div>
-                      </td>
-                      <td>
-                        <div className="flex flex-col gap-1">
-                          <PageLink page={item.pageNumber} section={item.referenceSection} />
-                          <input value={item.pageNumber} onChange={(e) => updateScope(item.id, 'pageNumber', e.target.value)}
-                            className="text-[10px] outline-none bg-transparent w-full"
-                            style={{ color: '#475569' }} placeholder="Edit page…" />
-                        </div>
-                      </td>
-                      <td>
-                        <select value={item.category} onChange={(e) => updateScope(item.id, 'category', e.target.value)}
-                          className="text-xs font-semibold px-2 py-0.5 rounded-full border-0 outline-none cursor-pointer"
-                          style={{ background: colors.bg, color: colors.text, border: `1px solid ${colors.border}` }}>
-                          <option value="in-scope">In Scope</option>
-                          <option value="out-of-scope">Out of Scope</option>
-                          <option value="assumption">Assumption</option>
-                        </select>
-                      </td>
-                      <td style={{ textAlign: 'center' }}>
-                        <button onClick={() => removeScope(item.id)}
-                          className="transition-colors"
+      <div
+        className="rounded-2xl overflow-visible"
+        style={{ border: `1px solid ${BORDER}`, background: GLASS }}
+      >
+        <div className="overflow-x-auto overflow-y-visible">
+          <table className="dark-table" style={{ overflow: 'visible' }}>
+            <thead>
+              <tr>
+                <th>Description</th>
+                <th>Reference Section ↗</th>
+                <th>Page ↗</th>
+                <th>Category</th>
+                <th style={{ textAlign: 'center' }}>Actions</th>
+              </tr>
+            </thead>
+            <tbody>
+              {filteredScope.map((item) => {
+                const colors = CAT_COLORS[item.category];
+                return (
+                  <tr key={item.id} style={{ overflow: 'visible' }}>
+                    <td>
+                      <input
+                        value={item.description}
+                        onChange={(e) => updateScope(item.id, 'description', e.target.value)}
+                        className="w-full text-sm outline-none bg-transparent transition-colors"
+                        style={{ color: '#F1F5F9', borderBottom: '1px dashed rgba(255,255,255,0.1)' }}
+                      />
+                    </td>
+                    <td style={{ overflow: 'visible', position: 'relative' }}>
+                      <div className="flex flex-col gap-1" style={{ overflow: 'visible' }}>
+                        <RefLink section={item.referenceSection} page={item.pageNumber} />
+                        <input
+                          value={item.referenceSection}
+                          onChange={(e) => updateScope(item.id, 'referenceSection', e.target.value)}
+                          className="text-[10px] outline-none bg-transparent w-full"
                           style={{ color: '#475569' }}
-                          onMouseEnter={(e) => (e.currentTarget.style.color = '#F43F5E')}
-                          onMouseLeave={(e) => (e.currentTarget.style.color = '#475569')}>
-                          <Trash2 size={14} />
-                        </button>
-                      </td>
-                    </tr>
-                  );
-                })}
-              </tbody>
-            </table>
-          </div>
-          {filteredScope.length === 0 && (
-            <div className="p-8 text-center text-sm" style={{ color: '#475569' }}>No scope items found</div>
-          )}
-        </div>
-      ) : (
-        <div className="rounded-2xl overflow-hidden" style={{ border: `1px solid ${BORDER}`, background: GLASS }}>
-          <div className="overflow-x-auto">
-            <table className="dark-table">
-              <thead>
-                <tr>
-                  <th>Description</th>
-                  <th>Reference Section ↗</th>
-                  <th>Page ↗</th>
-                  <th>Phase</th>
-                  <th>Priority</th>
-                  <th style={{ textAlign: 'center' }}>Actions</th>
-                </tr>
-              </thead>
-              <tbody>
-                {filteredDel.map((item) => {
-                  const prio = PRIO_COLORS[item.priority];
-                  return (
-                    <tr key={item.id}>
-                      <td>
-                        <input value={item.description} onChange={(e) => updateDeliverable(item.id, 'description', e.target.value)}
-                          className="w-full text-sm outline-none bg-transparent transition-colors"
-                          style={{ color: '#F1F5F9', borderBottom: '1px dashed rgba(255,255,255,0.1)' }} />
-                      </td>
-                      <td>
-                        <div className="flex flex-col gap-1">
-                          <RefLink section={item.referenceSection} page={item.pageNumber} />
-                          <input value={item.referenceSection} onChange={(e) => updateDeliverable(item.id, 'referenceSection', e.target.value)}
-                            className="text-[10px] outline-none bg-transparent w-full"
-                            style={{ color: '#475569' }} placeholder="Edit section…" />
-                        </div>
-                      </td>
-                      <td>
-                        <div className="flex flex-col gap-1">
-                          <PageLink page={item.pageNumber} section={item.referenceSection} />
-                          <input value={item.pageNumber} onChange={(e) => updateDeliverable(item.id, 'pageNumber', e.target.value)}
-                            className="text-[10px] outline-none bg-transparent w-full"
-                            style={{ color: '#475569' }} placeholder="Edit page…" />
-                        </div>
-                      </td>
-                      <td>
-                        <input value={item.phase} onChange={(e) => updateDeliverable(item.id, 'phase', e.target.value)}
-                          className="w-full text-xs outline-none bg-transparent"
-                          style={{ color: '#94A3B8' }} />
-                      </td>
-                      <td>
-                        <select value={item.priority} onChange={(e) => updateDeliverable(item.id, 'priority', e.target.value)}
-                          className="text-xs font-semibold px-2 py-0.5 rounded-full border-0 outline-none cursor-pointer"
-                          style={{ background: prio.bg, color: prio.text }}>
-                          <option value="high">High</option>
-                          <option value="medium">Medium</option>
-                          <option value="low">Low</option>
-                        </select>
-                      </td>
-                      <td style={{ textAlign: 'center' }}>
-                        <button onClick={() => removeDeliverable(item.id)}
-                          className="transition-colors"
+                          placeholder="Edit section…"
+                        />
+                      </div>
+                    </td>
+                    <td style={{ overflow: 'visible', position: 'relative' }}>
+                      <div className="flex flex-col gap-1" style={{ overflow: 'visible' }}>
+                        <PageLink page={item.pageNumber} section={item.referenceSection} />
+                        <input
+                          value={item.pageNumber}
+                          onChange={(e) => updateScope(item.id, 'pageNumber', e.target.value)}
+                          className="text-[10px] outline-none bg-transparent w-full"
                           style={{ color: '#475569' }}
-                          onMouseEnter={(e) => (e.currentTarget.style.color = '#F43F5E')}
-                          onMouseLeave={(e) => (e.currentTarget.style.color = '#475569')}>
-                          <Trash2 size={14} />
-                        </button>
-                      </td>
-                    </tr>
-                  );
-                })}
-              </tbody>
-            </table>
-          </div>
-          {filteredDel.length === 0 && (
-            <div className="p-8 text-center text-sm" style={{ color: '#475569' }}>No deliverables found</div>
-          )}
+                          placeholder="Edit page…"
+                        />
+                      </div>
+                    </td>
+                    <td>
+                      <select
+                        value={item.category}
+                        onChange={(e) => updateScope(item.id, 'category', e.target.value)}
+                        className="text-xs font-semibold px-2 py-0.5 rounded-full border-0 outline-none cursor-pointer"
+                        style={{ background: colors.bg, color: colors.text, border: `1px solid ${colors.border}` }}
+                      >
+                        <option value="in-scope">In Scope</option>
+                        <option value="out-of-scope">Out of Scope</option>
+                        <option value="assumption">Assumption</option>
+                      </select>
+                    </td>
+                    <td style={{ textAlign: 'center' }}>
+                      <button
+                        onClick={() => removeScope(item.id)}
+                        className="transition-colors"
+                        style={{ color: '#475569' }}
+                        onMouseEnter={(e) => (e.currentTarget.style.color = '#F43F5E')}
+                        onMouseLeave={(e) => (e.currentTarget.style.color = '#475569')}
+                      >
+                        <Trash2 size={14} />
+                      </button>
+                    </td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
         </div>
-      )}
+        {filteredScope.length === 0 && (
+          <div className="p-8 text-center text-sm" style={{ color: '#475569' }}>
+            No scope items found
+          </div>
+        )}
+      </div>
     </div>
   );
 }

@@ -166,7 +166,7 @@ function IconProposal({ active }: { active: boolean }) {
 const NAV_ITEMS: NavItem[] = [
   { id: 'document-analyzer', label: 'Document Analyzer',      description: 'Upload & analyze RFP' },
   { id: 'dashboard',         label: 'Dashboard',              description: 'Overview & metrics',            requiresDoc: true },
-  { id: 'scope',             label: 'Scope & Deliverables',   description: 'Scope items & deliverables',    requiresDoc: true },
+  { id: 'scope',             label: 'Scope',                  description: 'Scope items & requirements',    requiresDoc: true },
   { id: 'offerings',         label: 'Offerings / Technology', description: 'IBM offerings & tech',          requiresDoc: true },
   { id: 'project-plan',      label: 'Project Plan',           description: 'Phases & Gantt timeline',       requiresDoc: true },
   { id: 'staffing',          label: 'Staffing Plan',          description: 'IBM Band staffing',             requiresDoc: true },
