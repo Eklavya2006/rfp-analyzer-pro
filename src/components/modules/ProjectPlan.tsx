@@ -26,12 +26,17 @@ const PC = {
 } as const;
 
 const tooltipStyle = {
-  backgroundColor: '#1e2030',
-  border: '1px solid #2a2d3e',
+  backgroundColor: '#1E2436',
+  border: '1px solid rgba(99,102,241,0.3)',
   borderRadius: 10,
-  color: '#f4f4f4',
-  fontSize: 12,
+  color: '#F1F5F9',
+  fontSize: 13,
+  padding: '8px 12px',
+  zIndex: 10000,
+  boxShadow: '0 8px 32px rgba(0,0,0,0.7)',
 };
+const tooltipWrapperStyle = { zIndex: 10000, outline: 'none' };
+const tooltipLabelStyle   = { color: '#F1F5F9', fontWeight: 700, marginBottom: 4 };
 
 // ── Status helpers ────────────────────────────────────────────
 type PhaseStatus = 'not-started' | 'in-progress' | 'completed';
@@ -198,19 +203,16 @@ export default function ProjectPlanModule() {
     if (activeDocumentId) removeProjectPhase(activeDocumentId, phaseId);
   };
 
-  // Resource allocation chart data
-  interface ResData { week: string; [role: string]: number | string }
-  const resData: ResData[] = Array.from({ length: Math.min(totalWeeks, 12) }, (_, i) => {
-    const weekNum = i + 1;
-    const row: ResData = { week: `W${weekNum}` };
-    plan.phases.forEach((p, pi) => {
-      if (weekNum >= p.startWeek && weekNum <= p.endWeek) {
-        row[p.name.slice(0, 8)] = (p.responsibleRoles.length || 2) + pi;
-      }
-    });
-    return row;
-  });
-  const phaseKeys = plan.phases.map(p => p.name.slice(0, 8));
+  // Resource allocation chart — per-phase hours bar chart
+  // Uses Phase Details data: each phase contributes its responsible-role count as a proxy for resource load.
+  // If roles are listed, actual count; otherwise a weighted estimate based on duration.
+  interface PhaseBarData { phase: string; roles: number; duration: number; status: string }
+  const resData: PhaseBarData[] = plan.phases.map((p) => ({
+    phase: p.name.length > 12 ? p.name.slice(0, 12) + '…' : p.name,
+    roles: p.responsibleRoles.length > 0 ? p.responsibleRoles.length : Math.max(2, Math.round(p.durationWeeks / 2)),
+    duration: p.durationWeeks,
+    status: p.status,
+  }));
 
   const criticalCount = plan.phases.filter(p => p.durationWeeks >= 4).length;
   const milestoneCount = plan.phases.reduce((s, p) => s + (p.milestones?.length ?? 0), 0);
@@ -295,8 +297,20 @@ export default function ProjectPlanModule() {
       {/* ── Phase Details with status pills ────────────── */}
       <div className="bg-white rounded-2xl border overflow-hidden" style={{ borderColor: PC.border }}>
         <div className="flex items-center justify-between px-5 py-4 border-b" style={{ borderColor: PC.border }}>
-          <h3 className="font-semibold" style={{ fontSize: 16, color: PC.text }}>Phase Details</h3>
-          <span className="text-xs" style={{ color: PC.muted }}>{completedCount}/{plan.phases.length} completed</span>
+          <div>
+            <h3 className="font-semibold" style={{ fontSize: 16, color: PC.text }}>Phase Details</h3>
+            <p className="text-xs mt-0.5" style={{ color: PC.muted }}>
+              Click the <strong style={{ color: PC.inprog }}>Status</strong> pill on any row to cycle:
+              <span style={{ color: PC.notstart }}> Not Started</span> →
+              <span style={{ color: PC.inprog }}> In Progress</span> →
+              <span style={{ color: PC.completed }}> Completed</span>.
+              Progress % and the count above update immediately.
+            </p>
+          </div>
+          <span className="text-xs font-semibold px-3 py-1 rounded-full"
+            style={{ background: `${PC.completed}15`, color: PC.completed }}>
+            {completedCount}/{plan.phases.length} completed
+          </span>
         </div>
         <div className="overflow-x-auto">
           <table className="w-full min-w-[860px]" style={{ fontSize: 13 }}>
@@ -344,9 +358,20 @@ export default function ProjectPlanModule() {
                         <EditCell value={phase.owner ?? 'Unassigned'} onSave={(v) => update(phase.id, { owner: v })} />
                       </td>
                       <td className="px-4 py-3 text-center">
-                        <span className="text-[11px] font-semibold px-2 py-1 rounded-full" style={{ background: `${sColor}18`, color: sColor }}>
+                        {/* Clickable status pill — cycles Not Started → In Progress → Completed */}
+                        <button
+                          title="Click to change status: Not Started → In Progress → Completed"
+                          onClick={() => {
+                            const next: PhaseStatus =
+                              phase.status === 'not-started' ? 'in-progress'
+                              : phase.status === 'in-progress' ? 'completed'
+                              : 'not-started';
+                            update(phase.id, { status: next });
+                          }}
+                          className="text-[11px] font-semibold px-2 py-1 rounded-full transition-all hover:opacity-80 cursor-pointer"
+                          style={{ background: `${sColor}22`, color: sColor, border: `1px solid ${sColor}44` }}>
                           {statusLabel(phase.status as PhaseStatus)}
-                        </span>
+                        </button>
                       </td>
                       <td className="px-4 py-3" style={{ minWidth: 120 }}>
                         <div className="flex items-center gap-2">
@@ -416,19 +441,33 @@ export default function ProjectPlanModule() {
         </div>
       </div>
 
-      {/* ── Resource Allocation Chart ──────────────────── */}
+      {/* ── Resource Allocation Chart — per phase, from Phase Details ──── */}
       <div className="bg-white rounded-2xl border p-5" style={{ borderColor: PC.border }}>
-        <h3 className="font-semibold mb-5" style={{ fontSize: 16, color: PC.text }}>Resource Allocation by Phase</h3>
+        <div className="flex items-center justify-between mb-5">
+          <h3 className="font-semibold" style={{ fontSize: 16, color: PC.text }}>Resource Allocation by Phase</h3>
+          <span className="text-xs" style={{ color: PC.muted }}>
+            Reads from Phase Details above — add/edit phases to update this chart
+          </span>
+        </div>
         <ResponsiveContainer width="100%" height={260}>
-          <BarChart data={resData} margin={{ left: -10, right: 10 }}>
+          <BarChart data={resData} margin={{ left: -10, right: 10, bottom: 30 }}>
             <CartesianGrid strokeDasharray="3 3" stroke={PC.border} vertical={false} />
-            <XAxis dataKey="week" tick={{ fontSize: 10, fill: PC.muted }} axisLine={false} tickLine={false} />
-            <YAxis tick={{ fontSize: 11, fill: PC.muted }} axisLine={false} tickLine={false} />
-            <Tooltip contentStyle={tooltipStyle} labelStyle={{ color: '#f4f4f4' }} />
+            <XAxis dataKey="phase" tick={{ fontSize: 10, fill: PC.muted }} axisLine={false} tickLine={false}
+              interval={0} angle={-25} textAnchor="end" height={60} />
+            <YAxis tick={{ fontSize: 11, fill: PC.muted }} axisLine={false} tickLine={false}
+              label={{ value: 'Resources', angle: -90, position: 'insideLeft', style: { fill: PC.muted, fontSize: 10 }, offset: 10 }} />
+            <Tooltip contentStyle={tooltipStyle} wrapperStyle={tooltipWrapperStyle} labelStyle={tooltipLabelStyle}
+              formatter={(v: number, name: string) => [v, name === 'roles' ? 'Allocated Resources' : name === 'duration' ? 'Duration (weeks)' : name]} />
             <Legend wrapperStyle={{ fontSize: 11 }} />
-            {phaseKeys.map((key, i) => (
-              <Bar key={key} dataKey={key} stackId="a" fill={PC.phases[i % PC.phases.length]} radius={i === phaseKeys.length - 1 ? [4, 4, 0, 0] : undefined} />
-            ))}
+            <Bar dataKey="roles" name="Allocated Resources" radius={[5, 5, 0, 0]}>
+              {resData.map((entry, i) => (
+                <Cell key={i} fill={
+                  entry.status === 'completed'   ? PC.completed :
+                  entry.status === 'in-progress' ? PC.inprog    : PC.phases[i % PC.phases.length]
+                } />
+              ))}
+            </Bar>
+            <Bar dataKey="duration" name="Duration (weeks)" fill={`${PC.phases[2]}55`} radius={[3, 3, 0, 0]} />
           </BarChart>
         </ResponsiveContainer>
       </div>

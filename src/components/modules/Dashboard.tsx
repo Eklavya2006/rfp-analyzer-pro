@@ -7,6 +7,7 @@ import {
 } from 'recharts';
 import { useRFPStore } from '@/lib/store';
 import { DollarSign, Calendar, Users, CheckSquare, Zap, TrendingUp } from 'lucide-react';
+import type { TabId } from '@/types';
 
 // ── Dark palette ──────────────────────────────────────────────
 const D = {
@@ -37,12 +38,16 @@ const tooltipStyle = {
   border: '1px solid rgba(99,102,241,0.3)',
   borderRadius: 10,
   color: '#F1F5F9',
-  fontSize: 12,
+  fontSize: 13,
   fontFamily: 'var(--font-mono)',
-  zIndex: 9999,
-  boxShadow: '0 8px 32px rgba(0,0,0,0.5)',
+  zIndex: 10000,
+  boxShadow: '0 8px 32px rgba(0,0,0,0.7)',
   pointerEvents: 'none' as const,
+  padding: '8px 12px',
 };
+
+const tooltipWrapperStyle = { zIndex: 10000, outline: 'none' };
+const tooltipLabelStyle  = { color: '#F1F5F9', fontWeight: 700, fontSize: 13, marginBottom: 4 };
 
 // ── Glass card ────────────────────────────────────────────────
 function Card({ children, style }: { children: React.ReactNode; style?: React.CSSProperties }) {
@@ -61,14 +66,23 @@ function Card({ children, style }: { children: React.ReactNode; style?: React.CS
   );
 }
 
-function SectionHead({ title, action }: { title: string; action?: string }) {
+function SectionHead({ title, action, onAction }: { title: string; action?: string; onAction?: () => void }) {
   return (
     <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 18 }}>
       <span style={{ fontSize: 13, fontWeight: 600, color: D.text }}>{title}</span>
       {action && (
-        <span style={{ fontSize: 11, color: '#6366F1', cursor: 'pointer', fontWeight: 500 }}>
+        <button
+          onClick={onAction}
+          style={{
+            fontSize: 11, color: '#818CF8', cursor: 'pointer', fontWeight: 600,
+            background: 'rgba(99,102,241,0.1)', border: '1px solid rgba(99,102,241,0.25)',
+            borderRadius: 6, padding: '3px 8px', transition: 'all 0.15s',
+          }}
+          onMouseEnter={(e) => { (e.currentTarget as HTMLButtonElement).style.background = 'rgba(99,102,241,0.22)'; (e.currentTarget as HTMLButtonElement).style.color = '#A5B4FC'; }}
+          onMouseLeave={(e) => { (e.currentTarget as HTMLButtonElement).style.background = 'rgba(99,102,241,0.1)'; (e.currentTarget as HTMLButtonElement).style.color = '#818CF8'; }}
+        >
           {action} →
-        </span>
+        </button>
       )}
     </div>
   );
@@ -146,8 +160,10 @@ function AiBar({ label, subLabel, pct, value, color }: AiBarProps) {
 
 // ── Main Dashboard ────────────────────────────────────────────
 export default function Dashboard() {
-  const { activeDocumentId, analysisResults } = useRFPStore();
+  const { activeDocumentId, analysisResults, setActiveTab } = useRFPStore();
   const result = activeDocumentId ? analysisResults[activeDocumentId] : null;
+
+  const navigate = (tab: TabId) => setActiveTab(tab);
 
   if (!result) {
     return (
@@ -230,7 +246,7 @@ export default function Dashboard() {
       {/* ── Charts row ── */}
       <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 14, marginBottom: 18 }}>
         <Card>
-          <SectionHead title="Cost by Phase" action="Detail" />
+          <SectionHead title="Cost by Phase" action="Detail" onAction={() => navigate('project-plan')} />
           {phaseData.length === 0 ? (
             <div style={{ textAlign: 'center', padding: '40px 0', color: D.muted, fontSize: 13 }}>No phase data</div>
           ) : (
@@ -241,8 +257,8 @@ export default function Dashboard() {
                   interval={0} angle={-35} textAnchor="end" height={60} />
                 <YAxis tick={{ fill: D.muted, fontSize: 10 }} axisLine={false} tickLine={false}
                   tickFormatter={v => `$${v}K`} />
-                <Tooltip contentStyle={tooltipStyle} wrapperStyle={{ zIndex: 9999 }}
-                  labelStyle={{ color: '#F1F5F9', fontWeight: 600 }}
+                <Tooltip contentStyle={tooltipStyle} wrapperStyle={tooltipWrapperStyle}
+                  labelStyle={tooltipLabelStyle}
                   formatter={(v: number) => [`$${v}K`, 'Cost']} />
                 <Bar dataKey="cost" radius={[5, 5, 0, 0]}>
                   {phaseData.map((_, i) => (
@@ -255,7 +271,7 @@ export default function Dashboard() {
         </Card>
 
         <Card>
-          <SectionHead title="Team Headcount over Time" action="Detail" />
+          <SectionHead title="Team Headcount over Time" action="Detail" onAction={() => navigate('staffing')} />
           {headData.length === 0 ? (
             <div style={{ textAlign: 'center', padding: '40px 0', color: D.muted, fontSize: 13 }}>No headcount data</div>
           ) : (
@@ -271,8 +287,8 @@ export default function Dashboard() {
                 <XAxis dataKey="week" tick={{ fill: D.muted, fontSize: 10 }} axisLine={false} tickLine={false}
                   interval={Math.max(0, Math.floor(headData.length / 8) - 1)} />
                 <YAxis tick={{ fill: D.muted, fontSize: 10 }} axisLine={false} tickLine={false} allowDecimals={false} />
-                <Tooltip contentStyle={tooltipStyle} wrapperStyle={{ zIndex: 9999 }}
-                  labelStyle={{ color: '#F1F5F9', fontWeight: 600 }}
+                <Tooltip contentStyle={tooltipStyle} wrapperStyle={tooltipWrapperStyle}
+                  labelStyle={tooltipLabelStyle}
                   formatter={(v: number) => [v, 'Headcount']} />
                 <Area type="monotone" dataKey="hc"
                   stroke={D.areaColor} strokeWidth={2.5}
@@ -328,9 +344,18 @@ export default function Dashboard() {
             <AiBar key={r.label} label={r.label} subLabel={r.subLabel} pct={r.pct} value={r.value} color={r.color} />
           ))}
           <div style={{ marginTop: 14, paddingTop: 12, borderTop: `1px solid ${D.glassBd}`, display: 'flex', justifyContent: 'flex-end' }}>
-            <span style={{ fontSize: 12, color: '#6366F1', cursor: 'pointer', fontWeight: 500 }}>
+            <button
+              onClick={() => navigate('agentic-impact')}
+              style={{
+                fontSize: 12, color: '#818CF8', cursor: 'pointer', fontWeight: 600,
+                background: 'rgba(99,102,241,0.1)', border: '1px solid rgba(99,102,241,0.25)',
+                borderRadius: 6, padding: '4px 10px', transition: 'all 0.15s',
+              }}
+              onMouseEnter={(e) => { (e.currentTarget as HTMLButtonElement).style.background = 'rgba(99,102,241,0.22)'; (e.currentTarget as HTMLButtonElement).style.color = '#A5B4FC'; }}
+              onMouseLeave={(e) => { (e.currentTarget as HTMLButtonElement).style.background = 'rgba(99,102,241,0.1)'; (e.currentTarget as HTMLButtonElement).style.color = '#818CF8'; }}
+            >
               View Full AI Analysis →
-            </span>
+            </button>
           </div>
         </Card>
       </div>

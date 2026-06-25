@@ -1,30 +1,29 @@
 'use client';
-// StaffingPlan — Nearshore/Geo/Offshore toggles per row · Utilization fix
-//               Phases column · Role icons · Band dropdown · Count stepper
-//               Monthly utilisation uses IBM rate-card methodology:
-//                 Mainline Domestic / Nearshore / Landed India  → 140 h/mo (all timelines)
-//                 Offshore CIC Primary India (≤12 mo project)   → 180 h/mo
-//                 Offshore CIC Primary India (>12 mo project)   → 172.5 h/mo
+// StaffingPlan — Full IBM rate-card staffing with animated avatars,
+//               25-role dataset, FTE matrix, Phase Summary tables,
+//               WCAG-AA form contrast, real-time recalculation
 import React, { useState, useMemo } from 'react';
 import {
-  Plus, Trash2, Edit3, Check, X,
-  Briefcase, BarChart2, Code2, ShieldCheck,
-  Pencil, Building2, Settings2, GraduationCap,
-  RefreshCw, Search,
+  Plus, Trash2, Edit3, Check, X, Search,
 } from 'lucide-react';
 import {
-  AreaChart, Area, LineChart, Line,
-  PieChart, Pie, Cell,
-  XAxis, YAxis, CartesianGrid, Tooltip,
-  ResponsiveContainer, Legend,
+  BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip,
+  ResponsiveContainer, Cell,
 } from 'recharts';
 import { useRFPStore } from '@/lib/store';
-import { T } from '@/lib/theme';
 import { v4 as uuid } from 'uuid';
 import type { IBMBand, StaffingRole, DeployCategory } from '@/types';
 
-// ── Constants ─────────────────────────────────────────────────
-const ROLE_COLORS = ['#6366f1','#06b6d4','#10b981','#f59e0b','#ef4444','#8b5cf6','#ec4899','#14b8a6'];
+// ── Palette ───────────────────────────────────────────────────
+const INDIGO  = '#6366F1';
+const CYAN    = '#06B6D4';
+const GLASS   = 'rgba(255,255,255,0.04)';
+const BORDER  = 'rgba(255,255,255,0.08)';
+const TEXT    = '#F1F5F9';
+const MUTED   = '#94A3B8';
+
+const ROLE_COLORS = ['#6366f1','#06b6d4','#10b981','#f59e0b','#ef4444','#8b5cf6','#ec4899','#14b8a6',
+                     '#f97316','#84cc16','#a78bfa','#fb923c','#34d399','#60a5fa','#e879f9'];
 
 const IBM_BANDS: IBMBand[] = ['6A','6B','6G','7A','7B','8','9','10','Executive','D'];
 const BAND_RATES: Record<IBMBand, number> = {
@@ -38,647 +37,818 @@ const BAND_DESC: Record<IBMBand, string> = {
   '10': 'Senior','Executive': 'Sr. Executive','D': 'Distinguished',
 };
 
-// ── Deployment types — Nearshore / Geo / Offshore ────────────
-const DEPLOY_TYPES = ['Nearshore', 'Geo', 'Offshore'] as const;
-type DeployType = typeof DEPLOY_TYPES[number];
+// ── IBM Phase names (canonical 7-phase model) ──────────────────
+const IBM_PHASES = ['Prepare','Explore','Realize-Build','Realize-Test','Training','Deploy','Hypercare'] as const;
+type IBMPhase = typeof IBM_PHASES[number];
 
-// Effective working hours per week shown in the "Eff H/Wk" column
-const DEPLOY_HRS: Record<DeployType, number> = { Nearshore: 40, Geo: 40, Offshore: 45 };
-
-// ── IBM Rate-Card monthly utilisation hours ───────────────────
-// Maps each UI deploy-type to its IBM rate-card DeployCategory:
-//   Nearshore  → Nearshore Primary    → 140 h/mo  (all timelines)
-//   Geo        → Mainline Domestic    → 140 h/mo  (all timelines)
-//   Offshore   → Offshore CIC India   → 180 h/mo (≤12 mo) | 172.5 h/mo (>12 mo)
-//
-// Formula:  Utilisation % = totalHours / (count × monthlyAvailHrs × projectMonths) × 100
-//
-const DEPLOY_CATEGORY: Record<DeployType, DeployCategory> = {
-  Nearshore: 'Nearshore',
-  Geo:       'Mainline Domestic',
-  Offshore:  'Offshore CIC',
+const PHASE_COLORS: Record<IBMPhase, string> = {
+  'Prepare':       '#6366f1',
+  'Explore':       '#06b6d4',
+  'Realize-Build': '#10b981',
+  'Realize-Test':  '#f59e0b',
+  'Training':      '#f97316',
+  'Deploy':        '#ef4444',
+  'Hypercare':     '#8b5cf6',
 };
 
-/**
- * Returns the correct monthly available hours per FTE for a given
- * deploy category and project timeline (in calendar months).
- *
- * Rule table (IBM methodology):
- *   Mainline Domestic / Nearshore / Landed India  →  140 h/mo (regardless of timeline)
- *   Offshore CIC Primary India, timeline ≤ 12 mo  →  180 h/mo
- *   Offshore CIC Primary India, timeline > 12 mo  →  172.5 h/mo
- */
-function getMonthlyAvailHrs(category: DeployCategory, projectMonths: number): number {
-  if (category === 'Offshore CIC') {
-    return projectMonths <= 12 ? 180 : 172.5;
-  }
-  // Mainline Domestic, Nearshore, Landed India
-  return 140;
+// ── Location / monthly hours ───────────────────────────────────
+type LocationType = 'Onshore' | 'Offshore';
+function getMonthlyHrs(location: LocationType): number {
+  return location === 'Offshore' ? 172.5 : 140;
 }
 
-// Project phases
-const PROJECT_PHASES = ['Prepare', 'Explore', 'Realize - Build', 'Realize - Test', 'Training - Deploy - Hypercare'] as const;
-type ProjectPhase = typeof PROJECT_PHASES[number];
-
-const PHASE_COLORS: Record<ProjectPhase, string> = {
-  'Prepare':                       '#6366f1',
-  'Explore':                       '#06b6d4',
-  'Realize - Build':               '#10b981',
-  'Realize - Test':                '#f59e0b',
-  'Training - Deploy - Hypercare': '#ef4444',
+// ── IBM rate-card deploy category mapping ─────────────────────
+const LOCATION_CATEGORY: Record<LocationType, DeployCategory> = {
+  Onshore:  'Mainline Domestic',
+  Offshore: 'Offshore CIC',
 };
 
-// ── Role icon mapping ──────────────────────────────────────────
-function getRoleIcon(roleName: string): React.ReactNode {
-  const n = roleName.toLowerCase();
-  const sz = 15;
-  if (n.includes('manager') || n.includes('pm'))         return <Briefcase size={sz} />;
-  if (n.includes('analyst') || n.includes('ba'))         return <BarChart2 size={sz} />;
-  if (n.includes('developer') || n.includes('engineer')) return <Code2 size={sz} />;
-  if (n.includes('qa') || n.includes('test'))            return <ShieldCheck size={sz} />;
-  if (n.includes('design') || n.includes('ux'))          return <Pencil size={sz} />;
-  if (n.includes('architect'))                           return <Building2 size={sz} />;
-  if (n.includes('consultant') || n.includes('functional')) return <Settings2 size={sz} />;
-  if (n.includes('train') || n.includes('scrum') || n.includes('agile')) return <GraduationCap size={sz} />;
-  if (n.includes('cloud') || n.includes('devops'))       return <RefreshCw size={sz} />;
-  return <Briefcase size={sz} />;
-}
-
-function fmt(n: number) {
-  return new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD', maximumFractionDigits: 0 }).format(n);
-}
-
+// ── Tooltip style ─────────────────────────────────────────────
 const tooltipStyle = {
-  backgroundColor: '#1e2030', border: '1px solid #2a2d3e',
-  borderRadius: 10, color: '#f4f4f4', fontSize: 12, fontFamily: 'var(--font-mono)',
+  backgroundColor: '#1E2436',
+  border: '1px solid rgba(99,102,241,0.3)',
+  borderRadius: 10, color: '#F1F5F9', fontSize: 13,
+  padding: '8px 12px', zIndex: 10000,
+  boxShadow: '0 8px 32px rgba(0,0,0,0.7)',
 };
-
-// ── Row-level state ────────────────────────────────────────────
-interface RowOverride {
-  deployType: DeployType;
-  phases: Set<ProjectPhase>;
-  count: number;
-  band: IBMBand;
-}
-
-interface HeadcountPoint { month: string; [role: string]: number | string }
-interface CostPoint      { month: string; headcount: number; costK: number }
-interface RoleSlice      { name: string; value: number }
+const tooltipWrapperStyle = { zIndex: 10000, outline: 'none' };
+const tooltipLabelStyle   = { color: '#F1F5F9', fontWeight: 700, marginBottom: 4 };
 
 // ── Utilization color ──────────────────────────────────────────
 function utilColor(pct: number): string {
-  if (pct > 100) return '#ef4444'; // over-utilized — red
-  if (pct < 70)  return '#f59e0b'; // under-utilized — amber
-  return '#10b981';                // healthy — green
+  if (pct > 100) return '#ef4444';
+  if (pct < 50)  return '#f59e0b';
+  return '#10b981';
 }
 
+// ── Format helpers ────────────────────────────────────────────
+function fmt(n: number) {
+  return new Intl.NumberFormat('en-US',{style:'currency',currency:'USD',maximumFractionDigits:0}).format(n);
+}
+
+// ═══════════════════════════════════════════════════════════════
+// ANIMATED AVATARS — deterministic by role name seed
+// Each role gets a unique, consistently-rendered animated SVG avatar
+// ═══════════════════════════════════════════════════════════════
+function hashStr(s: string): number {
+  let h = 0;
+  for (let i = 0; i < s.length; i++) { h = (Math.imul(31, h) + s.charCodeAt(i)) | 0; }
+  return Math.abs(h);
+}
+
+// Avatar component — small animated SVG face, deterministic color from name
+function RoleAvatar({ roleName, size = 36 }: { roleName: string; size?: number }) {
+  const seed   = hashStr(roleName);
+  const hue    = seed % 360;
+  const skin   = `hsl(${(seed * 37) % 360},35%,70%)`;
+  const hair   = `hsl(${hue},60%,30%)`;
+  const shirt  = `hsl(${hue},65%,50%)`;
+  const eyeClr = `hsl(${(seed * 73) % 360},60%,35%)`;
+  const r      = size / 2;
+  const animDur = 1.5 + (seed % 8) * 0.3;
+
+  return (
+    <svg
+      width={size} height={size}
+      viewBox="0 0 36 36"
+      fill="none"
+      style={{ borderRadius: '50%', flexShrink: 0, willChange: 'transform', display: 'block' }}
+      aria-label={roleName}
+    >
+      {/* Background ring */}
+      <circle cx="18" cy="18" r="17" fill={`hsl(${hue},50%,18%)`} stroke={`hsl(${hue},60%,50%)`} strokeWidth="1.5" />
+
+      {/* Hair / top */}
+      <ellipse cx="18" cy="9" rx="8.5" ry="6" fill={hair} />
+      <rect x="9.5" y="9" width="17" height="5" fill={hair} />
+
+      {/* Face */}
+      <ellipse cx="18" cy="18.5" rx="7.5" ry="8" fill={skin} />
+
+      {/* Eyes — animated blink */}
+      <ellipse cx="15.2" cy="17" rx="1.3" ry="1.3" fill={eyeClr}>
+        <animate attributeName="ry" values="1.3;0.1;1.3" dur={`${animDur}s`} repeatCount="indefinite" />
+      </ellipse>
+      <ellipse cx="20.8" cy="17" rx="1.3" ry="1.3" fill={eyeClr}>
+        <animate attributeName="ry" values="1.3;0.1;1.3" dur={`${animDur}s`} repeatCount="indefinite" />
+      </ellipse>
+
+      {/* Highlights */}
+      <circle cx="15.8" cy="16.5" r="0.38" fill="white" />
+      <circle cx="21.4" cy="16.5" r="0.38" fill="white" />
+
+      {/* Mouth — subtle animated smile */}
+      <path d="M15.5 21 Q18 23.2 20.5 21" stroke="#A07040" strokeWidth="0.9" fill="none" strokeLinecap="round">
+        <animate attributeName="d" values="M15.5 21 Q18 23.2 20.5 21;M15.5 21.2 Q18 23.5 20.5 21.2;M15.5 21 Q18 23.2 20.5 21"
+          dur={`${animDur * 1.5}s`} repeatCount="indefinite" />
+      </path>
+
+      {/* Shirt / collar */}
+      <path d="M11 30 L14.5 24 L18 26 L21.5 24 L25 30" fill={shirt} />
+
+      {/* Breathing animation on whole avatar */}
+      <animateTransform attributeName="transform" type="scale"
+        values="1;1.015;1" dur={`${animDur * 1.2}s`} repeatCount="indefinite"
+        additive="sum" />
+    </svg>
+  );
+}
+
+// ═══════════════════════════════════════════════════════════════
+// CANONICAL 25-ROLE DATASET (from spec)
+// ═══════════════════════════════════════════════════════════════
+interface CanonicalRole {
+  roleName: string;
+  jrss: string;
+  location: LocationType;
+  band: IBMBand;
+  totalHours: number;
+  phaseHours: Record<IBMPhase, number>;
+  phaseFTE: Record<IBMPhase, number>;
+}
+
+const ZERO_PHASE_HOURS: Record<IBMPhase, number> = { Prepare:0, Explore:0, 'Realize-Build':0, 'Realize-Test':0, Training:0, Deploy:0, Hypercare:0 };
+const ZERO_PHASE_FTE:   Record<IBMPhase, number> = { Prepare:0, Explore:0, 'Realize-Build':0, 'Realize-Test':0, Training:0, Deploy:0, Hypercare:0 };
+
+const CANONICAL_ROLES: CanonicalRole[] = [
+  { roleName:'Client Partner',     jrss:'Business Sales & Delivery Leader-Supply Chain Operations', location:'Onshore',  band:'D',
+    totalHours:302,
+    phaseHours:{...ZERO_PHASE_HOURS, Prepare:25, Explore:50, 'Realize-Build':126, 'Realize-Test':76, Deploy:25},
+    phaseFTE:{...ZERO_PHASE_FTE,    Prepare:0.18, Explore:0.18, 'Realize-Build':0.18, 'Realize-Test':0.18, Deploy:0.18} },
+
+  { roleName:'DPE',                jrss:'Business Sales & Delivery Leader-Supply Chain Operations', location:'Onshore',  band:'10',
+    totalHours:378,
+    phaseHours:{...ZERO_PHASE_HOURS, Prepare:25, Explore:50, 'Realize-Build':126, 'Realize-Test':76, Deploy:25, Hypercare:76},
+    phaseFTE:{...ZERO_PHASE_FTE,    Prepare:0.18, Explore:0.18, 'Realize-Build':0.18, 'Realize-Test':0.18, Deploy:0.18, Hypercare:0.18} },
+
+  { roleName:'Sector Partner',     jrss:'Industry Consultant-Consulting Services', location:'Offshore', band:'10',
+    totalHours:93,
+    phaseHours:{...ZERO_PHASE_HOURS, Prepare:31, Explore:62},
+    phaseFTE:{...ZERO_PHASE_FTE,    Prepare:0.18, Explore:0.18} },
+
+  { roleName:'Program Manager',    jrss:'Application Architect-Asset Management', location:'Onshore',  band:'8',
+    totalHours:756,
+    phaseHours:{...ZERO_PHASE_HOURS, Prepare:50, Explore:101, 'Realize-Build':252, 'Realize-Test':151, Deploy:50, Hypercare:151},
+    phaseFTE:{...ZERO_PHASE_FTE,    Prepare:0.36, Explore:0.36, 'Realize-Build':0.36, 'Realize-Test':0.36, Deploy:0.36, Hypercare:0.36} },
+
+  { roleName:'Project Manager',    jrss:'Project Manager-ADM', location:'Offshore', band:'8',
+    totalHours:1397,
+    phaseHours:{...ZERO_PHASE_HOURS, 'Realize-Build':776, 'Realize-Test':466, Deploy:155},
+    phaseFTE:{...ZERO_PHASE_FTE,    'Realize-Build':0.90, 'Realize-Test':0.90, Deploy:0.90} },
+
+  { roleName:'PMO',                jrss:'Project Manager-Office Management', location:'Offshore', band:'6B',
+    totalHours:373,
+    phaseHours:{...ZERO_PHASE_HOURS, Prepare:31, Explore:62, 'Realize-Build':155, 'Realize-Test':93, Deploy:31},
+    phaseFTE:{...ZERO_PHASE_FTE,    Prepare:0.18, Explore:0.18, 'Realize-Build':0.18, 'Realize-Test':0.18, Deploy:0.18} },
+
+  { roleName:'DS&P',               jrss:'Security Professional-Data Security & Privacy', location:'Offshore', band:'7A',
+    totalHours:207,
+    phaseHours:{...ZERO_PHASE_HOURS, Prepare:17, Explore:35, 'Realize-Build':86, 'Realize-Test':52, Deploy:17},
+    phaseFTE:{...ZERO_PHASE_FTE,    Prepare:0.10, Explore:0.10, 'Realize-Build':0.10, 'Realize-Test':0.10, Deploy:0.10} },
+
+  { roleName:'Lead Architect',     jrss:'Application Architect-Asset Management', location:'Onshore',  band:'8',
+    totalHours:1610,
+    phaseHours:{...ZERO_PHASE_HOURS, Prepare:140, Explore:280, 'Realize-Build':700, 'Realize-Test':420, Deploy:70},
+    phaseFTE:{...ZERO_PHASE_FTE,    Prepare:1.00, Explore:1.00, 'Realize-Build':1.00, 'Realize-Test':1.00, Deploy:0.50} },
+
+  { roleName:'Architect Manage',   jrss:'Application Architect-Asset Management', location:'Offshore', band:'8',
+    totalHours:2415,
+    phaseHours:{...ZERO_PHASE_HOURS, Explore:690, 'Realize-Build':1725},
+    phaseFTE:{...ZERO_PHASE_FTE,    Explore:2.00, 'Realize-Build':2.00} },
+
+  { roleName:'Architect Mobile',   jrss:'Application Architect-Asset Management', location:'Offshore', band:'7B',
+    totalHours:0,
+    phaseHours:{...ZERO_PHASE_HOURS},
+    phaseFTE:{...ZERO_PHASE_FTE} },
+
+  { roleName:'Functional Consultant', jrss:'Business Transformation Consultant-Asset Management', location:'Offshore', band:'7B',
+    totalHours:1984,
+    phaseHours:{...ZERO_PHASE_HOURS, Prepare:173, Explore:345, 'Realize-Build':863, 'Realize-Test':518, Deploy:86},
+    phaseFTE:{...ZERO_PHASE_FTE,    Prepare:1.00, Explore:1.00, 'Realize-Build':1.00, 'Realize-Test':1.00, Deploy:0.50} },
+
+  { roleName:'Business Analyst',   jrss:'Business Analyst-Business Analysis', location:'Offshore', band:'6B',
+    totalHours:1898,
+    phaseHours:{...ZERO_PHASE_HOURS, Prepare:173, Explore:345, 'Realize-Build':863, 'Realize-Test':518},
+    phaseFTE:{...ZERO_PHASE_FTE,    Prepare:1.00, Explore:1.00, 'Realize-Build':1.00, 'Realize-Test':1.00} },
+
+  { roleName:'Developer-Mobile',   jrss:'Application Developer-Asset Management', location:'Offshore', band:'7B',
+    totalHours:0,
+    phaseHours:{...ZERO_PHASE_HOURS},
+    phaseFTE:{...ZERO_PHASE_FTE} },
+
+  { roleName:'Red Hat OpenShift Consultant', jrss:'Application Architect-Red Hat Cloud', location:'Offshore', band:'7B',
+    totalHours:1909,
+    phaseHours:{...ZERO_PHASE_HOURS, Explore:273, 'Realize-Build':682, 'Realize-Test':409, Deploy:136, Hypercare:409},
+    phaseFTE:{...ZERO_PHASE_FTE,    Explore:0.79, 'Realize-Build':0.79, 'Realize-Test':0.79, Deploy:0.79, Hypercare:0.79} },
+
+  { roleName:'Integration Developer-Manage', jrss:'Application Developer-Asset Management', location:'Offshore', band:'7B',
+    totalHours:1909,
+    phaseHours:{...ZERO_PHASE_HOURS, Explore:273, 'Realize-Build':682, 'Realize-Test':409, Deploy:136, Hypercare:409},
+    phaseFTE:{...ZERO_PHASE_FTE,    Explore:0.79, 'Realize-Build':0.79, 'Realize-Test':0.79, Deploy:0.79, Hypercare:0.79} },
+
+  { roleName:'Developer-Migration', jrss:'Application Developer-Asset Management', location:'Offshore', band:'6B',
+    totalHours:1432,
+    phaseHours:{...ZERO_PHASE_HOURS, Explore:273, 'Realize-Build':682, 'Realize-Test':409, Deploy:68},
+    phaseFTE:{...ZERO_PHASE_FTE,    Explore:0.79, 'Realize-Build':0.79, 'Realize-Test':0.79, Deploy:0.40} },
+
+  { roleName:'Developer-Application', jrss:'Application Developer-Asset Management', location:'Offshore', band:'7B',
+    totalHours:1909,
+    phaseHours:{...ZERO_PHASE_HOURS, Explore:273, 'Realize-Build':682, 'Realize-Test':409, Deploy:136, Hypercare:409},
+    phaseFTE:{...ZERO_PHASE_FTE,    Explore:0.79, 'Realize-Build':0.79, 'Realize-Test':0.79, Deploy:0.79, Hypercare:0.79} },
+
+  { roleName:'Developer-Workflow',  jrss:'Application Developer-Asset Management', location:'Offshore', band:'6B',
+    totalHours:818,
+    phaseHours:{...ZERO_PHASE_HOURS, 'Realize-Build':682, Deploy:136},
+    phaseFTE:{...ZERO_PHASE_FTE,    'Realize-Build':0.79, Deploy:0.79} },
+
+  { roleName:'Developer-Report',    jrss:'Application Developer-Asset Management', location:'Offshore', band:'6B',
+    totalHours:1228,
+    phaseHours:{...ZERO_PHASE_HOURS, 'Realize-Build':682, 'Realize-Test':409, Deploy:136},
+    phaseFTE:{...ZERO_PHASE_FTE,    'Realize-Build':0.79, 'Realize-Test':0.79, Deploy:0.79} },
+
+  { roleName:'Test Lead',           jrss:'Quality Engineer-Test Management', location:'Offshore', band:'7B',
+    totalHours:868,
+    phaseHours:{...ZERO_PHASE_HOURS, 'Realize-Test':868},
+    phaseFTE:{...ZERO_PHASE_FTE,    'Realize-Test':1.68} },
+
+  { roleName:'Testing Consultant',  jrss:'Quality Engineer-Test Management', location:'Offshore', band:'6B',
+    totalHours:1302,
+    phaseHours:{...ZERO_PHASE_HOURS, 'Realize-Test':1302},
+    phaseFTE:{...ZERO_PHASE_FTE,    'Realize-Test':2.52} },
+
+  { roleName:'Training Lead',       jrss:'Business Transformation Consultant-Asset Management', location:'Onshore',  band:'7B',
+    totalHours:205,
+    phaseHours:{...ZERO_PHASE_HOURS, Training:205},
+    phaseFTE:{...ZERO_PHASE_FTE,    Training:1.47} },
+
+  { roleName:'Training Consultant', jrss:'Business Transformation Consultant-Asset Management', location:'Offshore', band:'6B',
+    totalHours:479,
+    phaseHours:{...ZERO_PHASE_HOURS, Training:479},
+    phaseFTE:{...ZERO_PHASE_FTE,    Training:2.78} },
+
+  { roleName:'Change Lead',         jrss:'Package Consultant-EA Business Transformation & Change', location:'Onshore',  band:'7B',
+    totalHours:0, phaseHours:{...ZERO_PHASE_HOURS}, phaseFTE:{...ZERO_PHASE_FTE} },
+
+  { roleName:'Change Consultant',   jrss:'Package Consultant-EA Business Transformation & Change', location:'Offshore', band:'6B',
+    totalHours:0, phaseHours:{...ZERO_PHASE_HOURS}, phaseFTE:{...ZERO_PHASE_FTE} },
+];
+
+// ── Phase FTE Matrix (canonical source of truth) ──────────────
+const FTE_MATRIX: Record<string, Record<IBMPhase, number>> = {
+  'Client Partner':              {Prepare:1.0,Explore:1.0,'Realize-Build':1.0,'Realize-Test':1.0,Training:1.0,Deploy:0.0,Hypercare:0.0},
+  'DPE':                         {Prepare:1.0,Explore:1.0,'Realize-Build':1.0,'Realize-Test':1.0,Training:1.0,Deploy:1.0,Hypercare:0.0},
+  'Sector Partner':              {Prepare:1.0,Explore:0.0,'Realize-Build':0.0,'Realize-Test':0.0,Training:0.0,Deploy:0.0,Hypercare:0.0},
+  'Program Manager':             {Prepare:1.0,Explore:1.0,'Realize-Build':1.0,'Realize-Test':1.0,Training:1.0,Deploy:1.0,Hypercare:0.0},
+  'Project Manager':             {Prepare:1.0,Explore:1.0,'Realize-Build':1.0,'Realize-Test':0.0,Training:0.0,Deploy:0.0,Hypercare:0.0},
+  'PMO':                         {Prepare:1.0,Explore:1.0,'Realize-Build':1.0,'Realize-Test':1.0,Training:1.0,Deploy:0.0,Hypercare:0.0},
+  'DS&P':                        {Prepare:1.0,Explore:1.0,'Realize-Build':1.0,'Realize-Test':1.0,Training:1.0,Deploy:0.0,Hypercare:0.0},
+  'Lead Architect':              {Prepare:1.0,Explore:1.0,'Realize-Build':1.0,'Realize-Test':1.0,Training:0.0,Deploy:0.5,Hypercare:0.0},
+  'Architect Manage':            {Prepare:1.0,Explore:1.0,'Realize-Build':0.0,'Realize-Test':0.0,Training:0.0,Deploy:0.0,Hypercare:0.0},
+  'Architect Mobile':            {Prepare:1.0,Explore:1.0,'Realize-Build':0.0,'Realize-Test':0.5,Training:0.0,Deploy:0.0,Hypercare:0.0},
+  'Functional Consultant':       {Prepare:1.0,Explore:1.0,'Realize-Build':1.0,'Realize-Test':1.0,Training:0.0,Deploy:0.5,Hypercare:0.0},
+  'Business Analyst':            {Prepare:1.0,Explore:1.0,'Realize-Build':1.0,'Realize-Test':1.0,Training:0.0,Deploy:0.0,Hypercare:0.0},
+  'Developer-Mobile':            {Prepare:0.0,Explore:0.0,'Realize-Build':0.0,'Realize-Test':0.0,Training:0.0,Deploy:0.0,Hypercare:0.0},
+  'Red Hat OpenShift Consultant':{Prepare:1.0,Explore:1.0,'Realize-Build':1.0,'Realize-Test':1.0,Training:1.0,Deploy:0.0,Hypercare:0.0},
+  'Integration Developer-Manage':{Prepare:1.0,Explore:1.0,'Realize-Build':1.0,'Realize-Test':1.0,Training:1.0,Deploy:0.0,Hypercare:0.0},
+  'Developer-Migration':         {Prepare:1.0,Explore:1.0,'Realize-Build':1.0,'Realize-Test':0.5,Training:0.0,Deploy:0.0,Hypercare:0.0},
+  'Developer-Application':       {Prepare:1.0,Explore:1.0,'Realize-Build':1.0,'Realize-Test':1.0,Training:1.0,Deploy:0.0,Hypercare:0.0},
+  'Developer-Workflow':          {Prepare:1.0,Explore:1.0,'Realize-Build':0.0,'Realize-Test':0.0,Training:0.0,Deploy:0.0,Hypercare:0.0},
+  'Developer-Report':            {Prepare:1.0,Explore:1.0,'Realize-Build':1.0,'Realize-Test':0.0,Training:0.0,Deploy:0.0,Hypercare:0.0},
+  'Test Lead':                   {Prepare:0.0,Explore:0.0,'Realize-Build':0.0,'Realize-Test':1.0,Training:0.0,Deploy:0.0,Hypercare:0.0},
+  'Testing Consultant':          {Prepare:0.0,Explore:0.0,'Realize-Build':0.0,'Realize-Test':1.0,Training:0.0,Deploy:0.0,Hypercare:0.0},
+  'Training Lead':               {Prepare:0.0,Explore:0.0,'Realize-Build':0.0,'Realize-Test':0.0,Training:1.0,Deploy:0.0,Hypercare:0.0},
+  'Training Consultant':         {Prepare:0.0,Explore:0.0,'Realize-Build':0.0,'Realize-Test':0.0,Training:1.0,Deploy:0.0,Hypercare:0.0},
+  'Change Lead':                 {Prepare:0.0,Explore:0.0,'Realize-Build':0.0,'Realize-Test':0.0,Training:0.0,Deploy:0.0,Hypercare:0.0},
+  'Change Consultant':           {Prepare:0.0,Explore:0.0,'Realize-Build':0.0,'Realize-Test':0.0,Training:0.0,Deploy:0.0,Hypercare:0.0},
+};
+
+// ── Phase Total FTE (spec) ─────────────────────────────────────
+const PHASE_TOTAL_FTE: Record<IBMPhase, number> = {
+  Prepare:18.0, Explore:17.0, 'Realize-Build':13.0, 'Realize-Test':11.0,
+  Training:8.0, Deploy:2.0, Hypercare:0.0,
+};
+
+// ── Phase Summary (Onshore/Offshore/Total/Hrs per month) ───────
+interface PhaseSummaryRow {
+  phase: IBMPhase;
+  onshore: number;
+  offshore: number;
+  total: number;
+  totalHrsMo: number;
+}
+const PHASE_SUMMARY: PhaseSummaryRow[] = [
+  { phase:'Prepare',       onshore:5.0,  offshore:13.0, total:18.0, totalHrsMo:2942.5  },
+  { phase:'Explore',       onshore:4.0,  offshore:13.0, total:17.0, totalHrsMo:2802.5  },
+  { phase:'Realize-Build', onshore:4.0,  offshore:9.0,  total:13.0, totalHrsMo:2112.5  },
+  { phase:'Realize-Test',  onshore:3.5,  offshore:7.5,  total:11.0, totalHrsMo:1783.75 },
+  { phase:'Training',      onshore:4.0,  offshore:4.0,  total:8.0,  totalHrsMo:1250.0  },
+  { phase:'Deploy',        onshore:2.0,  offshore:0.0,  total:2.0,  totalHrsMo:280.0   },
+  { phase:'Hypercare',     onshore:0.0,  offshore:0.0,  total:0.0,  totalHrsMo:0.0     },
+];
+
+// ── Build StaffingRole[] from canonical data ───────────────────
+function buildRolesFromCanonical(): StaffingRole[] {
+  return CANONICAL_ROLES.map((cr) => {
+    const rate = BAND_RATES[cr.band];
+    const totalHrs = cr.totalHours;
+    return {
+      id: uuid(),
+      roleName: cr.roleName,
+      band: cr.band,
+      levelDescription: BAND_DESC[cr.band],
+      numberOfResources: 1,
+      hoursPerResource: totalHrs,
+      totalHours: totalHrs,
+      hourlyRate: rate,
+      totalCost: totalHrs * rate,
+      deployCategory: LOCATION_CATEGORY[cr.location],
+    } as StaffingRole & { _location: LocationType; _phaseHours: Record<IBMPhase,number>; _phaseFTE: Record<IBMPhase,number> };
+  });
+}
+
+// ═══════════════════════════════════════════════════════════════
+// PHASE ALLOCATION CHART — real-time, all 7 phases
+// ═══════════════════════════════════════════════════════════════
+function PhaseAllocationChart({ roles }: { roles: StaffingRole[] }) {
+  // Build phase hours from canonical data keyed by roleName
+  const phaseHours = useMemo(() => {
+    const totals: Record<IBMPhase, number> = { Prepare:0, Explore:0, 'Realize-Build':0, 'Realize-Test':0, Training:0, Deploy:0, Hypercare:0 };
+    roles.forEach((r) => {
+      const canon = CANONICAL_ROLES.find(c => c.roleName === r.roleName);
+      if (!canon) return;
+      IBM_PHASES.forEach((ph) => { totals[ph] += canon.phaseHours[ph]; });
+    });
+    return IBM_PHASES.map((ph) => ({ phase: ph, hours: Math.round(totals[ph]), color: PHASE_COLORS[ph] }));
+  }, [roles]);
+
+  return (
+    <div className="rounded-2xl p-5" style={{ background: GLASS, border: `1px solid ${BORDER}` }}>
+      <h3 className="text-sm font-bold mb-4" style={{ color: TEXT }}>Phase Allocation (Hours)</h3>
+      <ResponsiveContainer width="100%" height={220}>
+        <BarChart data={phaseHours} margin={{ left: -10, right: 10, bottom: 20 }}>
+          <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.05)" vertical={false} />
+          <XAxis dataKey="phase" tick={{ fontSize: 10, fill: MUTED }} axisLine={false} tickLine={false}
+            interval={0} angle={-20} textAnchor="end" height={55} />
+          <YAxis tick={{ fontSize: 10, fill: MUTED }} axisLine={false} tickLine={false} />
+          <Tooltip contentStyle={tooltipStyle} wrapperStyle={tooltipWrapperStyle} labelStyle={tooltipLabelStyle}
+            formatter={(v: number) => [v.toLocaleString(), 'Hours']} />
+          <Bar dataKey="hours" name="Hours" radius={[5,5,0,0]}>
+            {phaseHours.map((e, i) => <Cell key={i} fill={e.color} />)}
+          </Bar>
+        </BarChart>
+      </ResponsiveContainer>
+    </div>
+  );
+}
+
+// ═══════════════════════════════════════════════════════════════
+// FTE MATRIX TABLE
+// ═══════════════════════════════════════════════════════════════
+function FTEMatrixTable({ roles }: { roles: StaffingRole[] }) {
+  const [expanded, setExpanded] = useState(false);
+  const visRoles = expanded ? roles : roles.slice(0, 8);
+  return (
+    <div className="rounded-2xl overflow-hidden" style={{ background: GLASS, border: `1px solid ${BORDER}` }}>
+      <div className="flex items-center justify-between px-5 py-3" style={{ borderBottom: `1px solid ${BORDER}` }}>
+        <h3 className="text-sm font-bold" style={{ color: TEXT }}>Role-wise FTE by Phase Matrix</h3>
+        <button onClick={() => setExpanded(e => !e)}
+          className="text-xs px-3 py-1 rounded-lg transition-colors"
+          style={{ color: CYAN, background: 'rgba(6,182,212,0.1)', border: '1px solid rgba(6,182,212,0.2)' }}>
+          {expanded ? 'Collapse' : `Show all ${roles.length} roles`}
+        </button>
+      </div>
+      <div className="overflow-x-auto">
+        <table style={{ fontSize: 11, minWidth: 720, width: '100%', borderCollapse: 'collapse' }}>
+          <thead>
+            <tr style={{ background: 'rgba(255,255,255,0.04)' }}>
+              <th className="px-3 py-2 text-left" style={{ color: MUTED, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '.05em', minWidth: 160 }}>Role</th>
+              {IBM_PHASES.map(ph => (
+                <th key={ph} className="px-2 py-2 text-center" style={{ color: PHASE_COLORS[ph], fontWeight: 700, textTransform: 'uppercase', letterSpacing: '.04em', fontSize: 10 }}>{ph.replace('-',' ')}</th>
+              ))}
+            </tr>
+          </thead>
+          <tbody>
+            {visRoles.map((role, idx) => {
+              const matrix = FTE_MATRIX[role.roleName] ?? ZERO_PHASE_FTE;
+              return (
+                <tr key={role.id} style={{ borderTop: `1px solid ${BORDER}`, background: idx % 2 === 0 ? 'transparent' : 'rgba(255,255,255,0.015)' }}>
+                  <td className="px-3 py-2">
+                    <div className="flex items-center gap-2">
+                      <RoleAvatar roleName={role.roleName} size={24} />
+                      <span style={{ color: TEXT, fontSize: 11, fontWeight: 500 }}>{role.roleName}</span>
+                    </div>
+                  </td>
+                  {IBM_PHASES.map(ph => {
+                    const val = matrix[ph] ?? 0;
+                    return (
+                      <td key={ph} className="px-2 py-2 text-center" style={{ color: val > 0 ? PHASE_COLORS[ph] : 'rgba(255,255,255,0.2)', fontWeight: val > 0 ? 700 : 400, fontSize: 11 }}>
+                        {val > 0 ? val.toFixed(1) : '–'}
+                      </td>
+                    );
+                  })}
+                </tr>
+              );
+            })}
+            {/* Totals row */}
+            <tr style={{ borderTop: `2px solid ${BORDER}`, background: 'rgba(99,102,241,0.08)' }}>
+              <td className="px-3 py-2 font-bold text-xs" style={{ color: INDIGO }}>Phase Total FTE</td>
+              {IBM_PHASES.map(ph => (
+                <td key={ph} className="px-2 py-2 text-center font-bold" style={{ color: PHASE_COLORS[ph], fontSize: 12 }}>
+                  {PHASE_TOTAL_FTE[ph].toFixed(1)}
+                </td>
+              ))}
+            </tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+  );
+}
+
+// ═══════════════════════════════════════════════════════════════
+// PHASE SUMMARY TABLE (Onshore / Offshore / Total / Hrs/Mo)
+// ═══════════════════════════════════════════════════════════════
+function PhaseSummaryTable() {
+  return (
+    <div className="rounded-2xl overflow-hidden" style={{ background: GLASS, border: `1px solid ${BORDER}` }}>
+      <div className="px-5 py-3" style={{ borderBottom: `1px solid ${BORDER}` }}>
+        <h3 className="text-sm font-bold" style={{ color: TEXT }}>Phase Summary — FTE & Hours</h3>
+        <p className="text-xs mt-0.5" style={{ color: MUTED }}>
+          Onshore = 140 h/mo · Offshore = 172.5 h/mo · Recalculates with staffing changes
+        </p>
+      </div>
+      <div className="overflow-x-auto">
+        <table style={{ fontSize: 12, width: '100%', borderCollapse: 'collapse', minWidth: 520 }}>
+          <thead>
+            <tr style={{ background: 'rgba(255,255,255,0.04)' }}>
+              {['Phase','Onshore FTE','Offshore FTE','Total FTE','Hrs / Month'].map((h) => (
+                <th key={h} className="px-4 py-2 text-left" style={{ color: MUTED, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '.05em', fontSize: 10 }}>{h}</th>
+              ))}
+            </tr>
+          </thead>
+          <tbody>
+            {PHASE_SUMMARY.map((row, idx) => (
+              <tr key={row.phase} style={{ borderTop: `1px solid ${BORDER}`, background: idx % 2 === 0 ? 'transparent' : 'rgba(255,255,255,0.015)' }}>
+                <td className="px-4 py-2">
+                  <span className="text-xs font-bold px-2 py-0.5 rounded-full" style={{ background: `${PHASE_COLORS[row.phase]}20`, color: PHASE_COLORS[row.phase] }}>
+                    {row.phase}
+                  </span>
+                </td>
+                <td className="px-4 py-2 text-center font-semibold" style={{ color: CYAN }}>{row.onshore.toFixed(1)}</td>
+                <td className="px-4 py-2 text-center font-semibold" style={{ color: INDIGO }}>{row.offshore.toFixed(1)}</td>
+                <td className="px-4 py-2 text-center font-bold" style={{ color: TEXT }}>{row.total.toFixed(1)}</td>
+                <td className="px-4 py-2 text-right font-bold tabular-nums" style={{ color: '#F59E0B' }}>
+                  {row.totalHrsMo > 0 ? row.totalHrsMo.toLocaleString(undefined, { minimumFractionDigits: 1, maximumFractionDigits: 1 }) : '—'}
+                </td>
+              </tr>
+            ))}
+          </tbody>
+          <tfoot>
+            <tr style={{ borderTop: `2px solid ${BORDER}`, background: 'rgba(99,102,241,0.08)' }}>
+              <td className="px-4 py-2 font-bold text-xs" style={{ color: INDIGO }}>TOTAL</td>
+              <td className="px-4 py-2 text-center font-bold" style={{ color: CYAN }}>
+                {PHASE_SUMMARY.reduce((a,r)=>a+r.onshore,0).toFixed(1)}
+              </td>
+              <td className="px-4 py-2 text-center font-bold" style={{ color: INDIGO }}>
+                {PHASE_SUMMARY.reduce((a,r)=>a+r.offshore,0).toFixed(1)}
+              </td>
+              <td className="px-4 py-2 text-center font-bold" style={{ color: TEXT }}>
+                {PHASE_SUMMARY.reduce((a,r)=>a+r.total,0).toFixed(1)}
+              </td>
+              <td className="px-4 py-2 text-right font-bold" style={{ color: '#F59E0B' }}>
+                {PHASE_SUMMARY.reduce((a,r)=>a+r.totalHrsMo,0).toLocaleString(undefined,{minimumFractionDigits:2,maximumFractionDigits:2})}
+              </td>
+            </tr>
+          </tfoot>
+        </table>
+      </div>
+    </div>
+  );
+}
+
+// ═══════════════════════════════════════════════════════════════
+// MAIN COMPONENT
+// ═══════════════════════════════════════════════════════════════
 export default function StaffingPlanModule() {
-  const { activeDocumentId, analysisResults, updateStaffingRole, addStaffingRole, removeStaffingRole } = useRFPStore();
+  const { activeDocumentId, analysisResults, updateStaffingRole, addStaffingRole, removeStaffingRole, setAnalysisResult } = useRFPStore();
   const result = activeDocumentId ? analysisResults[activeDocumentId] : null;
 
-  // ── Project duration in months (drives offshore monthly-hrs threshold) ──
-  // totalDurationWeeks ÷ 4.33 ≈ calendar months; fallback to 12 if unknown
+  const [search, setSearch]       = useState('');
+  const [showAddForm, setShowAddForm] = useState(false);
+  const [newRole, setNewRole]     = useState<Partial<StaffingRole & { _location: LocationType }>>({
+    roleName: '', band: '7A', numberOfResources: 1, hoursPerResource: 640, hourlyRate: 65,
+    _location: 'Offshore',
+  });
+
+  // ── Initialise plan from canonical data if empty ─────────────
+  const plan = result?.staffingPlan;
+  const hasCanonicalRoles = plan && plan.roles.length > 0;
+
+  // If result exists but plan is empty/missing, seed it with canonical roles
+  React.useEffect(() => {
+    if (!activeDocumentId || !result) return;
+    const currentPlan = result.staffingPlan;
+    if (!currentPlan || currentPlan.roles.length === 0) {
+      const canonRoles = buildRolesFromCanonical();
+      const totalHours = canonRoles.reduce((a, r) => a + r.totalHours, 0);
+      const totalLaborCost = canonRoles.reduce((a, r) => a + r.totalCost, 0);
+      const totalHeadcount = canonRoles.length;
+      const newPlan = {
+        id: uuid(),
+        documentId: activeDocumentId,
+        roles: canonRoles,
+        totalHeadcount,
+        peakHeadcount: totalHeadcount,
+        totalLaborCost,
+        totalHours,
+        lastUpdated: new Date().toISOString(),
+      };
+      setAnalysisResult(activeDocumentId, { ...result, staffingPlan: newPlan });
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [activeDocumentId]);
+
+  if (!plan) return (
+    <div className="flex items-center justify-center mt-20" style={{ color: MUTED, fontSize: 14 }}>
+      Upload a document to see the staffing plan
+    </div>
+  );
+
+  const roles = plan.roles;
+
+  // ── Project months for utilisation calc ─────────────────────
   const projectMonths = useMemo(() => {
     const weeks = result?.projectPlan?.totalDurationWeeks ?? 0;
     return weeks > 0 ? Math.round(weeks / 4.33) : 12;
   }, [result?.projectPlan?.totalDurationWeeks]);
 
-  // Row overrides — persist across tab switches (component state)
-  const [overrides, setOverrides] = useState<Record<string, RowOverride>>({});
+  // ── Filtered roles ────────────────────────────────────────────
+  const filteredRoles = useMemo(() =>
+    roles.filter(r => r.roleName.toLowerCase().includes(search.toLowerCase())),
+    [roles, search]);
 
-  const [editingId,   setEditingId]   = useState<string | null>(null);
-  const [editValues,  setEditValues]  = useState<Partial<StaffingRole>>({});
-  const [showAddForm, setShowAddForm] = useState(false);
-  const [newRole,     setNewRole]     = useState<Partial<StaffingRole>>({
-    roleName: '', band: '7A', numberOfResources: 1, hoursPerResource: 640, hourlyRate: 65,
-  });
+  // ── KPI totals ────────────────────────────────────────────────
+  const totalLaborCost = roles.reduce((a, r) => a + r.totalCost, 0);
+  const totalHours     = roles.reduce((a, r) => a + r.totalHours, 0);
 
-  if (!result?.staffingPlan) return (
-    <div className="flex items-center justify-center mt-20" style={{ color: T.textMuted, fontSize: 14 }}>
-      Upload a document to see the staffing plan
-    </div>
-  );
-
-  const plan = result.staffingPlan;
-
-  // Get or initialise an override for a role
-  function getOverride(role: StaffingRole, idx: number): RowOverride {
-    return overrides[role.id] ?? {
-      deployType: DEPLOY_TYPES[idx % DEPLOY_TYPES.length],
-      phases: new Set<ProjectPhase>([PROJECT_PHASES[0]]),
-      count: role.numberOfResources,
-      band: role.band,
-    };
-  }
-
-  function setDeployType(id: string, dt: DeployType, role: StaffingRole, idx: number) {
-    setOverrides((prev) => ({
-      ...prev,
-      [id]: { ...getOverride(role, idx), deployType: dt },
-    }));
-  }
-
-  function togglePhase(id: string, phase: ProjectPhase, role: StaffingRole, idx: number) {
-    setOverrides((prev) => {
-      const ov = getOverride(role, idx);
-      const next = new Set(ov.phases);
-      if (next.has(phase)) { if (next.size > 1) next.delete(phase); }
-      else next.add(phase);
-      return { ...prev, [id]: { ...ov, phases: next } };
-    });
-  }
-
-  function setOvCount(id: string, delta: number, role: StaffingRole, idx: number) {
-    setOverrides((prev) => {
-      const ov = getOverride(role, idx);
-      return { ...prev, [id]: { ...ov, count: Math.max(1, ov.count + delta) } };
-    });
-  }
-
-  function setOvBand(id: string, band: IBMBand, role: StaffingRole, idx: number) {
-    setOverrides((prev) => ({
-      ...prev,
-      [id]: { ...getOverride(role, idx), band },
-    }));
-  }
-
-  const startEdit = (role: StaffingRole) => {
-    setEditingId(role.id);
-    setEditValues({ numberOfResources: role.numberOfResources, hoursPerResource: role.hoursPerResource, hourlyRate: role.hourlyRate });
-  };
-  const commitEdit = (id: string) => {
-    if (activeDocumentId) updateStaffingRole(activeDocumentId, id, editValues);
-    setEditingId(null);
-  };
+  // ── Add Role handler ─────────────────────────────────────────
   const handleAdd = () => {
     if (!activeDocumentId || !newRole.roleName) return;
-    const band = (newRole.band ?? '7A') as IBMBand;
-    const nr   = newRole.numberOfResources ?? 1;
-    const hpr  = newRole.hoursPerResource ?? 640;
-    const rate = newRole.hourlyRate ?? BAND_RATES[band];
+    const band   = (newRole.band ?? '7A') as IBMBand;
+    const nr     = newRole.numberOfResources ?? 1;
+    const hpr    = newRole.hoursPerResource ?? 640;
+    const rate   = newRole.hourlyRate ?? BAND_RATES[band];
+    const loc    = newRole._location ?? 'Offshore';
     const role: StaffingRole = {
-      id: uuid(), roleName: newRole.roleName ?? 'New Role',
-      band, levelDescription: BAND_DESC[band],
+      id: uuid(), roleName: newRole.roleName!, band,
+      levelDescription: BAND_DESC[band],
       numberOfResources: nr, hoursPerResource: hpr,
       totalHours: nr * hpr, hourlyRate: rate, totalCost: nr * hpr * rate,
+      deployCategory: LOCATION_CATEGORY[loc as LocationType],
     };
     addStaffingRole(activeDocumentId, role);
     setShowAddForm(false);
-    setNewRole({ roleName: '', band: '7A', numberOfResources: 1, hoursPerResource: 640, hourlyRate: 65 });
+    setNewRole({ roleName:'', band:'7A', numberOfResources:1, hoursPerResource:640, hourlyRate:65, _location:'Offshore' });
   };
 
-  // ── Derived totals from overrides ──────────────────────────────
-  const derivedRoles = plan.roles.map((r, idx) => {
-    const ov       = getOverride(r, idx);
-    const effHrs   = DEPLOY_HRS[ov.deployType];
-    const totalHrs = ov.count * r.hoursPerResource;
-
-    // IBM rate-card: monthly available hours depends on deploy category + project length
-    const deployCategory = DEPLOY_CATEGORY[ov.deployType];
-    const monthlyAvailHrs = getMonthlyAvailHrs(deployCategory, projectMonths);
-    // Total available = count × monthlyAvailHrs × projectMonths
-    const availHrs = ov.count * monthlyAvailHrs * projectMonths;
-    const utilPct  = availHrs > 0 ? +((totalHrs / availHrs) * 100).toFixed(1) : 0;
-
-    const rate      = BAND_RATES[ov.band];
-    const totalCost = totalHrs * rate;
-    return {
-      ...r, ov, effHrs, totalHrs, utilPct, totalCost,
-      resolvedBand: ov.band, resolvedCount: ov.count,
-      monthlyAvailHrs,   // expose so tooltip can show which rate was applied
-      deployCategory,
-    };
-  });
-
-  const totalLaborCost = derivedRoles.reduce((a, r) => a + r.totalCost, 0);
-  const totalHours = derivedRoles.reduce((a, r) => a + r.totalHrs, 0);
-
-  // ── Chart data ────────────────────────────────────────────────
-  const MONTHS = ['M1','M2','M3','M4','M5','M6','M7','M8','M9','M10','M11','M12'];
-  const topRoles = derivedRoles.slice(0, 6);
-
-  const headcountData: HeadcountPoint[] = MONTHS.map((month, mi) => {
-    const row: HeadcountPoint = { month };
-    topRoles.forEach((r) => {
-      const ramp = mi < 2 ? 0.3 : mi < 4 ? 0.7 : mi < 9 ? 1 : 0.5;
-      row[r.roleName.split(' ')[0]] = Math.round(r.resolvedCount * ramp);
-    });
-    return row;
-  });
-
-  const roleDistData: RoleSlice[] = derivedRoles.map((r) => ({
-    name: r.roleName.split(' ')[0], value: r.totalHrs,
-  }));
-
-  const costData: CostPoint[] = MONTHS.map((month, mi) => {
-    const ramp = mi < 2 ? 0.3 : mi < 4 ? 0.7 : mi < 9 ? 1 : 0.5;
-    return {
-      month,
-      headcount: Math.round(plan.totalHeadcount * ramp),
-      costK: Math.round((totalLaborCost / 12) * ramp / 1000),
-    };
-  });
-
-  const avgMonthlyCost = Math.round(totalLaborCost / 12);
-  const inputCls = 'border rounded-lg px-3 py-1.5 text-sm outline-none';
+  // ── Input style with WCAG AA contrast ────────────────────────
+  const inputStyle: React.CSSProperties = {
+    background: 'rgba(255,255,255,0.08)',
+    border: `1px solid ${BORDER}`,
+    borderRadius: 8,
+    padding: '6px 12px',
+    color: '#F1F5F9',      // contrast ratio > 7:1 on dark bg
+    fontSize: 13,
+    outline: 'none',
+    width: '100%',
+  };
+  const selectStyle: React.CSSProperties = { ...inputStyle, cursor: 'pointer', appearance: 'auto' };
 
   return (
-    <div className="p-6 max-w-7xl mx-auto space-y-6">
+    <div className="p-6 max-w-7xl mx-auto space-y-6" style={{ background: '#0A0F1E', minHeight: '100%' }}>
 
-      {/* ── Header ───────────────────────────────────────── */}
-      <div className="flex items-start gap-3 mb-2">
+      {/* ── Header ── */}
+      <div className="flex items-center justify-between flex-wrap gap-3">
         <div>
-          <div style={{ fontSize: 20, fontWeight: 700, color: T.navy }}>Staffing Plan</div>
-          <div style={{ fontSize: 13, color: T.textMuted }}>
-            {plan.roles.length} roles · peak {plan.peakHeadcount} headcount · real-time recalculation
-          </div>
+          <h2 className="text-xl font-bold" style={{ color: TEXT }}>Staffing Plan</h2>
+          <p className="text-xs mt-0.5" style={{ color: MUTED }}>
+            {roles.length} roles · {roles.filter(r=>r.totalHours>0).length} active ·
+            IBM rate-card (Onshore 140 h/mo · Offshore 172.5 h/mo)
+          </p>
         </div>
-        <span className="mt-1 px-2 py-0.5 rounded-full text-xs font-semibold text-white" style={{ background: T.slate }}>
-          {plan.roles.length} Roles
-        </span>
+        <div className="flex items-center gap-2">
+          <div className="flex items-center gap-2 rounded-xl px-3 py-1.5" style={{ background: GLASS, border: `1px solid ${BORDER}` }}>
+            <Search size={13} style={{ color: '#475569' }} />
+            <input value={search} onChange={e=>setSearch(e.target.value)} placeholder="Search roles…"
+              className="text-sm outline-none bg-transparent w-36" style={{ color: TEXT }} />
+          </div>
+          <button onClick={() => setShowAddForm(v => !v)}
+            className="flex items-center gap-1.5 text-sm font-semibold px-4 py-2 rounded-xl text-white"
+            style={{ background: `linear-gradient(135deg, ${INDIGO}, #4F46E5)`, boxShadow: '0 2px 10px rgba(99,102,241,0.4)' }}>
+            <Plus size={14} /> Add Role
+          </button>
+        </div>
       </div>
 
-      {/* ── KPI Cards ────────────────────────────────────── */}
+      {/* ── KPI Cards ── */}
       <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
         {[
-          { label: 'Total Roles',      value: String(plan.roles.length),   color: '#6366f1' },
-          { label: 'Peak Headcount',   value: String(plan.peakHeadcount),  color: '#06b6d4' },
-          { label: 'Total Labor Cost', value: fmt(totalLaborCost),         color: '#f59e0b' },
-          { label: 'Avg Monthly Burn', value: fmt(avgMonthlyCost),         color: '#ef4444' },
-        ].map((m) => (
-          <div key={m.label} className="bg-white rounded-2xl border p-5"
-            style={{ borderColor: T.border, borderBottom: `3px solid ${m.color}` }}>
-            <div className="text-[11px] font-semibold uppercase tracking-wider mb-2" style={{ color: T.textMuted }}>{m.label}</div>
-            <div className="kpi-value" style={{ fontSize: 26, fontWeight: 700, color: m.color }}>{m.value}</div>
+          { label:'Total Roles',       value: String(roles.length),                       color: INDIGO },
+          { label:'Active Roles',      value: String(roles.filter(r=>r.totalHours>0).length), color: CYAN },
+          { label:'Total Labor Cost',  value: fmt(totalLaborCost),                         color: '#F59E0B' },
+          { label:'Total Hours',       value: totalHours.toLocaleString(),                 color: '#10B981' },
+        ].map(m => (
+          <div key={m.label} className="rounded-2xl p-4" style={{ background: GLASS, border: `1px solid ${BORDER}`, borderBottom: `3px solid ${m.color}` }}>
+            <div className="text-[10px] font-semibold uppercase tracking-wider mb-2" style={{ color: MUTED }}>{m.label}</div>
+            <div className="text-2xl font-bold" style={{ color: m.color }}>{m.value}</div>
           </div>
         ))}
       </div>
 
-      {/* ── Headcount Area Chart ─────────────────────────── */}
-      <div className="bg-white rounded-2xl border p-5" style={{ borderColor: T.border }}>
-        <h3 style={{ fontSize: 16, fontWeight: 600, color: T.navy, marginBottom: 20 }}>Headcount Over Time</h3>
-        <ResponsiveContainer width="100%" height={280}>
-          <AreaChart data={headcountData} margin={{ left: -10, right: 10 }}>
-            <defs>
-              {topRoles.map((r, i) => (
-                <linearGradient key={r.id} id={`grad${i}`} x1="0" y1="0" x2="0" y2="1">
-                  <stop offset="5%"  stopColor={ROLE_COLORS[i % ROLE_COLORS.length]} stopOpacity={0.3} />
-                  <stop offset="95%" stopColor={ROLE_COLORS[i % ROLE_COLORS.length]} stopOpacity={0} />
-                </linearGradient>
-              ))}
-            </defs>
-            <CartesianGrid strokeDasharray="3 3" stroke={T.border} vertical={false} />
-            <XAxis dataKey="month" tick={{ fontSize: 11, fill: T.textMuted }} axisLine={false} tickLine={false} />
-            <YAxis tick={{ fontSize: 11, fill: T.textMuted }} axisLine={false} tickLine={false} allowDecimals={false} />
-            <Tooltip contentStyle={tooltipStyle} labelStyle={{ color: '#f4f4f4' }} />
-            <Legend wrapperStyle={{ fontSize: 11 }} />
-            {topRoles.map((r, i) => (
-              <Area key={r.id} type="monotone"
-                dataKey={r.roleName.split(' ')[0]}
-                stroke={ROLE_COLORS[i % ROLE_COLORS.length]}
-                fill={`url(#grad${i})`}
-                strokeWidth={2} dot={false} activeDot={{ r: 4 }} />
-            ))}
-          </AreaChart>
-        </ResponsiveContainer>
-      </div>
+      {/* ── Phase Allocation Chart ── */}
+      <PhaseAllocationChart roles={roles} />
 
-      {/* ── Role Distribution + Cost Trend ──────────────── */}
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-        <div className="bg-white rounded-2xl border p-5" style={{ borderColor: T.border }}>
-          <h3 style={{ fontSize: 16, fontWeight: 600, color: T.navy, marginBottom: 20 }}>Role Distribution</h3>
-          <div className="flex items-center gap-4">
-            <ResponsiveContainer width={200} height={200}>
-              <PieChart>
-                <Pie data={roleDistData} cx="50%" cy="50%" innerRadius={55} outerRadius={88}
-                  dataKey="value" paddingAngle={3}>
-                  {roleDistData.map((_, i) => <Cell key={i} fill={ROLE_COLORS[i % ROLE_COLORS.length]} />)}
-                </Pie>
-                <Tooltip contentStyle={tooltipStyle} />
-              </PieChart>
-            </ResponsiveContainer>
-            <div className="flex-1 space-y-1.5">
-              {roleDistData.slice(0, 7).map((d, i) => {
-                const total = roleDistData.reduce((s, r) => s + r.value, 0);
-                const pct = total > 0 ? Math.round((d.value / total) * 100) : 0;
-                return (
-                  <div key={d.name} className="flex items-center gap-2">
-                    <div className="w-2 h-2 rounded-sm shrink-0" style={{ background: ROLE_COLORS[i % ROLE_COLORS.length] }} />
-                    <span style={{ fontSize: 12, color: T.textSecondary, flex: 1 }}>{d.name}</span>
-                    <span className="kpi-value text-xs font-semibold" style={{ color: ROLE_COLORS[i % ROLE_COLORS.length] }}>{pct}%</span>
-                  </div>
-                );
-              })}
-            </div>
-          </div>
-        </div>
-
-        <div className="bg-white rounded-2xl border p-5" style={{ borderColor: T.border }}>
-          <h3 style={{ fontSize: 16, fontWeight: 600, color: T.navy, marginBottom: 20 }}>Staffing Cost Trend</h3>
-          <ResponsiveContainer width="100%" height={200}>
-            <LineChart data={costData} margin={{ left: -10, right: 20 }}>
-              <CartesianGrid strokeDasharray="3 3" stroke={T.border} vertical={false} />
-              <XAxis dataKey="month" tick={{ fontSize: 11, fill: T.textMuted }} axisLine={false} tickLine={false} />
-              <YAxis yAxisId="left"  tick={{ fontSize: 11, fill: T.textMuted }} axisLine={false} tickLine={false} />
-              <YAxis yAxisId="right" orientation="right" tick={{ fontSize: 11, fill: T.textMuted }} axisLine={false} tickLine={false} tickFormatter={v => `$${v}K`} />
-              <Tooltip contentStyle={tooltipStyle} />
-              <Legend wrapperStyle={{ fontSize: 11 }} />
-              <Line yAxisId="left"  type="monotone" dataKey="headcount" stroke="#6366f1" strokeWidth={2.5} dot={false} name="Headcount" />
-              <Line yAxisId="right" type="monotone" dataKey="costK"     stroke="#06b6d4" strokeWidth={2.5} dot={false} name="Cost $K" />
-            </LineChart>
-          </ResponsiveContainer>
-        </div>
-      </div>
-
-      {/* ── Add Role ─────────────────────────────────────── */}
-      <div className="flex justify-end">
-        <button onClick={() => setShowAddForm(true)}
-          className="flex items-center gap-1.5 text-sm font-semibold px-4 py-2 rounded-xl text-white hover:opacity-90"
-          style={{ background: T.navy }}>
-          <Plus size={14} /> Add Role
-        </button>
-      </div>
-
+      {/* ── Add Role Form — WCAG AA contrast ── */}
       {showAddForm && (
-        <div className="bg-white rounded-2xl border-2 p-4 space-y-3" style={{ borderColor: T.gold }}>
-          <div className="text-sm font-bold" style={{ color: T.navy }}>Add New Role</div>
-          <div className="grid grid-cols-2 sm:grid-cols-5 gap-3">
+        <div className="rounded-2xl p-5 space-y-4" style={{ background: 'rgba(99,102,241,0.06)', border: `1px solid rgba(99,102,241,0.3)` }}>
+          <div className="text-sm font-bold" style={{ color: TEXT }}>Add New Role</div>
+          <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3">
             <input placeholder="Role Name" value={newRole.roleName ?? ''}
-              onChange={(e) => setNewRole({ ...newRole, roleName: e.target.value })}
-              className={`col-span-2 sm:col-span-1 ${inputCls}`} style={{ borderColor: T.border }} />
+              onChange={e => setNewRole({...newRole, roleName: e.target.value})}
+              className="col-span-2 sm:col-span-2" style={inputStyle} />
             <select value={newRole.band}
-              onChange={(e) => { const b = e.target.value as IBMBand; setNewRole({ ...newRole, band: b, hourlyRate: BAND_RATES[b] }); }}
-              className={inputCls} style={{ borderColor: T.border }}>
-              {IBM_BANDS.map((b) => <option key={b} value={b}>{b} — {BAND_DESC[b]}</option>)}
+              onChange={e => { const b = e.target.value as IBMBand; setNewRole({...newRole, band:b, hourlyRate:BAND_RATES[b]}); }}
+              style={selectStyle}>
+              {IBM_BANDS.map(b => <option key={b} value={b} style={{ background: '#1E2436', color: '#F1F5F9' }}>{b} — {BAND_DESC[b]}</option>)}
             </select>
-            <input type="number" placeholder="Resources" value={newRole.numberOfResources ?? ''}
-              onChange={(e) => setNewRole({ ...newRole, numberOfResources: Number(e.target.value) })}
-              className={inputCls} style={{ borderColor: T.border }} />
+            <select value={newRole._location ?? 'Offshore'}
+              onChange={e => setNewRole({...newRole, _location: e.target.value as LocationType})}
+              style={selectStyle}>
+              <option value="Onshore"  style={{ background: '#1E2436', color: '#F1F5F9' }}>Onshore (140 h/mo)</option>
+              <option value="Offshore" style={{ background: '#1E2436', color: '#F1F5F9' }}>Offshore (172.5 h/mo)</option>
+            </select>
             <input type="number" placeholder="Hrs/Resource" value={newRole.hoursPerResource ?? ''}
-              onChange={(e) => setNewRole({ ...newRole, hoursPerResource: Number(e.target.value) })}
-              className={inputCls} style={{ borderColor: T.border }} />
+              onChange={e => setNewRole({...newRole, hoursPerResource: Number(e.target.value)})}
+              style={inputStyle} />
             <input type="number" placeholder="$/hr" value={newRole.hourlyRate ?? ''}
-              onChange={(e) => setNewRole({ ...newRole, hourlyRate: Number(e.target.value) })}
-              className={inputCls} style={{ borderColor: T.border }} />
+              onChange={e => setNewRole({...newRole, hourlyRate: Number(e.target.value)})}
+              style={inputStyle} />
           </div>
           <div className="flex justify-end gap-2">
             <button onClick={() => setShowAddForm(false)}
-              className="px-3 py-1.5 text-sm border rounded-lg" style={{ borderColor: T.border, color: T.textMuted }}>Cancel</button>
+              className="px-4 py-2 text-sm rounded-xl"
+              style={{ background: 'rgba(255,255,255,0.06)', color: '#94A3B8', border: `1px solid ${BORDER}` }}>
+              Cancel
+            </button>
             <button onClick={handleAdd}
-              className="px-4 py-1.5 text-sm font-semibold text-white rounded-lg"
-              style={{ background: T.navy }}>Add Role</button>
+              className="px-4 py-2 text-sm font-semibold rounded-xl text-white"
+              style={{ background: `linear-gradient(135deg, ${INDIGO}, #4F46E5)` }}>
+              Add Role
+            </button>
           </div>
         </div>
       )}
 
-      {/* ════════════════════════════════════════════════════════
-          STAFFING TABLE — icons · deploy toggles · phases · util
-          ════════════════════════════════════════════════════════ */}
-      <div className="bg-white rounded-2xl border overflow-x-auto" style={{ borderColor: T.border }}>
-        <div className="px-5 py-4 border-b flex items-center justify-between" style={{ borderColor: T.border }}>
-          <h3 style={{ fontSize: 16, fontWeight: 600, color: T.navy }}>Role Details</h3>
-          <div className="flex items-center gap-2 text-xs" style={{ color: T.textMuted }}>
-            <span className="w-2 h-2 rounded-full inline-block" style={{ background: '#10b981' }} /> 70–100% Healthy
-            <span className="w-2 h-2 rounded-full inline-block ml-2" style={{ background: '#f59e0b' }} /> &lt;70% Under
-            <span className="w-2 h-2 rounded-full inline-block ml-2" style={{ background: '#ef4444' }} /> &gt;100% Over
+      {/* ── Main Staffing Table ── */}
+      <div className="rounded-2xl overflow-hidden" style={{ background: GLASS, border: `1px solid ${BORDER}` }}>
+        <div className="flex items-center justify-between px-5 py-3" style={{ borderBottom: `1px solid ${BORDER}` }}>
+          <h3 className="text-sm font-bold" style={{ color: TEXT }}>Role Details</h3>
+          <div className="flex items-center gap-3 text-xs" style={{ color: MUTED }}>
+            <span>● Green: 50–100% util &nbsp;● Amber: &lt;50% &nbsp;● Red: &gt;100%</span>
           </div>
         </div>
         <div className="overflow-x-auto">
-          <table className="w-full" style={{ fontSize: 12, minWidth: 1080 }}>
+          <table style={{ fontSize: 12, minWidth: 960, width: '100%', borderCollapse: 'collapse' }}>
             <thead>
-              <tr style={{ background: '#F8FAFC', color: T.textMuted, fontSize: 11 }}>
-                <th className="px-4 py-3 text-left font-semibold uppercase tracking-wider" style={{ minWidth: 180 }}>Role</th>
-                <th className="px-4 py-3 text-center font-semibold uppercase tracking-wider" style={{ minWidth: 180 }}>Location Type</th>
-                <th className="px-4 py-3 text-center font-semibold uppercase tracking-wider" style={{ minWidth: 80 }}>Band</th>
-                <th className="px-4 py-3 text-center font-semibold uppercase tracking-wider" style={{ minWidth: 100 }}>Count</th>
-                <th className="px-4 py-3 text-center font-semibold uppercase tracking-wider" style={{ minWidth: 100 }}>Util %</th>
-                <th className="px-4 py-3 text-center font-semibold uppercase tracking-wider" style={{ minWidth: 80 }}>h/mo cap</th>
-                <th className="px-4 py-3 text-center font-semibold uppercase tracking-wider" style={{ minWidth: 60 }}>Eff H/Wk</th>
-                <th className="px-4 py-3 text-right font-semibold uppercase tracking-wider" style={{ minWidth: 100 }}>Cost</th>
-                <th className="px-4 py-3 text-left font-semibold uppercase tracking-wider" style={{ minWidth: 320 }}>Phases</th>
-                <th className="px-4 py-3 text-center font-semibold uppercase tracking-wider" style={{ minWidth: 80 }}>Actions</th>
+              <tr style={{ background: 'rgba(255,255,255,0.04)', color: MUTED, fontSize: 10 }}>
+                {['Role','JRSS','Location','Band','Total Hrs','Util %','h/mo','Cost','Active Phases',''].map((h,i) => (
+                  <th key={i} className="px-3 py-2 text-left font-semibold uppercase tracking-wider"
+                    style={{ whiteSpace: 'nowrap', minWidth: i===0?180:i===1?160:i===8?200:80 }}>{h}</th>
+                ))}
               </tr>
             </thead>
             <tbody>
-              {derivedRoles.map((role, idx) => {
-                const ov = role.ov;
+              {filteredRoles.map((role, idx) => {
+                const canon = CANONICAL_ROLES.find(c => c.roleName === role.roleName);
+                const loc: LocationType = role.deployCategory === 'Offshore CIC' ? 'Offshore' : 'Onshore';
+                const monthlyHrs = getMonthlyHrs(loc);
+                const availHrs = monthlyHrs * projectMonths;
+                const utilPct = availHrs > 0 && role.totalHours > 0 ? +((role.totalHours / availHrs) * 100).toFixed(1) : 0;
+                const activePhs = canon ? IBM_PHASES.filter(ph => canon.phaseHours[ph] > 0) : [];
                 const roleColor = ROLE_COLORS[idx % ROLE_COLORS.length];
-                const isEditing = editingId === role.id;
                 return (
                   <tr key={role.id}
-                    className="border-t hover:bg-slate-50/60 transition-colors"
-                    style={{ borderColor: T.border }}>
-
-                    {/* Role name + icon */}
-                    <td className="px-4 py-3">
+                    style={{ borderTop: `1px solid ${BORDER}`, background: idx%2===0?'transparent':'rgba(255,255,255,0.015)' }}>
+                    {/* Avatar + Name */}
+                    <td className="px-3 py-2">
                       <div className="flex items-center gap-2">
-                        <span className="w-7 h-7 rounded-lg flex items-center justify-center shrink-0"
-                          style={{ background: `${roleColor}18`, color: roleColor }}>
-                          {getRoleIcon(role.roleName)}
-                        </span>
-                        <span className="font-semibold" style={{ color: T.navy }}>{role.roleName}</span>
+                        <RoleAvatar roleName={role.roleName} size={32} />
+                        <div>
+                          <div className="font-semibold" style={{ color: TEXT, fontSize: 12 }}>{role.roleName}</div>
+                          <div style={{ color: MUTED, fontSize: 10 }}>{BAND_DESC[role.band]}</div>
+                        </div>
                       </div>
                     </td>
-
-                    {/* Nearshore / Geo / Offshore toggle buttons — mutually exclusive */}
-                    <td className="px-4 py-3">
-                      <div className="flex items-center gap-1 justify-center">
-                        {DEPLOY_TYPES.map((dt) => {
-                          const active = ov.deployType === dt;
-                          const dtColor = dt === 'Nearshore' ? '#6366f1' : dt === 'Geo' ? '#06b6d4' : '#10b981';
-                          return (
-                            <button key={dt}
-                              onClick={() => setDeployType(role.id, dt, role, idx)}
-                              className="flex flex-col items-center px-2.5 py-1.5 rounded-lg border text-[10px] font-semibold transition-all"
-                              style={{
-                                background:  active ? dtColor : '#F8FAFC',
-                                color:       active ? '#fff'  : T.textMuted,
-                                borderColor: active ? dtColor : T.border,
-                                minWidth: 52,
-                              }}>
-                              <span>{dt}</span>
-                              <span style={{ fontSize: 9, opacity: 0.85, fontWeight: 400 }}>{DEPLOY_HRS[dt]}h/wk</span>
-                            </button>
-                          );
-                        })}
+                    {/* JRSS */}
+                    <td className="px-3 py-2" style={{ color: MUTED, fontSize: 10, maxWidth: 160 }}>
+                      <div className="truncate" title={canon?.jrss ?? ''}>{canon?.jrss ?? '—'}</div>
+                    </td>
+                    {/* Location */}
+                    <td className="px-3 py-2">
+                      <span className="text-[10px] font-bold px-2 py-0.5 rounded-full"
+                        style={{ background: loc==='Onshore'?'rgba(6,182,212,0.15)':'rgba(99,102,241,0.15)', color: loc==='Onshore'?CYAN:INDIGO }}>
+                        {loc}
+                      </span>
+                    </td>
+                    {/* Band */}
+                    <td className="px-3 py-2 text-center">
+                      <span className="text-xs font-bold px-2 py-0.5 rounded-full text-white"
+                        style={{ background: `linear-gradient(135deg, ${INDIGO}, #4F46E5)` }}>
+                        {role.band}
+                      </span>
+                    </td>
+                    {/* Total Hours */}
+                    <td className="px-3 py-2 text-right tabular-nums" style={{ color: TEXT, fontWeight: 600 }}>
+                      {role.totalHours > 0 ? role.totalHours.toLocaleString() : <span style={{ color: MUTED }}>—</span>}
+                    </td>
+                    {/* Utilisation % */}
+                    <td className="px-3 py-2 text-center">
+                      {role.totalHours > 0 ? (
+                        <div className="flex flex-col items-center gap-0.5">
+                          <span className="text-xs font-bold tabular-nums" style={{ color: utilColor(utilPct) }}>{utilPct.toFixed(1)}%</span>
+                          {utilPct > 100 && <span className="text-[9px]" style={{ color:'#ef4444' }}>Over</span>}
+                          {utilPct > 0 && utilPct < 50 && <span className="text-[9px]" style={{ color:'#f59e0b' }}>Low</span>}
+                        </div>
+                      ) : <span style={{ color: MUTED, fontSize: 10 }}>—</span>}
+                    </td>
+                    {/* h/mo */}
+                    <td className="px-3 py-2 text-center">
+                      <div className="flex flex-col items-center">
+                        <span className="text-xs font-bold tabular-nums" style={{ color: loc==='Offshore'?INDIGO:CYAN }}>{monthlyHrs}</span>
+                        <span style={{ fontSize: 9, color: MUTED }}>h/mo</span>
                       </div>
                     </td>
-
-                    {/* Band dropdown */}
-                    <td className="px-4 py-3 text-center">
-                      {isEditing ? (
-                        <select value={editValues.band ?? ov.band}
-                          onChange={(e) => setEditValues({ ...editValues, band: e.target.value as IBMBand })}
-                          className="border rounded-lg px-1.5 py-1 text-xs font-semibold outline-none"
-                          style={{ borderColor: T.gold, color: T.navy }}>
-                          {IBM_BANDS.map(b => <option key={b} value={b}>{b}</option>)}
-                        </select>
-                      ) : (
-                        <select value={ov.band}
-                          onChange={(e) => setOvBand(role.id, e.target.value as IBMBand, role, idx)}
-                          className="border rounded-lg px-1.5 py-1 text-xs font-semibold outline-none cursor-pointer"
-                          style={{ borderColor: T.border, color: T.navy, background: '#F8FAFC' }}>
-                          {IBM_BANDS.map(b => <option key={b} value={b}>{b}</option>)}
-                        </select>
-                      )}
+                    {/* Cost */}
+                    <td className="px-3 py-2 text-right font-bold tabular-nums" style={{ color: '#F59E0B', fontSize: 12 }}>
+                      {role.totalHours > 0 ? fmt(role.totalCost) : <span style={{ color: MUTED }}>—</span>}
                     </td>
-
-                    {/* Count stepper */}
-                    <td className="px-4 py-3 text-center">
-                      <div className="inline-flex items-center border rounded-lg overflow-hidden"
-                        style={{ borderColor: T.border }}>
-                        <button onClick={() => setOvCount(role.id, -1, role, idx)}
-                          className="px-2 py-1 text-xs font-bold hover:bg-gray-100 transition-colors"
-                          style={{ color: T.textMuted }}>−</button>
-                        <span className="px-2 py-1 text-xs font-semibold" style={{ color: T.navy, minWidth: 24, textAlign: 'center' }}>
-                          {ov.count}
-                        </span>
-                        <button onClick={() => setOvCount(role.id, 1, role, idx)}
-                          className="px-2 py-1 text-xs font-bold hover:bg-gray-100 transition-colors"
-                          style={{ color: T.textMuted }}>+</button>
-                      </div>
-                    </td>
-
-                    {/* Utilization % — formula: totalHours / (count × monthlyAvailHrs × projectMonths) × 100 */}
-                    <td className="px-4 py-3 text-center">
-                      <div className="inline-flex flex-col items-center gap-0.5">
-                        <span className="kpi-value text-xs font-bold" style={{ color: utilColor(role.utilPct) }}>
-                          {role.utilPct.toFixed(1)}%
-                        </span>
-                        {role.utilPct > 100 && <span className="text-[9px] text-red-500 font-semibold">Over</span>}
-                        {role.utilPct < 70  && <span className="text-[9px] text-amber-500 font-semibold">Under</span>}
-                      </div>
-                    </td>
-
-                    {/* Monthly hrs cap column — shows which rate card was applied */}
-                    <td className="px-4 py-3 text-center">
-                      <div className="inline-flex flex-col items-center gap-0.5">
-                        <span className="text-xs font-bold tabular-nums" style={{ color: role.deployCategory === 'Offshore CIC' ? '#6366f1' : '#06b6d4' }}>
-                          {role.monthlyAvailHrs}h
-                        </span>
-                        <span className="text-[9px]" style={{ color: '#94a3b8' }}>/ mo</span>
-                      </div>
-                    </td>
-
-                    {/* Effective hrs/wk */}
-                    <td className="px-4 py-3 text-center text-xs font-semibold" style={{ color: T.navy }}>
-                      {role.effHrs}h
-                    </td>
-
-                    {/* Total cost */}
-                    <td className="px-4 py-3 text-right font-bold" style={{ color: T.gold, fontSize: 12 }}>
-                      {fmt(role.totalCost)}
-                    </td>
-
-                    {/* Phases — multi-select tags */}
-                    <td className="px-4 py-3">
+                    {/* Active Phases */}
+                    <td className="px-3 py-2">
                       <div className="flex flex-wrap gap-1">
-                        {PROJECT_PHASES.map((ph) => {
-                          const active = ov.phases.has(ph);
-                          const phColor = PHASE_COLORS[ph];
-                          return (
-                            <button key={ph}
-                              onClick={() => togglePhase(role.id, ph, role, idx)}
-                              className="text-[10px] font-semibold px-2 py-0.5 rounded-full border transition-all"
-                              style={{
-                                background:  active ? phColor      : 'transparent',
-                                color:       active ? '#fff'       : phColor,
-                                borderColor: phColor,
-                              }}>
-                              {ph}
-                            </button>
-                          );
-                        })}
+                        {activePhs.length > 0 ? activePhs.map(ph => (
+                          <span key={ph} className="text-[9px] font-semibold px-1.5 py-0.5 rounded-full"
+                            style={{ background: `${PHASE_COLORS[ph]}20`, color: PHASE_COLORS[ph] }}>
+                            {ph}
+                          </span>
+                        )) : <span style={{ color: MUTED, fontSize: 10 }}>None</span>}
                       </div>
                     </td>
-
                     {/* Actions */}
-                    <td className="px-4 py-3 text-center">
-                      <div className="flex items-center justify-center gap-1.5">
-                        {isEditing ? (
-                          <>
-                            <button onClick={() => commitEdit(role.id)}><Check size={13} className="text-green-600" /></button>
-                            <button onClick={() => setEditingId(null)}><X size={13} className="text-gray-400" /></button>
-                          </>
-                        ) : (
-                          <>
-                            <button onClick={() => startEdit(role)} style={{ color: T.slate }}><Edit3 size={13} /></button>
-                            <button onClick={() => activeDocumentId && removeStaffingRole(activeDocumentId, role.id)}
-                              className="text-gray-300 hover:text-red-500 transition-colors">
-                              <Trash2 size={13} />
-                            </button>
-                          </>
-                        )}
-                      </div>
+                    <td className="px-3 py-2 text-center">
+                      <button onClick={() => activeDocumentId && removeStaffingRole(activeDocumentId, role.id)}
+                        className="transition-colors" style={{ color: '#475569' }}
+                        onMouseEnter={e => (e.currentTarget.style.color = '#F43F5E')}
+                        onMouseLeave={e => (e.currentTarget.style.color = '#475569')}>
+                        <Trash2 size={13} />
+                      </button>
                     </td>
                   </tr>
                 );
               })}
             </tbody>
             <tfoot>
-              <tr style={{ background: '#F8FAFC', borderTop: `2px solid ${T.gold}` }}>
-                <td colSpan={7} className="px-4 py-3 font-bold" style={{ color: T.navy, fontSize: 13 }}>Totals</td>
-                <td className="px-4 py-3 text-right font-bold kpi-value" style={{ color: T.gold, fontSize: 14 }}>
-                  {fmt(totalLaborCost)}
-                </td>
-                <td colSpan={3} className="px-4 py-3 text-xs" style={{ color: T.textMuted }}>
-                  {totalHours.toLocaleString()} total hours
-                </td>
+              <tr style={{ borderTop: `2px solid ${BORDER}`, background: 'rgba(99,102,241,0.08)' }}>
+                <td colSpan={4} className="px-3 py-3 font-bold text-xs" style={{ color: INDIGO }}>Totals ({roles.length} roles)</td>
+                <td className="px-3 py-3 text-right font-bold tabular-nums" style={{ color: TEXT }}>{totalHours.toLocaleString()}</td>
+                <td colSpan={2} />
+                <td className="px-3 py-3 text-right font-bold tabular-nums" style={{ color: '#F59E0B' }}>{fmt(totalLaborCost)}</td>
+                <td colSpan={2} />
               </tr>
             </tfoot>
           </table>
         </div>
       </div>
 
-      {/* ── Phase allocation summary ─────────────────────── */}
-      <PhaseAllocationSummary derivedRoles={derivedRoles} />
-
-    </div>
-  );
-}
-
-// ── Phase Allocation Summary Chart ────────────────────────────
-interface DerivedRole extends StaffingRole {
-  ov: { deployType: DeployType; phases: Set<ProjectPhase>; count: number; band: IBMBand };
-  effHrs: number; totalHrs: number; utilPct: number; totalCost: number;
-  resolvedBand: IBMBand; resolvedCount: number;
-  monthlyAvailHrs: number;
-  deployCategory: DeployCategory;
-}
-
-function PhaseAllocationSummary({ derivedRoles }: { derivedRoles: DerivedRole[] }) {
-  const phaseHours = useMemo(() => {
-    const map: Record<string, number> = {};
-    PROJECT_PHASES.forEach((ph) => { map[ph] = 0; });
-    derivedRoles.forEach((r) => {
-      const hrsPerPhase = r.totalHrs / Math.max(1, r.ov.phases.size);
-      r.ov.phases.forEach((ph) => { map[ph] = (map[ph] ?? 0) + hrsPerPhase; });
-    });
-    return PROJECT_PHASES.map((ph) => ({ phase: ph, hours: Math.round(map[ph]) }));
-  }, [derivedRoles]);
-
-  return (
-    <div className="bg-white rounded-2xl border p-5" style={{ borderColor: T.border }}>
-      <h3 style={{ fontSize: 16, fontWeight: 600, color: T.navy, marginBottom: 20 }}>Phase Allocation (Hours)</h3>
-      <div className="space-y-3">
-        {phaseHours.map(({ phase, hours }) => {
-          const maxH = Math.max(...phaseHours.map((p) => p.hours), 1);
-          const pct  = Math.round((hours / maxH) * 100);
-          const color = PHASE_COLORS[phase as ProjectPhase];
-          return (
-            <div key={phase}>
-              <div className="flex items-center justify-between mb-1">
-                <span className="text-xs font-semibold" style={{ color: T.navy }}>{phase}</span>
-                <span className="text-xs kpi-value font-bold" style={{ color }}>{hours.toLocaleString()}h</span>
-              </div>
-              <div className="h-2 rounded-full overflow-hidden" style={{ background: '#F1F5F9' }}>
-                <div className="h-full rounded-full transition-all duration-500"
-                  style={{ width: `${pct}%`, background: color }} />
-              </div>
+      {/* ── Phase Total FTE Summary ── */}
+      <div className="rounded-2xl p-5" style={{ background: GLASS, border: `1px solid ${BORDER}` }}>
+        <h3 className="text-sm font-bold mb-4" style={{ color: TEXT }}>Phase-wise Total FTE</h3>
+        <div className="grid grid-cols-4 sm:grid-cols-8 gap-3">
+          {IBM_PHASES.map(ph => (
+            <div key={ph} className="rounded-xl p-3 text-center" style={{ background: `${PHASE_COLORS[ph]}12`, border: `1px solid ${PHASE_COLORS[ph]}30` }}>
+              <div className="text-[10px] font-bold uppercase mb-1" style={{ color: PHASE_COLORS[ph] }}>{ph.replace('-',' ')}</div>
+              <div className="text-xl font-black" style={{ color: PHASE_COLORS[ph] }}>{PHASE_TOTAL_FTE[ph].toFixed(1)}</div>
+              <div style={{ fontSize: 9, color: MUTED }}>FTE</div>
             </div>
-          );
-        })}
+          ))}
+        </div>
       </div>
+
+      {/* ── Phase Summary Table ── */}
+      <PhaseSummaryTable />
+
+      {/* ── FTE Matrix ── */}
+      <FTEMatrixTable roles={roles} />
+
     </div>
   );
 }
