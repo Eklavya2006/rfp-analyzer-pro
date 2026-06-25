@@ -217,9 +217,9 @@ export default function DocumentAnalyzer() {
               border: '1px solid rgba(245,158,11,0.3)',
             }}>
             <BookOpen size={16} style={{ color: '#F59E0B', flexShrink: 0 }} />
-            <span style={{ color: '#F1F5F9' }}>
+            <span style={{ color: '#1E293B' }}>
               Navigated from scope reference — look for{' '}
-              <strong style={{ color: '#F59E0B' }}>{scrollHint.section}</strong>
+              <strong style={{ color: '#D97706' }}>{scrollHint.section}</strong>
               {scrollHint.page ? `, ${scrollHint.page}` : ''} in the document text below.
             </span>
             <button onClick={() => setScrollHint(null)} className="ml-auto" style={{ color: '#94A3B8' }}>
@@ -232,8 +232,8 @@ export default function DocumentAnalyzer() {
       {/* ── Header ─────────────────────────────────────── */}
       <div className="mb-6 flex items-start justify-between gap-4">
         <div>
-          <h2 className="text-xl font-bold mb-1" style={{ color: '#F1F5F9' }}>Document Analyzer</h2>
-          <p className="text-sm" style={{ color: '#94A3B8' }}>
+          <h2 className="text-xl font-bold mb-1 text-slate-900">Document Analyzer</h2>
+          <p className="text-sm text-slate-500">
             Upload PDF, DOCX, XLSX, PPTX, or TXT — text extracted automatically, binary content sanitized
           </p>
         </div>
@@ -241,9 +241,9 @@ export default function DocumentAnalyzer() {
           <button onClick={() => reset()}
             className="flex items-center gap-1.5 text-xs font-semibold px-3 py-1.5 rounded-lg transition-colors"
             style={{
-              background: 'rgba(255,255,255,0.06)',
-              border: '1px solid rgba(255,255,255,0.1)',
-              color: '#94A3B8',
+              background: '#F1F5F9',
+              border: '1px solid #E2E8F0',
+              color: '#64748B',
             }}>
             <Trash2 size={12} /> Clear All
           </button>
@@ -256,12 +256,12 @@ export default function DocumentAnalyzer() {
         style={dragActive
           ? {
               borderColor: INDIGO,
-              background: 'rgba(99,102,241,0.08)',
-              boxShadow: `0 0 0 4px rgba(99,102,241,0.1), inset 0 0 40px rgba(99,102,241,0.05)`,
+              background: 'rgba(99,102,241,0.05)',
+              boxShadow: `0 0 0 4px rgba(99,102,241,0.08)`,
             }
           : {
-              borderColor: BORDER,
-              background: GLASS,
+              borderColor: '#CBD5E1',
+              background: '#F8FAFC',
             }}>
         <input {...getInputProps()} />
         <div className="flex flex-col items-center gap-3">
@@ -275,8 +275,8 @@ export default function DocumentAnalyzer() {
             <Upload size={24} style={{ color: INDIGO }} />
           </div>
           <div>
-            <p className="text-sm font-semibold" style={{ color: '#F1F5F9' }}>Drag & drop or click to upload</p>
-            <p className="text-xs mt-1" style={{ color: '#94A3B8' }}>PDF · DOCX · XLSX · PPTX · TXT — max 25 MB</p>
+            <p className="text-sm font-semibold text-slate-700">Drag & drop or click to upload</p>
+            <p className="text-xs mt-1 text-slate-400">PDF · DOCX · XLSX · PPTX · TXT — max 25 MB</p>
           </div>
         </div>
       </div>
@@ -299,7 +299,7 @@ export default function DocumentAnalyzer() {
       {/* ── Document list ───────────────────────────────── */}
       {documents.length > 0 && (
         <div className="mt-8 space-y-4">
-          <h3 className="text-sm font-bold" style={{ color: '#94A3B8', textTransform: 'uppercase', letterSpacing: '0.06em', fontSize: 11 }}>
+          <h3 className="text-[11px] font-bold uppercase tracking-wider text-slate-400">
             Documents ({documents.length})
           </h3>
           {documents.map((doc) => (
@@ -308,12 +308,12 @@ export default function DocumentAnalyzer() {
               style={doc.id === activeDocumentId
                 ? {
                     border: `1px solid rgba(99,102,241,0.4)`,
-                    background: 'rgba(99,102,241,0.07)',
-                    boxShadow: '0 0 0 1px rgba(99,102,241,0.15), 0 4px 20px rgba(0,0,0,0.3)',
+                    background: 'rgba(99,102,241,0.05)',
+                    boxShadow: '0 0 0 1px rgba(99,102,241,0.12), 0 2px 12px rgba(99,102,241,0.08)',
                   }
                 : {
-                    border: `1px solid ${BORDER}`,
-                    background: GLASS,
+                    border: '1px solid #E2E8F0',
+                    background: '#FFFFFF',
                   }}
               onClick={() => setActiveDocument(doc.id)}>
               <div className="flex items-start justify-between gap-4">
@@ -326,12 +326,12 @@ export default function DocumentAnalyzer() {
                     <FileText size={18} style={{ color: INDIGO }} />
                   </div>
                   <div className="min-w-0">
-                    <div className="text-sm font-semibold truncate" style={{ color: '#F1F5F9' }}>{doc.name}</div>
-                    <div className="text-xs flex items-center gap-2 mt-0.5" style={{ color: '#64748B' }}>
+                    <div className="text-sm font-semibold truncate text-slate-900">{doc.name}</div>
+                    <div className="text-xs flex items-center gap-2 mt-0.5 text-slate-500">
                       <span>{formatBytes(doc.size)}</span>
                       {doc.type && (
                         <span className="text-[10px] px-1.5 py-0.5 rounded"
-                          style={{ background: 'rgba(255,255,255,0.07)', color: '#94A3B8' }}>
+                          style={{ background: '#F1F5F9', color: '#64748B' }}>
                           {doc.type.includes('pdf') ? 'PDF'
                             : doc.type.includes('word') || doc.name.endsWith('.docx') ? 'DOCX'
                             : doc.type.includes('sheet') || doc.name.endsWith('.xlsx') ? 'XLSX'

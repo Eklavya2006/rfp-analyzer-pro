@@ -780,6 +780,240 @@ function PhaseSummaryTable({
 }
 
 // ══════════════════════════════════════════════════════════════
+// STAFFING TABLE ROW — extracted so useState is legal (Rules of Hooks)
+// ══════════════════════════════════════════════════════════════
+interface StaffingTableRowProps {
+  role: StaffingRole;
+  idx: number;
+  projectMonths: number;
+  activeDocumentId: string | null;
+  editingRoleId: string | null;
+  editingRoleName: string;
+  editingBandId: string | null;
+  activePhs: IBMPhase[];
+  aiSug: ReturnType<typeof getAISuggestion>;
+  onEditRoleStart: (id: string, name: string) => void;
+  onEditRoleNameChange: (v: string) => void;
+  onEditRoleCommit: (id: string) => void;
+  onEditRoleCancel: () => void;
+  onBandEditStart: (id: string) => void;
+  onBandChange: (role: StaffingRole, band: IBMBand) => void;
+  onLocationChange: (role: StaffingRole, loc: LocationType) => void;
+  onTogglePhase: (roleId: string, ph: IBMPhase) => void;
+  onRemove: (id: string) => void;
+  updateStaffingRole: (docId: string, roleId: string, updates: Partial<StaffingRole>) => void;
+}
+
+function StaffingTableRow({
+  role, idx, projectMonths, activeDocumentId,
+  editingRoleId, editingRoleName, editingBandId,
+  activePhs, aiSug,
+  onEditRoleStart, onEditRoleNameChange, onEditRoleCommit, onEditRoleCancel,
+  onBandEditStart, onBandChange, onLocationChange, onTogglePhase, onRemove,
+  updateStaffingRole,
+}: StaffingTableRowProps) {
+  // ✅ useState called at component top level — Rules of Hooks satisfied
+  const [showPhaseEdit, setShowPhaseEdit] = useState(false);
+  const [showLocEdit,   setShowLocEdit]   = useState(false);
+
+  const loc        = deployToLocation(role.deployCategory);
+  const monthlyHrs = getMonthlyHrs(loc, projectMonths);
+  const weeklyHrs  = getWeeklyHrs(loc);
+  const availHrs   = monthlyHrs * projectMonths;
+  const utilPct    = availHrs > 0 && role.totalHours > 0
+    ? +((role.totalHours / availHrs) * 100).toFixed(1) : 0;
+  const roleColor  = ROLE_COLORS[idx % ROLE_COLORS.length];
+  const locColor   = loc==='Offshore'?INDIGO:loc==='Nearshore'?'#10b981':loc==='Landed'?'#f59e0b':CYAN;
+  const locLabel   = loc==='Offshore'?'Offshore':loc==='Nearshore'?'Nearshore':loc==='Landed'?'Landed India':'Geo';
+
+  const changeLocation = (newLoc: LocationType) => {
+    if (!activeDocumentId) return;
+    const newDeploy  = LOCATION_CATEGORY[newLoc];
+    const newMonthly = getMonthlyHrs(newLoc, projectMonths);
+    const newAvail   = newMonthly * projectMonths;
+    const newWeekly  = getWeeklyHrs(newLoc);
+    const weeks      = Math.round(projectMonths * 4.33);
+    const newTotal   = Math.round(newWeekly * weeks * (utilPct / 100));
+    const safeTot    = newTotal > 0 ? newTotal : role.totalHours;
+    updateStaffingRole(activeDocumentId, role.id, {
+      ...role,
+      deployCategory: newDeploy,
+      hoursPerResource: safeTot,
+      totalHours: safeTot,
+      totalCost: safeTot * role.hourlyRate,
+    });
+    setShowLocEdit(false);
+    onLocationChange(role, newLoc);
+  };
+
+  // suppress unused warning — roleColor used for future avatar border extension
+  void roleColor;
+
+  return (
+    <tr key={role.id}
+      style={{ borderTop:`1px solid ${BORDER}`, background: idx%2===0?'transparent':'rgba(255,255,255,0.015)' }}>
+
+      {/* Role — inline editable text */}
+      <td className="px-3 py-2">
+        <div className="flex items-center gap-2">
+          <RoleAvatar roleName={role.roleName} size={30} />
+          <div style={{ flex:1, minWidth:0 }}>
+            {editingRoleId === role.id ? (
+              <input autoFocus value={editingRoleName}
+                onChange={e => onEditRoleNameChange(e.target.value)}
+                onBlur={() => onEditRoleCommit(role.id)}
+                onKeyDown={e => { if (e.key==='Enter') onEditRoleCommit(role.id); if (e.key==='Escape') onEditRoleCancel(); }}
+                style={{ background:'rgba(255,255,255,0.1)', border:`1px solid ${INDIGO}`, color:TEXT,
+                  borderRadius:4, fontSize:12, outline:'none', padding:'2px 6px', width:'100%' }} />
+            ) : (
+              <div className="font-semibold cursor-pointer hover:opacity-80 group flex items-center gap-1"
+                style={{ color:TEXT, fontSize:12 }}
+                onClick={() => onEditRoleStart(role.id, role.roleName)}
+                title="Click to edit role name">
+                {role.roleName}
+                <span className="opacity-0 group-hover:opacity-60 text-[9px]" style={{ color: '#F59E0B' }}>✎</span>
+              </div>
+            )}
+            <div style={{ color:MUTED, fontSize:10 }}>{BAND_DESC[role.band]}</div>
+          </div>
+        </div>
+      </td>
+
+      {/* Location — clickable selection dropdown */}
+      <td className="px-3 py-2" style={{ position:'relative' }}>
+        {showLocEdit ? (
+          <div style={{ position:'absolute', top:'100%', left:0, zIndex:9999,
+            background:'#1A2035', border:`1px solid ${BORDER}`, borderRadius:10,
+            boxShadow:'0 8px 32px rgba(0,0,0,0.7)', minWidth:180, overflow:'hidden' }}>
+            {(['Geo','Nearshore','Offshore','Landed'] as LocationType[]).map(lt => {
+              const ltCol = lt==='Offshore'?INDIGO:lt==='Nearshore'?'#10b981':lt==='Landed'?'#f59e0b':CYAN;
+              const ltLbl = lt==='Offshore'?'Offshore':lt==='Nearshore'?'Nearshore':lt==='Landed'?'Landed India':'Geo';
+              const ltHrs = `${getWeeklyHrs(lt)}h/wk · ${getMonthlyHrs(lt, projectMonths)}h/mo`;
+              return (
+                <button key={lt} onClick={() => changeLocation(lt)}
+                  className="flex items-center justify-between w-full px-3 py-2 text-left text-xs hover:bg-white/10 transition-colors"
+                  style={{ borderBottom:`1px solid ${BORDER}`, color: lt===loc ? ltCol : TEXT,
+                    background: lt===loc ? `${ltCol}15` : 'transparent' }}>
+                  <span className="font-semibold">{ltLbl}</span>
+                  <span style={{ fontSize:10, color:MUTED }}>{ltHrs}</span>
+                </button>
+              );
+            })}
+            <button onClick={() => setShowLocEdit(false)}
+              className="w-full py-1.5 text-center text-[10px] font-bold hover:bg-white/5 transition-colors"
+              style={{ color:MUTED }}>Close</button>
+          </div>
+        ) : (
+          <button onClick={() => setShowLocEdit(true)}
+            className="flex flex-col items-start gap-0.5 group"
+            title="Click to change location">
+            <span className="text-[10px] font-bold px-2 py-0.5 rounded-full group-hover:opacity-80 transition-opacity"
+              style={{ background:`${locColor}20`, color:locColor, border:`1px solid ${locColor}40` }}>
+              {locLabel} ✎
+            </span>
+            <span className="text-[9px]" style={{ color:MUTED }}>
+              {weeklyHrs}h/wk · {monthlyHrs}h/mo
+            </span>
+          </button>
+        )}
+      </td>
+
+      {/* Band — dropdown */}
+      <td className="px-3 py-2 text-center">
+        {editingBandId === role.id ? (
+          <select autoFocus value={role.band}
+            onBlur={() => onBandEditStart('')}
+            onChange={e => { const b = e.target.value as IBMBand; onBandChange(role, b); }}
+            style={{ background:'#1E2436', border:`1px solid ${INDIGO}`, color:TEXT, borderRadius:4, fontSize:11, outline:'none', padding:'2px 4px' }}>
+            {IBM_BANDS.map(b => <option key={b} value={b} style={{ background:'#1E2436' }}>{b}</option>)}
+          </select>
+        ) : (
+          <span className="text-xs font-bold px-2 py-0.5 rounded-full text-white cursor-pointer hover:opacity-80"
+            style={{ background:`linear-gradient(135deg, ${INDIGO}, #4F46E5)` }}
+            onClick={() => onBandEditStart(role.id)}
+            title="Click to change band">
+            {role.band}
+          </span>
+        )}
+      </td>
+
+      {/* Total Hours */}
+      <td className="px-3 py-2 text-right tabular-nums" style={{ color:TEXT, fontWeight:600 }}>
+        <HoverTip text={`Total Hrs = Hrs/Week × Duration × UTIL%\n= ${weeklyHrs} × ${Math.round(projectMonths*4.33)} wks × ${utilPct}%\n≈ ${role.totalHours.toLocaleString()} hrs`} width={240}>
+          <span>{role.totalHours > 0 ? role.totalHours.toLocaleString() : <span style={{ color:MUTED }}>—</span>}</span>
+        </HoverTip>
+      </td>
+
+      {/* Util% */}
+      <td className="px-3 py-2 text-center">
+        <HoverTip text={`UTIL% = Assigned Hrs / Available Hrs × 100\n= ${role.totalHours} / ${Math.round(availHrs)} × 100\n= ${utilPct}%`} width={240}>
+          {role.totalHours > 0 ? (
+            <div className="inline-flex flex-col items-center gap-0.5">
+              <span className="text-xs font-bold tabular-nums" style={{ color:utilColor(utilPct) }}>{utilPct.toFixed(1)}%</span>
+              {utilPct > 100 && <span className="text-[9px]" style={{ color:'#ef4444' }}>Over</span>}
+              {utilPct > 0 && utilPct < 50 && <span className="text-[9px]" style={{ color:'#f59e0b' }}>Low</span>}
+            </div>
+          ) : <span style={{ color:MUTED, fontSize:10 }}>—</span>}
+        </HoverTip>
+      </td>
+
+      {/* Cost */}
+      <td className="px-3 py-2 text-right font-bold tabular-nums" style={{ color:'#F59E0B', fontSize:12 }}>
+        {role.totalHours > 0 ? fmt(role.totalCost) : <span style={{ color:MUTED }}>—</span>}
+      </td>
+
+      {/* Phases — AI suggested, editable multi-select */}
+      <td className="px-3 py-2">
+        <div className="space-y-1.5">
+          <div className="flex items-center gap-1 mb-1">
+            <span className="text-[9px] font-bold uppercase" style={{ color:'#F59E0B' }}>AI Suggested</span>
+            <HoverTip text={
+              <span>
+                <strong style={{ color:'#F59E0B' }}>Rationale:</strong> {aiSug.rationale}
+                <br /><br />
+                <strong>Recommended hrs/wk:</strong><br />
+                {aiSug.phases.map(p => `${p.phase}: ${p.hrsPerWeek} hrs/wk`).join(' · ')}
+              </span>
+            } width={300}>
+              <Info size={10} style={{ color:'#F59E0B' }} />
+            </HoverTip>
+          </div>
+          <div className="flex flex-wrap gap-1">
+            {activePhs.length > 0 ? activePhs.map(ph => (
+              <span key={ph} className="text-[9px] font-semibold px-1.5 py-0.5 rounded-full"
+                style={{ background:`${PHASE_COLORS[ph]}20`, color:PHASE_COLORS[ph] }}>
+                {ph}
+              </span>
+            )) : <span style={{ color:MUTED, fontSize:10 }}>None</span>}
+            <button onClick={() => setShowPhaseEdit(!showPhaseEdit)}
+              className="text-[9px] px-1.5 py-0.5 rounded-full font-semibold"
+              style={{ background:'rgba(255,255,255,0.08)', color:MUTED, border:`1px solid ${BORDER}` }}>
+              ✎ Edit
+            </button>
+          </div>
+          {showPhaseEdit && (
+            <PhaseMultiSelect
+              selected={activePhs}
+              onToggle={(ph) => onTogglePhase(role.id, ph)}
+            />
+          )}
+        </div>
+      </td>
+
+      {/* Delete */}
+      <td className="px-3 py-2 text-center">
+        <button onClick={() => onRemove(role.id)}
+          className="transition-colors" style={{ color:'#475569' }}
+          onMouseEnter={e => (e.currentTarget.style.color = '#F43F5E')}
+          onMouseLeave={e => (e.currentTarget.style.color = '#475569')}>
+          <Trash2 size={13} />
+        </button>
+      </td>
+    </tr>
+  );
+}
+
+// ══════════════════════════════════════════════════════════════
 // MAIN COMPONENT
 // ══════════════════════════════════════════════════════════════
 export default function StaffingPlanModule() {
@@ -1031,217 +1265,33 @@ export default function StaffingPlanModule() {
               </tr>
             </thead>
             <tbody>
-              {filteredRoles.map((role, idx) => {
-                const loc        = deployToLocation(role.deployCategory);
-                const monthlyHrs = getMonthlyHrs(loc, projectMonths);
-                const weeklyHrs  = getWeeklyHrs(loc);
-                const availHrs   = monthlyHrs * projectMonths;
-                const utilPct    = availHrs > 0 && role.totalHours > 0
-                  ? +((role.totalHours / availHrs) * 100).toFixed(1) : 0;
-                const activePhs  = getActivePhases(role);
-                const aiSug      = getAISuggestion(role.roleName);
-                // eslint-disable-next-line react-hooks/rules-of-hooks
-                const [showPhaseEdit, setShowPhaseEdit] = useState(false);
-                // eslint-disable-next-line react-hooks/rules-of-hooks
-                const [showLocEdit, setShowLocEdit] = useState(false);
-                const roleColor  = ROLE_COLORS[idx % ROLE_COLORS.length];
-
-                // Location color
-                const locColor = loc==='Offshore'?INDIGO:loc==='Nearshore'?'#10b981':loc==='Landed'?'#f59e0b':CYAN;
-                const locLabel = loc==='Offshore'?'Offshore':loc==='Nearshore'?'Nearshore':loc==='Landed'?'Landed India':'Geo';
-
-                const changeLocation = (newLoc: LocationType) => {
-                  if (!activeDocumentId) return;
-                  const newDeploy = LOCATION_CATEGORY[newLoc];
-                  const newMonthly = getMonthlyHrs(newLoc, projectMonths);
-                  const newAvail   = newMonthly * projectMonths;
-                  // Recalculate totalHours proportionally using weekly hrs
-                  const newWeekly  = getWeeklyHrs(newLoc);
-                  const weeks      = Math.round(projectMonths * 4.33);
-                  const newTotal   = Math.round(newWeekly * weeks * (utilPct / 100));
-                  const safeTot    = newTotal > 0 ? newTotal : role.totalHours;
-                  updateStaffingRole(activeDocumentId, role.id, {
-                    ...role,
-                    deployCategory: newDeploy,
-                    hoursPerResource: safeTot,
-                    totalHours: safeTot,
-                    totalCost: safeTot * role.hourlyRate,
-                  });
-                  setShowLocEdit(false);
-                };
-
-                return (
-                  <tr key={role.id}
-                    style={{ borderTop:`1px solid ${BORDER}`, background: idx%2===0?'transparent':'rgba(255,255,255,0.015)' }}>
-
-                    {/* Role — inline editable text */}
-                    <td className="px-3 py-2">
-                      <div className="flex items-center gap-2">
-                        <RoleAvatar roleName={role.roleName} size={30} />
-                        <div style={{ flex:1, minWidth:0 }}>
-                          {editingRoleId === role.id ? (
-                            <input autoFocus value={editingRoleName}
-                              onChange={e => setEditingRoleName(e.target.value)}
-                              onBlur={() => commitRoleName(role.id)}
-                              onKeyDown={e => { if (e.key==='Enter') commitRoleName(role.id); if (e.key==='Escape') setEditingRoleId(null); }}
-                              style={{ background:'rgba(255,255,255,0.1)', border:`1px solid ${INDIGO}`, color:TEXT,
-                                borderRadius:4, fontSize:12, outline:'none', padding:'2px 6px', width:'100%' }} />
-                          ) : (
-                            <div className="font-semibold cursor-pointer hover:opacity-80 group flex items-center gap-1"
-                              style={{ color:TEXT, fontSize:12 }}
-                              onClick={() => { setEditingRoleId(role.id); setEditingRoleName(role.roleName); }}
-                              title="Click to edit role name">
-                              {role.roleName}
-                              <span className="opacity-0 group-hover:opacity-60 text-[9px]" style={{ color: '#F59E0B' }}>✎</span>
-                            </div>
-                          )}
-                          <div style={{ color:MUTED, fontSize:10 }}>{BAND_DESC[role.band]}</div>
-                        </div>
-                      </div>
-                    </td>
-
-                    {/* Location — clickable selection dropdown */}
-                    <td className="px-3 py-2" style={{ position:'relative' }}>
-                      {showLocEdit ? (
-                        <div style={{ position:'absolute', top:'100%', left:0, zIndex:9999,
-                          background:'#1A2035', border:`1px solid ${BORDER}`, borderRadius:10,
-                          boxShadow:'0 8px 32px rgba(0,0,0,0.7)', minWidth:180, overflow:'hidden' }}>
-                          {(['Geo','Nearshore','Offshore','Landed'] as LocationType[]).map(lt => {
-                            const ltCol = lt==='Offshore'?INDIGO:lt==='Nearshore'?'#10b981':lt==='Landed'?'#f59e0b':CYAN;
-                            const ltLbl = lt==='Offshore'?'Offshore':lt==='Nearshore'?'Nearshore':lt==='Landed'?'Landed India':'Geo';
-                            const ltHrs = `${getWeeklyHrs(lt)}h/wk · ${getMonthlyHrs(lt, projectMonths)}h/mo`;
-                            return (
-                              <button key={lt} onClick={() => changeLocation(lt)}
-                                className="flex items-center justify-between w-full px-3 py-2 text-left text-xs hover:bg-white/10 transition-colors"
-                                style={{ borderBottom:`1px solid ${BORDER}`, color: lt===loc ? ltCol : TEXT,
-                                  background: lt===loc ? `${ltCol}15` : 'transparent' }}>
-                                <span className="font-semibold">{ltLbl}</span>
-                                <span style={{ fontSize:10, color:MUTED }}>{ltHrs}</span>
-                              </button>
-                            );
-                          })}
-                          <button onClick={() => setShowLocEdit(false)}
-                            className="w-full py-1.5 text-center text-[10px] font-bold hover:bg-white/5 transition-colors"
-                            style={{ color:MUTED }}>Close</button>
-                        </div>
-                      ) : (
-                        <button onClick={() => setShowLocEdit(true)}
-                          className="flex flex-col items-start gap-0.5 group"
-                          title="Click to change location">
-                          <span className="text-[10px] font-bold px-2 py-0.5 rounded-full group-hover:opacity-80 transition-opacity"
-                            style={{ background:`${locColor}20`, color:locColor, border:`1px solid ${locColor}40` }}>
-                            {locLabel} ✎
-                          </span>
-                          <span className="text-[9px]" style={{ color:MUTED }}>
-                            {weeklyHrs}h/wk · {monthlyHrs}h/mo
-                          </span>
-                        </button>
-                      )}
-                    </td>
-
-                    {/* Band — dropdown */}
-                    <td className="px-3 py-2 text-center">
-                      {editingBandId === role.id ? (
-                        <select
-                          autoFocus
-                          value={role.band}
-                          onBlur={() => setEditingBandId(null)}
-                          onChange={e => {
-                            const b = e.target.value as IBMBand;
-                            if (activeDocumentId) updateStaffingRole(activeDocumentId, role.id, { ...role, band:b, levelDescription:BAND_DESC[b], hourlyRate:BAND_RATES[b], totalCost:role.totalHours*BAND_RATES[b] });
-                            setEditingBandId(null);
-                          }}
-                          style={{ background:'#1E2436', border:`1px solid ${INDIGO}`, color:TEXT, borderRadius:4, fontSize:11, outline:'none', padding:'2px 4px' }}>
-                          {IBM_BANDS.map(b => <option key={b} value={b} style={{ background:'#1E2436' }}>{b}</option>)}
-                        </select>
-                      ) : (
-                        <span className="text-xs font-bold px-2 py-0.5 rounded-full text-white cursor-pointer hover:opacity-80"
-                          style={{ background:`linear-gradient(135deg, ${INDIGO}, #4F46E5)` }}
-                          onClick={() => setEditingBandId(role.id)}
-                          title="Click to change band">
-                          {role.band}
-                        </span>
-                      )}
-                    </td>
-
-                    {/* Total Hours — calculated, with tooltip */}
-                    <td className="px-3 py-2 text-right tabular-nums" style={{ color:TEXT, fontWeight:600 }}>
-                      <HoverTip text={`Total Hrs = Hrs/Week × Duration × UTIL%\n= ${weeklyHrs} × ${Math.round(projectMonths*4.33)} wks × ${utilPct}%\n≈ ${role.totalHours.toLocaleString()} hrs`} width={240}>
-                        <span>{role.totalHours > 0 ? role.totalHours.toLocaleString() : <span style={{ color:MUTED }}>—</span>}</span>
-                      </HoverTip>
-                    </td>
-
-                    {/* Util% — calculated, with tooltip */}
-                    <td className="px-3 py-2 text-center">
-                      <HoverTip text={`UTIL% = Assigned Hrs / Available Hrs × 100\n= ${role.totalHours} / ${Math.round(availHrs)} × 100\n= ${utilPct}%`} width={240}>
-                        {role.totalHours > 0 ? (
-                          <div className="inline-flex flex-col items-center gap-0.5">
-                            <span className="text-xs font-bold tabular-nums" style={{ color:utilColor(utilPct) }}>{utilPct.toFixed(1)}%</span>
-                            {utilPct > 100 && <span className="text-[9px]" style={{ color:'#ef4444' }}>Over</span>}
-                            {utilPct > 0 && utilPct < 50 && <span className="text-[9px]" style={{ color:'#f59e0b' }}>Low</span>}
-                          </div>
-                        ) : <span style={{ color:MUTED, fontSize:10 }}>—</span>}
-                      </HoverTip>
-                    </td>
-
-                    {/* Cost */}
-                    <td className="px-3 py-2 text-right font-bold tabular-nums" style={{ color:'#F59E0B', fontSize:12 }}>
-                      {role.totalHours > 0 ? fmt(role.totalCost) : <span style={{ color:MUTED }}>—</span>}
-                    </td>
-
-                    {/* Phases — AI suggested, editable multi-select */}
-                    <td className="px-3 py-2">
-                      <div className="space-y-1.5">
-                        {/* AI suggestion tooltip */}
-                        <div className="flex items-center gap-1 mb-1">
-                          <span className="text-[9px] font-bold uppercase" style={{ color:'#F59E0B' }}>AI Suggested</span>
-                          <HoverTip text={
-                            <span>
-                              <strong style={{ color:'#F59E0B' }}>Rationale:</strong> {aiSug.rationale}
-                              <br /><br />
-                              <strong>Recommended hrs/wk:</strong><br />
-                              {aiSug.phases.map(p => `${p.phase}: ${p.hrsPerWeek} hrs/wk`).join(' · ')}
-                            </span>
-                          } width={300}>
-                            <Info size={10} style={{ color:'#F59E0B' }} />
-                          </HoverTip>
-                        </div>
-                        {/* Phase chips */}
-                        <div className="flex flex-wrap gap-1">
-                          {activePhs.length > 0 ? activePhs.map(ph => (
-                            <span key={ph} className="text-[9px] font-semibold px-1.5 py-0.5 rounded-full"
-                              style={{ background:`${PHASE_COLORS[ph]}20`, color:PHASE_COLORS[ph] }}>
-                              {ph}
-                            </span>
-                          )) : <span style={{ color:MUTED, fontSize:10 }}>None</span>}
-                          <button onClick={() => setShowPhaseEdit(!showPhaseEdit)}
-                            className="text-[9px] px-1.5 py-0.5 rounded-full font-semibold"
-                            style={{ background:'rgba(255,255,255,0.08)', color:MUTED, border:`1px solid ${BORDER}` }}>
-                            ✎ Edit
-                          </button>
-                        </div>
-                        {/* Multi-select dropdown */}
-                        {showPhaseEdit && (
-                          <PhaseMultiSelect
-                            selected={activePhs}
-                            onToggle={(ph) => togglePhase(role.id, ph)}
-                          />
-                        )}
-                      </div>
-                    </td>
-
-                    {/* Delete */}
-                    <td className="px-3 py-2 text-center">
-                      <button onClick={() => activeDocumentId && removeStaffingRole(activeDocumentId, role.id)}
-                        className="transition-colors" style={{ color:'#475569' }}
-                        onMouseEnter={e => (e.currentTarget.style.color = '#F43F5E')}
-                        onMouseLeave={e => (e.currentTarget.style.color = '#475569')}>
-                        <Trash2 size={13} />
-                      </button>
-                    </td>
-                  </tr>
-                );
-              })}
+              {filteredRoles.map((role, idx) => (
+                <StaffingTableRow
+                  key={role.id}
+                  role={role}
+                  idx={idx}
+                  projectMonths={projectMonths}
+                  activeDocumentId={activeDocumentId}
+                  editingRoleId={editingRoleId}
+                  editingRoleName={editingRoleName}
+                  editingBandId={editingBandId}
+                  activePhs={getActivePhases(role)}
+                  aiSug={getAISuggestion(role.roleName)}
+                  onEditRoleStart={(id, name) => { setEditingRoleId(id); setEditingRoleName(name); }}
+                  onEditRoleNameChange={setEditingRoleName}
+                  onEditRoleCommit={commitRoleName}
+                  onEditRoleCancel={() => setEditingRoleId(null)}
+                  onBandEditStart={(id) => setEditingBandId(id || null)}
+                  onBandChange={(r, b) => {
+                    if (activeDocumentId) updateStaffingRole(activeDocumentId, r.id, { ...r, band:b, levelDescription:BAND_DESC[b], hourlyRate:BAND_RATES[b], totalCost:r.totalHours*BAND_RATES[b] });
+                    setEditingBandId(null);
+                  }}
+                  onLocationChange={() => {/* location change handled inside row */ }}
+                  onTogglePhase={togglePhase}
+                  onRemove={(id) => { if (activeDocumentId) removeStaffingRole(activeDocumentId, id); }}
+                  updateStaffingRole={updateStaffingRole}
+                />
+              ))}
             </tbody>
             <tfoot>
               <tr style={{ borderTop:`2px solid ${BORDER}`, background:'rgba(99,102,241,0.08)' }}>
