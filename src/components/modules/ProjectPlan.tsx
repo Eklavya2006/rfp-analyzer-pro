@@ -1,7 +1,7 @@
 'use client';
 // ProjectPlan — Dark Gantt-style redesign with status pills, progress bars, resource chart
 import React, { useState, useRef, useCallback } from 'react';
-import { Pencil, Check, X, Plus, Trash2 } from 'lucide-react';
+import { Pencil, Check, X, Plus, Trash2, Info } from 'lucide-react';
 import {
   BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip,
   ResponsiveContainer, Cell, Legend,
@@ -54,6 +54,34 @@ function statusPct(s: PhaseStatus): number {
   if (s === 'completed')   return 100;
   if (s === 'in-progress') return 50;
   return 0;
+}
+
+// ── Hover tooltip component ───────────────────────────────────
+function HoverTooltip({ text, children }: { text: string; children: React.ReactNode }) {
+  const [visible, setVisible] = useState(false);
+  return (
+    <span className="relative inline-flex items-center gap-1"
+      onMouseEnter={() => setVisible(true)}
+      onMouseLeave={() => setVisible(false)}>
+      {children}
+      {visible && (
+        <span
+          style={{
+            position: 'absolute', bottom: '100%', left: '50%', transform: 'translateX(-50%)',
+            marginBottom: 8, background: '#1E2436', color: '#F1F5F9', fontSize: 12,
+            padding: '8px 12px', borderRadius: 8, zIndex: 9999, width: 300,
+            boxShadow: '0 8px 32px rgba(0,0,0,0.7)',
+            border: '1px solid rgba(99,102,241,0.3)', lineHeight: 1.5,
+            pointerEvents: 'none', whiteSpace: 'normal', textAlign: 'left',
+          }}>
+          {text}
+          <span style={{ position: 'absolute', bottom: -6, left: '50%', transform: 'translateX(-50%)',
+            width: 0, height: 0, borderLeft: '6px solid transparent', borderRight: '6px solid transparent',
+            borderTop: '6px solid #1E2436' }} />
+        </span>
+      )}
+    </span>
+  );
 }
 
 // ── Inline editable cell ──────────────────────────────────────
@@ -316,14 +344,19 @@ export default function ProjectPlanModule() {
           <table className="w-full min-w-[860px]" style={{ fontSize: 13 }}>
             <thead>
               <tr style={{ background: '#F8FAFC', color: PC.muted, fontSize: 11 }}>
-                <th className="px-4 py-3 text-left font-semibold uppercase tracking-wider">Phase</th>
-                <th className="px-4 py-3 text-center font-semibold uppercase tracking-wider">Weeks</th>
-                <th className="px-4 py-3 text-center font-semibold uppercase tracking-wider">Duration</th>
-                <th className="px-4 py-3 text-left font-semibold uppercase tracking-wider">Owner</th>
-                <th className="px-4 py-3 text-center font-semibold uppercase tracking-wider">Status</th>
-                <th className="px-4 py-3 text-left font-semibold uppercase tracking-wider">Progress</th>
-                <th className="px-4 py-3 text-left font-semibold uppercase tracking-wider">Description</th>
-                <th className="px-4 py-3 text-center font-semibold uppercase tracking-wider">Del</th>
+                <th className="px-4 py-3 text-left font-semibold uppercase tracking-wider" style={{ color: PC.muted }}>Phase</th>
+                <th className="px-4 py-3 text-center font-semibold uppercase tracking-wider" style={{ color: PC.muted }}>Weeks</th>
+                <th className="px-4 py-3 text-center font-semibold uppercase tracking-wider" style={{ color: PC.muted }}>Duration</th>
+                <th className="px-4 py-3 text-left font-semibold uppercase tracking-wider" style={{ color: PC.muted }}>Owner</th>
+                <th className="px-4 py-3 text-center font-semibold uppercase tracking-wider" style={{ color: PC.muted }}>Status</th>
+                <th className="px-4 py-3 text-left font-semibold uppercase tracking-wider" style={{ color: PC.muted }}>Progress</th>
+                <th className="px-4 py-3 text-left font-semibold uppercase tracking-wider" style={{ color: PC.muted }}>
+                  <HoverTooltip text="Enter a clear, concise description of the task or deliverable. Include scope boundaries, key actions, and expected output to help stakeholders understand the work involved.">
+                    <span>Description</span>
+                    <Info size={11} style={{ color: PC.muted, flexShrink: 0 }} />
+                  </HoverTooltip>
+                </th>
+                <th className="px-4 py-3 text-center font-semibold uppercase tracking-wider" style={{ color: PC.muted }}>Del</th>
               </tr>
             </thead>
             <tbody>
@@ -338,7 +371,10 @@ export default function ProjectPlanModule() {
                       <td className="px-4 py-3">
                         <div className="flex items-center gap-2">
                           <div className="w-3 h-3 rounded-sm flex-shrink-0" style={{ background: color }} />
-                          <EditCell value={phase.name} onSave={(v) => update(phase.id, { name: v })} />
+                          {/* Phase name — explicit dark text to ensure visibility */}
+                          <span style={{ color: PC.text, fontSize: 13, fontWeight: 600 }}>
+                            <EditCell value={phase.name} onSave={(v) => update(phase.id, { name: v })} />
+                          </span>
                           {(phase.milestones?.length ?? 0) > 0 && (
                             <span className="text-[10px] px-1.5 py-0.5 rounded text-white ml-1" style={{ background: PC.inprog }}>
                               {phase.milestones?.length}ms

@@ -29,9 +29,14 @@ const tooltipStyle = {
   border: '1px solid rgba(99,102,241,0.3)',
   borderRadius: 10,
   color: '#F1F5F9',
-  fontSize: 12,
-  fontFamily: 'var(--font-mono)',
+  fontSize: 13,
+  padding: '8px 12px',
+  zIndex: 10000,
+  boxShadow: '0 8px 32px rgba(0,0,0,0.7)',
 };
+const tooltipWrapperStyle = { zIndex: 10000, outline: 'none' };
+const tooltipLabelStyle   = { color: '#F1F5F9', fontWeight: 700, marginBottom: 4, fontSize: 13 };
+const tooltipItemStyle    = { color: '#F1F5F9', fontSize: 13 };
 
 // ── Coverage SVG Gauge ────────────────────────────────────────
 function CoverageGauge({ pct }: { pct: number }) {
@@ -224,7 +229,8 @@ export default function TestingModule() {
               <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.05)" vertical={false} />
               <XAxis dataKey="name" tick={{ fontSize: 11, fill: '#64748B' }} axisLine={false} tickLine={false} />
               <YAxis tick={{ fontSize: 11, fill: '#64748B' }} axisLine={false} tickLine={false} />
-              <Tooltip contentStyle={tooltipStyle} labelStyle={{ color: '#F1F5F9' }} />
+              <Tooltip contentStyle={tooltipStyle} wrapperStyle={tooltipWrapperStyle}
+                labelStyle={tooltipLabelStyle} itemStyle={tooltipItemStyle} />
               <Bar dataKey="Hours" radius={[6, 6, 0, 0]}>
                 {strategy.sections.map((s) => (
                   <Cell key={s.id} fill={TYPE_COLORS[s.type] ?? INDIGO} />

@@ -1,10 +1,10 @@
 'use client';
 // ============================================================
 // CreateProposal — S9: Proposal generation, branding, PDF export
-//                 + Dynamic Client Objections section
+//                 + Animated Client Objection Handling Guide
 // ============================================================
 import React, { useState, useRef } from 'react';
-import { FileText, Download, Link2, Image, Globe, Wand2, Plus, Trash2, ChevronDown, ChevronUp } from 'lucide-react';
+import { FileText, Download, Link2, Image, Globe, Wand2 } from 'lucide-react';
 import { useRFPStore } from '@/lib/store';
 
 // ── Client Objection type ─────────────────────────────────────
@@ -12,6 +12,8 @@ interface ClientObjection {
   id: string;
   objection: string;
   response: string;
+  supportingData: string;
+  category: 'critical' | 'common' | 'strategic';
 }
 
 const ACCENT = '#1E3A5F';
@@ -147,113 +149,215 @@ function buildProposalHTML(opts: {
 </html>`;
 }
 
-// ── Objections panel ──────────────────────────────────────────
-function ObjectionsPanel({
-  objections, onAdd, onRemove, onUpdate,
-}: {
-  objections: ClientObjection[];
-  onAdd: () => void;
-  onRemove: (id: string) => void;
-  onUpdate: (id: string, field: 'objection' | 'response', value: string) => void;
-}) {
-  const [open, setOpen] = useState(true);
+// ── Preset objection data ─────────────────────────────────────
+const PRESET_OBJECTIONS: ClientObjection[] = [
+  {
+    id: 'obj-1', category: 'critical',
+    objection: 'Show us your FTE\'s and hourly breakdown',
+    response: 'We price on delivered outcomes, not hours. Each mode specifies what is delivered, acceptance criteria, and SLO guarantees. The price reflects the value of the outcome — not the labour input.',
+    supportingData: 'IBM Consulting has shifted to outcome-based wrappers. Per-hour pricing requires VP exception and is capped at <10% of any engagement.',
+  },
+  {
+    id: 'obj-2', category: 'critical',
+    objection: 'If IBM harvests IP from our engagement, who owns it?',
+    response: 'All client-specific deliverables remain your IP. IBM harvests only abstracted patterns — structural methods, agent configurations, and evaluation frameworks stripped of client data. You can opt into co-investment for a 10-15% engagement discount.',
+    supportingData: 'IP classification framework with 4 harvestability levels ensures clear boundaries. Client-only assets are never reused.',
+  },
+  {
+    id: 'obj-3', category: 'critical',
+    objection: 'Will IBM use our patterns for our competitors?',
+    response: 'Abstracted patterns contain zero client-specific data — they are structural blueprints (e.g., \'event-driven order flow\' not \'Acme Corp order system\'). Industry-specific ontologies are ring-fenced by sector with explicit client consent.',
+    supportingData: 'Contractual safeguards: sector ring-fencing, abstraction-level certification, client right to audit asset library entries.',
+  },
+  {
+    id: 'obj-4', category: 'common',
+    objection: 'If you reuse assets, shouldn\'t our price go down?',
+    response: 'It does — through the co-investment model. Clients who opt into IP contribution receive 10-15% discount. Additionally, as IBM\'s asset library matures, Mode 6 platform costs decrease while capability increases.',
+    supportingData: 'Logarithmic reuse curve: cost reduction = 50% × (1 - e^(-coverage/40)). Co-investment discount: 10-15% based on contribution level.',
+  },
+  {
+    id: 'obj-5', category: 'common',
+    objection: 'What if you don\'t deliver the promised outcomes?',
+    response: 'Every mode includes acceptance criteria and SLO guarantees. Mode 2 flows are paid 70% on UAT acceptance, 30% on 30-day eval pass. Mode 3 includes throughput SLO with credit mechanisms. We share the delivery risk.',
+    supportingData: 'SLO credit mechanisms: 10-20% credit per missed SLO target. Acceptance criteria documented per flow before work begins.',
+  },
+  {
+    id: 'obj-6', category: 'common',
+    objection: 'How do we measure gain-share fairly?',
+    response: 'KPI baseline and measurement methodology are agreed before engagement starts. Attribution uses statistical models documented in the SOW. Gain-share is capped at 3× the base retainer to limit downside.',
+    supportingData: 'Mode 5 requires: baseline measurement, attribution method, cap multiplier (3×), quarterly measurement cadence.',
+  },
+  {
+    id: 'obj-7', category: 'strategic',
+    objection: 'IP subscription creates vendor lock-in',
+    response: 'All agent configurations deploy in your environment. IBM IP subscription provides method frameworks and eval suites — not runtime dependencies. You can exit the subscription and retain all delivered configurations.',
+    supportingData: 'Exit terms: 90-day notice, all deployed configurations remain, no runtime dependency on IBM platform.',
+  },
+  {
+    id: 'obj-8', category: 'strategic',
+    objection: 'This model seems designed to reduce our internal team',
+    response: 'The FDU pod model augments your team, not replaces it. Rev/HC improvement comes from higher-value work per person — AI handles routine tasks while humans focus on architecture, business decisions, and innovation.',
+    supportingData: 'Rev/HC trajectory: $240K → $1M is achieved through value lift, not headcount reduction. Pod model includes Client Outcomes Lead role.',
+  },
+];
 
-  const inputStyle: React.CSSProperties = {
-    width: '100%', background: '#F8FAFC', border: '1px solid #E2E8F0',
-    borderRadius: 8, padding: '8px 12px', fontSize: 13, color: '#1A202C',
-    outline: 'none', resize: 'vertical' as const, lineHeight: 1.6,
-    transition: 'border-color 0.15s',
-  };
+// ── Category avatar config ────────────────────────────────────
+const CATEGORY_CONFIG = {
+  critical:  { color: '#EF4444', bg: 'rgba(239,68,68,0.12)',  label:'🔴 Critical', icon:'🛡️', animClass:'avatar-pulse-red' },
+  common:    { color: '#F59E0B', bg: 'rgba(245,158,11,0.12)', label:'🟡 Common',   icon:'ℹ️', animClass:'avatar-pulse-amber' },
+  strategic: { color: '#3B82F6', bg: 'rgba(59,130,246,0.12)', label:'🔵 Strategic',icon:'🎯', animClass:'avatar-pulse-blue' },
+} as const;
+
+// ── Animated avatar heading ────────────────────────────────────
+function CategoryAvatar({ category }: { category: 'critical' | 'common' | 'strategic' }) {
+  const cfg = CATEGORY_CONFIG[category];
+  return (
+    <span
+      className={`inline-flex items-center justify-center text-lg rounded-full`}
+      style={{
+        width: 36, height: 36, background: cfg.bg,
+        border: `2px solid ${cfg.color}40`, flexShrink: 0,
+        animation: `subtlePulse${category.charAt(0).toUpperCase()+category.slice(1)} 2.5s ease-in-out infinite`,
+        boxShadow: `0 0 12px ${cfg.color}30`,
+      }}>
+      {cfg.icon}
+    </span>
+  );
+}
+
+// ── Single objection entry card ────────────────────────────────
+function ObjectionCard({ obj }: { obj: ClientObjection }) {
+  const [expanded, setExpanded] = useState(false);
+  const cfg = CATEGORY_CONFIG[obj.category];
 
   return (
-    <div className="bg-white rounded-2xl border" style={{ borderColor: '#E2E8F0' }}>
-      <button onClick={() => setOpen(o => !o)}
-        className="w-full flex items-center justify-between px-5 py-4 text-left transition-colors hover:bg-gray-50"
-        style={{ borderBottom: open ? '1px solid #E2E8F0' : 'none', borderRadius: open ? '16px 16px 0 0' : 16 }}>
-        <div>
-          <div className="text-sm font-bold" style={{ color: '#1A202C' }}>
-            💬 Client Objections &amp; Responses
+    <div className="rounded-2xl border overflow-hidden transition-all"
+      style={{ borderColor: `${cfg.color}30`, background: `${cfg.bg}` }}>
+      {/* Header — always visible */}
+      <button
+        onClick={() => setExpanded(e => !e)}
+        className="w-full flex items-center gap-3 px-5 py-4 text-left hover:brightness-105 transition-all"
+        aria-expanded={expanded}>
+        <CategoryAvatar category={obj.category} />
+        <div className="flex-1 min-w-0">
+          <div className="flex items-center gap-2 mb-0.5">
+            <span className="text-[10px] font-bold uppercase tracking-wider px-2 py-0.5 rounded-full"
+              style={{ background: cfg.bg, color: cfg.color, border: `1px solid ${cfg.color}40` }}>
+              {cfg.label}
+            </span>
           </div>
-          <div className="text-xs mt-0.5" style={{ color: '#64748B' }}>
-            {objections.length} objection{objections.length !== 1 ? 's' : ''} — click any field to edit, fully dynamic
+          <div className="font-semibold text-sm leading-snug" style={{ color: '#1A202C' }}>
+            {obj.objection}
           </div>
         </div>
-        <div className="flex items-center gap-2">
-          <span className="text-xs px-2.5 py-1 rounded-full font-semibold"
-            style={{ background: `${ACCENT}12`, color: ACCENT }}>
-            {objections.length} items
-          </span>
-          {open ? <ChevronUp size={16} style={{ color: '#94A3B8' }} /> : <ChevronDown size={16} style={{ color: '#94A3B8' }} />}
-        </div>
+        {/* Toggle arrow — rotates on expand */}
+        <span
+          style={{
+            fontSize: 12, color: cfg.color, fontWeight: 700, flexShrink: 0,
+            transition: 'transform 0.25s ease',
+            transform: expanded ? 'rotate(90deg)' : 'rotate(0deg)',
+            display: 'inline-block',
+          }}>
+          ▶
+        </span>
       </button>
 
-      {open && (
-        <div className="p-5 space-y-4">
-          {objections.length === 0 && (
-            <div className="text-center py-6 text-sm" style={{ color: '#94A3B8' }}>
-              No objections yet. Click "Add Objection" to start building your response playbook.
+      {/* Expandable body */}
+      {expanded && (
+        <div className="px-5 pb-5 pt-1 space-y-4 border-t" style={{ borderColor: `${cfg.color}20` }}>
+          {/* Recommended Response */}
+          <div>
+            <div className="text-[10px] font-bold uppercase tracking-wider mb-2" style={{ color: TEAL }}>
+              💬 Recommended Response
             </div>
-          )}
-          {objections.map((obj, idx) => (
-            <div key={obj.id} className="rounded-xl p-4 space-y-3"
-              style={{ background: '#F8FAFC', border: '1px solid #E2E8F0', position: 'relative' }}>
-              {/* Index badge */}
-              <div className="flex items-center justify-between">
-                <span className="text-[10px] font-bold uppercase tracking-wider px-2 py-0.5 rounded-full"
-                  style={{ background: `${ACCENT}15`, color: ACCENT }}>
-                  Objection #{idx + 1}
-                </span>
-                <button onClick={() => onRemove(obj.id)}
-                  className="transition-colors p-1 rounded-lg"
-                  style={{ color: '#CBD5E0' }}
-                  onMouseEnter={e => (e.currentTarget.style.color = '#F43F5E')}
-                  onMouseLeave={e => (e.currentTarget.style.color = '#CBD5E0')}
-                  title="Remove this objection">
-                  <Trash2 size={14} />
-                </button>
-              </div>
-              {/* Objection */}
-              <div>
-                <label className="text-[10px] font-bold uppercase tracking-wider block mb-1.5" style={{ color: '#64748B' }}>
-                  Client Objection Statement
-                </label>
-                <textarea
-                  rows={2}
-                  value={obj.objection}
-                  onChange={e => onUpdate(obj.id, 'objection', e.target.value)}
-                  placeholder="e.g. 'Your pricing is too high compared to competitors.'"
-                  style={inputStyle}
-                  onFocus={e => { e.currentTarget.style.borderColor = ACCENT; }}
-                  onBlur={e => { e.currentTarget.style.borderColor = '#E2E8F0'; }}
-                />
-              </div>
-              {/* Response */}
-              <div>
-                <label className="text-[10px] font-bold uppercase tracking-wider block mb-1.5" style={{ color: TEAL }}>
-                  Recommended Response
-                </label>
-                <textarea
-                  rows={3}
-                  value={obj.response}
-                  onChange={e => onUpdate(obj.id, 'response', e.target.value)}
-                  placeholder="e.g. 'Our pricing reflects the total value delivered including IP reuse, proven methodology, and outcome guarantees...'"
-                  style={{ ...inputStyle }}
-                  onFocus={e => { e.currentTarget.style.borderColor = TEAL; }}
-                  onBlur={e => { e.currentTarget.style.borderColor = '#E2E8F0'; }}
-                />
-              </div>
+            <p className="text-sm leading-relaxed" style={{ color: '#374151' }}>
+              {obj.response}
+            </p>
+          </div>
+          {/* Supporting Data */}
+          <div className="rounded-xl p-3" style={{ background: 'rgba(255,255,255,0.6)', border: '1px solid #E2E8F0' }}>
+            <div className="text-[10px] font-bold uppercase tracking-wider mb-1.5" style={{ color: '#64748B' }}>
+              📊 Supporting Data
             </div>
-          ))}
-          <button onClick={onAdd}
-            className="flex items-center gap-2 w-full justify-center py-3 rounded-xl text-sm font-semibold transition-all"
-            style={{ border: `2px dashed ${ACCENT}40`, color: ACCENT, background: `${ACCENT}06` }}
-            onMouseEnter={e => { (e.currentTarget as HTMLButtonElement).style.background = `${ACCENT}10`; }}
-            onMouseLeave={e => { (e.currentTarget as HTMLButtonElement).style.background = `${ACCENT}06`; }}>
-            <Plus size={14} /> Add Objection
-          </button>
+            <p className="text-xs leading-relaxed" style={{ color: '#475569' }}>
+              {obj.supportingData}
+            </p>
+          </div>
         </div>
       )}
     </div>
+  );
+}
+
+// ── Full objections panel ──────────────────────────────────────
+function ObjectionsGuidePanel() {
+  const [open, setOpen] = useState(true);
+  const criticalCount  = PRESET_OBJECTIONS.filter(o => o.category === 'critical').length;
+  const commonCount    = PRESET_OBJECTIONS.filter(o => o.category === 'common').length;
+  const strategicCount = PRESET_OBJECTIONS.filter(o => o.category === 'strategic').length;
+
+  return (
+    <>
+      {/* CSS keyframe animations injected via style tag */}
+      <style>{`
+        @keyframes subtlePulseCritical {
+          0%, 100% { box-shadow: 0 0 8px rgba(239,68,68,0.3); transform: scale(1); }
+          50%       { box-shadow: 0 0 18px rgba(239,68,68,0.5); transform: scale(1.06); }
+        }
+        @keyframes subtlePulseCommon {
+          0%, 100% { box-shadow: 0 0 8px rgba(245,158,11,0.3); transform: scale(1); }
+          50%       { box-shadow: 0 0 18px rgba(245,158,11,0.5); transform: scale(1.06); }
+        }
+        @keyframes subtlePulseStrategic {
+          0%, 100% { box-shadow: 0 0 8px rgba(59,130,246,0.3); transform: scale(1); }
+          50%       { box-shadow: 0 0 18px rgba(59,130,246,0.5); transform: scale(1.06); }
+        }
+      `}</style>
+
+      <div className="bg-white rounded-2xl border" style={{ borderColor: '#E2E8F0' }}>
+        {/* Panel header */}
+        <button onClick={() => setOpen(o => !o)}
+          className="w-full flex items-center justify-between px-5 py-4 text-left transition-colors hover:bg-gray-50"
+          style={{ borderBottom: open ? '1px solid #E2E8F0' : 'none', borderRadius: open ? '16px 16px 0 0' : 16 }}>
+          <div>
+            <div className="text-sm font-bold flex items-center gap-2" style={{ color: '#1A202C' }}>
+              🛡️ Client Objection Handling Guide
+              <span className="text-[10px] font-bold px-2 py-0.5 rounded-full"
+                style={{ background: '#EF444415', color: '#EF4444', border: '1px solid #EF444440' }}>
+                🔒 Internal Only
+              </span>
+            </div>
+            <div className="text-xs mt-1" style={{ color: '#64748B' }}>
+              Prepared responses for common procurement challenges. Use when presenting the value-based pricing model.
+            </div>
+          </div>
+          <div className="flex items-center gap-2 ml-4 shrink-0">
+            <span className="text-[10px] font-bold px-2 py-0.5 rounded-full"
+              style={{ background: 'rgba(239,68,68,0.1)', color: '#EF4444' }}>
+              {criticalCount} critical
+            </span>
+            <span className="text-[10px] font-bold px-2 py-0.5 rounded-full"
+              style={{ background: 'rgba(245,158,11,0.1)', color: '#F59E0B' }}>
+              {commonCount} common
+            </span>
+            <span className="text-[10px] font-bold px-2 py-0.5 rounded-full"
+              style={{ background: 'rgba(59,130,246,0.1)', color: '#3B82F6' }}>
+              {strategicCount} strategic
+            </span>
+            <span style={{ fontSize: 12, color: '#94A3B8', transition: 'transform 0.25s', display:'inline-block',
+              transform: open ? 'rotate(90deg)' : 'rotate(0deg)' }}>▶</span>
+          </div>
+        </button>
+
+        {open && (
+          <div className="p-5 space-y-3">
+            {PRESET_OBJECTIONS.map(obj => (
+              <ObjectionCard key={obj.id} obj={obj} />
+            ))}
+          </div>
+        )}
+      </div>
+    </>
   );
 }
 
@@ -270,21 +374,6 @@ export default function CreateProposalModule() {
   const [proposalHtml, setProposalHtml] = useState('');
   const [linkCopied, setLinkCopied] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
-
-  // ── Client Objections state ────────────────────────────────
-  const [objections, setObjections] = useState<ClientObjection[]>([]);
-
-  const addObjection = () => {
-    const newObj: ClientObjection = {
-      id: crypto.randomUUID ? crypto.randomUUID() : Math.random().toString(36).slice(2),
-      objection: '',
-      response: '',
-    };
-    setObjections(prev => [...prev, newObj]);
-  };
-  const removeObjection = (id: string) => setObjections(prev => prev.filter(o => o.id !== id));
-  const updateObjection = (id: string, field: 'objection' | 'response', value: string) =>
-    setObjections(prev => prev.map(o => o.id === id ? { ...o, [field]: value } : o));
 
   const clientName = doc?.summary?.client || 'Enterprise Client';
   const projectTitle = doc?.summary?.title || 'Enterprise Digital Transformation';
@@ -317,7 +406,7 @@ export default function CreateProposalModule() {
   };
 
   const generate = () => {
-    const html = buildProposalHTML({ clientName, projectTitle, date, result, logoDataUrl, withLogo, objections });
+    const html = buildProposalHTML({ clientName, projectTitle, date, result, logoDataUrl, withLogo, objections: PRESET_OBJECTIONS });
     setProposalHtml(html);
     setPreviewOpen(true);
   };
@@ -453,13 +542,8 @@ export default function CreateProposalModule() {
         )}
       </div>
 
-      {/* ── Client Objections ── */}
-      <ObjectionsPanel
-        objections={objections}
-        onAdd={addObjection}
-        onRemove={removeObjection}
-        onUpdate={updateObjection}
-      />
+      {/* ── Client Objection Handling Guide (animated) ── */}
+      <ObjectionsGuidePanel />
 
       {/* Generate button */}
       <div className="flex justify-center">
