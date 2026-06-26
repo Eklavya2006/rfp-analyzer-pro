@@ -1134,22 +1134,22 @@ export default function StaffingPlanModule() {
   const selectStyle: React.CSSProperties = { ...inputStyle, cursor:'pointer', appearance:'auto' };
 
   return (
-    <div className="p-6 max-w-7xl mx-auto space-y-6" style={{ background:'#0A0F1E', minHeight:'100%' }}>
+    <div className="p-6 max-w-7xl mx-auto space-y-6" style={{ background:'#F8FAFC', minHeight:'100%' }}>
 
       {/* ── Header ── */}
       <div className="flex items-center justify-between flex-wrap gap-3">
         <div>
-          <h2 className="text-xl font-bold" style={{ color: TEXT }}>Staffing Plan</h2>
-          <p className="text-xs mt-0.5" style={{ color: MUTED }}>
+          <h2 className="text-xl font-bold text-slate-900">Staffing Plan</h2>
+          <p className="text-xs mt-0.5 text-slate-500">
             {roles.length} roles · {roles.filter(r=>r.totalHours>0).length} active ·
             Geo/Nearshore/Landed 140 h/mo · Offshore ≤12mo 180 h/mo / &gt;12mo 172.5 h/mo
           </p>
         </div>
         <div className="flex items-center gap-2">
-          <div className="flex items-center gap-2 rounded-xl px-3 py-1.5" style={{ background:GLASS, border:`1px solid ${BORDER}` }}>
-            <Search size={13} style={{ color:'#475569' }} />
+          <div className="flex items-center gap-2 rounded-xl px-3 py-1.5 bg-white border border-slate-200 shadow-sm">
+            <Search size={13} className="text-slate-400" />
             <input value={search} onChange={e=>setSearch(e.target.value)} placeholder="Search roles…"
-              className="text-sm outline-none bg-transparent w-36" style={{ color:TEXT }} />
+              className="text-sm outline-none bg-transparent w-36 text-slate-700 placeholder:text-slate-400" />
           </div>
           <button onClick={() => setShowAddForm(v => !v)}
             className="flex items-center gap-1.5 text-sm font-semibold px-4 py-2 rounded-xl text-white"
@@ -1162,13 +1162,13 @@ export default function StaffingPlanModule() {
       {/* ── KPI Cards ── */}
       <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
         {[
-          { label:'Total Roles',       value: String(roles.length),                          color: INDIGO },
+          { label:'Total Roles',       value: String(roles.length),                           color: INDIGO },
           { label:'Active Roles',      value: String(roles.filter(r=>r.totalHours>0).length), color: CYAN },
-          { label:'Total Labor Cost',  value: fmt(totalLaborCost),                           color:'#F59E0B' },
-          { label:'Total Hours',       value: totalHours.toLocaleString(),                   color:'#10B981' },
+          { label:'Total Labor Cost',  value: fmt(totalLaborCost),                            color:'#F59E0B' },
+          { label:'Total Hours',       value: totalHours.toLocaleString(),                    color:'#10B981' },
         ].map(m => (
-          <div key={m.label} className="rounded-2xl p-4" style={{ background:GLASS, border:`1px solid ${BORDER}`, borderBottom:`3px solid ${m.color}` }}>
-            <div className="text-[10px] font-semibold uppercase tracking-wider mb-2" style={{ color:MUTED }}>{m.label}</div>
+          <div key={m.label} className="rounded-2xl p-4 bg-white" style={{ border:'1px solid #E2E8F0', borderBottom:`3px solid ${m.color}` }}>
+            <div className="text-[10px] font-semibold uppercase tracking-wider mb-2 text-slate-500">{m.label}</div>
             <div className="text-2xl font-bold" style={{ color:m.color }}>{m.value}</div>
           </div>
         ))}
