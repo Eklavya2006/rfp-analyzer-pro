@@ -396,9 +396,7 @@ export default function Dashboard() {
                 <XAxis dataKey="week" tick={{ fill: '#64748B', fontSize: 10 }} axisLine={false} tickLine={false}
                   interval={Math.max(0, Math.floor(headData.length / 8) - 1)} />
                 <YAxis tick={{ fill: '#64748B', fontSize: 10 }} axisLine={false} tickLine={false} allowDecimals={false} />
-                <Tooltip contentStyle={tooltipStyle} wrapperStyle={tooltipWrapperStyle}
-                  labelStyle={tooltipLabelStyle}
-                  formatter={(v: number) => [v, 'Headcount']} />
+                <Tooltip content={<CustomTooltip />} wrapperStyle={tooltipWrapperStyle} />
                 <Area type="monotone" dataKey="hc"
                   stroke={D.areaColor} strokeWidth={2.5}
                   fill="url(#hcGradLight)"

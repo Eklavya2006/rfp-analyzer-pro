@@ -95,9 +95,14 @@ export async function extractFromFile(
       const res = await fetch('/api/parse-pdf', { method: 'POST', body: formData });
       if (!res.ok) {
         const errBody = await res.json().catch(() => ({}));
-        throw new Error(errBody.error ?? `HTTP ${res.status}`);
+        // Use the structured error fields if available
+        const msg = errBody.message ?? errBody.error ?? `HTTP ${res.status}`;
+        const detail = errBody.details ? `\n${errBody.details}` : '';
+        throw new Error(`${msg}${detail}`);
       }
-      const { text: rawText, pageCount: pc } = await res.json() as { text: string; pageCount: number };
+      // Route now returns { success, text, pageCount, timeTaken }
+      const body = await res.json() as { success?: boolean; text: string; pageCount: number; timeTaken?: string };
+      const { text: rawText, pageCount: pc } = body;
       onProgress?.('rendering', 80);
       const text = sanitizeText(rawText ?? '');
       const pageCount = pc > 0 ? pc : estimatePageCount(text);

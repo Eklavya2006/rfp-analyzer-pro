@@ -523,9 +523,17 @@ Budget range: $2.5M to $4M including licensing, professional services, and infra
               )}
 
               {doc.status === 'error' && doc.errorMessage && (
-                <div className="mt-3 text-xs rounded-lg px-3 py-2"
-                  style={{ background: '#FEF2F2', border: '1px solid #FECACA', color: '#991B1B' }}>
-                  ❌ {doc.errorMessage}
+                <div className="mt-3 rounded-lg px-3 py-2.5 space-y-1.5"
+                  style={{ background: '#FEF2F2', border: '1px solid #FECACA' }}>
+                  <div className="text-xs font-semibold" style={{ color: '#991B1B' }}>
+                    ❌ Unable to process the uploaded file
+                  </div>
+                  <div className="text-xs" style={{ color: '#7F1D1D' }}>
+                    {doc.errorMessage.split('\n')[0]}
+                  </div>
+                  <div className="text-xs" style={{ color: '#9B1C1C', opacity: 0.8 }}>
+                    Suggestions: Remove password protection · Save as PDF/A · Try DOCX or TXT instead
+                  </div>
                 </div>
               )}
               {doc.status === 'ready' && (

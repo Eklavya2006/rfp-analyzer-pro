@@ -38,6 +38,33 @@ const tooltipWrapperStyle = { zIndex: 10000, outline: 'none' };
 const tooltipLabelStyle   = { color: '#F1F5F9', fontWeight: 700, marginBottom: 4, fontSize: 13 };
 const tooltipItemStyle    = { color: '#F1F5F9', fontSize: 13 };
 
+// ── CustomTooltip — WCAG-AA, #F8F9FA bg, dynamic border/title colour ──
+function CustomTooltip({ active, payload, label }: {
+  active?: boolean;
+  payload?: Array<{ color?: string; name: string; value: number }>;
+  label?: string;
+}) {
+  if (!active || !payload?.length) return null;
+  const color = payload[0].color ?? '#6366F1';
+  return (
+    <div style={{
+      backgroundColor: '#F8F9FA',
+      border: `2px solid ${color}`,
+      borderRadius: 8,
+      padding: '10px 14px',
+      boxShadow: '0 4px 12px rgba(0,0,0,0.15)',
+      minWidth: 140,
+    }}>
+      <div style={{ color, fontWeight: 600, fontSize: 13, marginBottom: 4 }}>{label}</div>
+      {payload.map(entry => (
+        <div key={entry.name} style={{ color: '#1F2937', fontSize: 13 }}>
+          {entry.name}: {typeof entry.value === 'number' ? entry.value.toLocaleString() : entry.value}
+        </div>
+      ))}
+    </div>
+  );
+}
+
 // ── Coverage SVG Gauge ────────────────────────────────────────
 function CoverageGauge({ pct }: { pct: number }) {
   const r     = 80;
@@ -229,8 +256,7 @@ export default function TestingModule() {
               <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.05)" vertical={false} />
               <XAxis dataKey="name" tick={{ fontSize: 11, fill: '#64748B' }} axisLine={false} tickLine={false} />
               <YAxis tick={{ fontSize: 11, fill: '#64748B' }} axisLine={false} tickLine={false} />
-              <Tooltip contentStyle={tooltipStyle} wrapperStyle={tooltipWrapperStyle}
-                labelStyle={tooltipLabelStyle} itemStyle={tooltipItemStyle} />
+              <Tooltip content={<CustomTooltip />} wrapperStyle={tooltipWrapperStyle} />
               <Bar dataKey="Hours" radius={[6, 6, 0, 0]}>
                 {strategy.sections.map((s) => (
                   <Cell key={s.id} fill={TYPE_COLORS[s.type] ?? INDIGO} />

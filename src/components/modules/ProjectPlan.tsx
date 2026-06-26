@@ -39,6 +39,33 @@ const tooltipStyle = {
 const tooltipWrapperStyle = { zIndex: 10000, outline: 'none' };
 const tooltipLabelStyle   = { color: '#F1F5F9', fontWeight: 700, marginBottom: 4 };
 
+// ── CustomTooltip — WCAG-AA, #F8F9FA bg, dynamic border/title colour ──
+function CustomTooltip({ active, payload, label }: {
+  active?: boolean;
+  payload?: Array<{ color?: string; name: string; value: number }>;
+  label?: string;
+}) {
+  if (!active || !payload?.length) return null;
+  const color = payload[0].color ?? '#1f6feb';
+  return (
+    <div style={{
+      backgroundColor: '#F8F9FA',
+      border: `2px solid ${color}`,
+      borderRadius: 8,
+      padding: '10px 14px',
+      boxShadow: '0 4px 12px rgba(0,0,0,0.15)',
+      minWidth: 140,
+    }}>
+      <div style={{ color, fontWeight: 600, fontSize: 13, marginBottom: 4 }}>{label}</div>
+      {payload.map(entry => (
+        <div key={entry.name} style={{ color: '#1F2937', fontSize: 13 }}>
+          {entry.name}: {typeof entry.value === 'number' ? entry.value.toLocaleString() : entry.value}
+        </div>
+      ))}
+    </div>
+  );
+}
+
 // ── Status helpers ────────────────────────────────────────────
 type PhaseStatus = 'not-started' | 'in-progress' | 'completed';
 function statusColor(s: PhaseStatus): string {
@@ -527,8 +554,7 @@ export default function ProjectPlanModule() {
               interval={0} angle={-25} textAnchor="end" height={60} />
             <YAxis tick={{ fontSize: 11, fill: PC.muted }} axisLine={false} tickLine={false}
               label={{ value: 'Resources', angle: -90, position: 'insideLeft', style: { fill: PC.muted, fontSize: 10 }, offset: 10 }} />
-            <Tooltip contentStyle={tooltipStyle} wrapperStyle={tooltipWrapperStyle} labelStyle={tooltipLabelStyle}
-              formatter={(v: number, name: string) => [v, name === 'roles' ? 'Allocated Resources' : name === 'duration' ? 'Duration (weeks)' : name]} />
+            <Tooltip content={<CustomTooltip />} wrapperStyle={tooltipWrapperStyle} />
             <Legend wrapperStyle={{ fontSize: 11 }} />
             <Bar dataKey="roles" name="Allocated Resources" radius={[5, 5, 0, 0]}>
               {resData.map((entry, i) => (
