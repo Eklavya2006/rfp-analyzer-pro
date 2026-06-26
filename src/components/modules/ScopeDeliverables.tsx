@@ -1,7 +1,7 @@
 'use client';
-// Scope — Light theme · indigo/cyan accents · clickable reference links
+// Scope — Light theme · T&C + Penalties hyperlinks · indigo/cyan accents
 import React, { useState } from 'react';
-import { Plus, Trash2, Search, FileText } from 'lucide-react';
+import { Plus, Trash2, Search, FileText, ExternalLink, AlertTriangle, Shield } from 'lucide-react';
 import { useRFPStore } from '@/lib/store';
 import { v4 as uuid } from 'uuid';
 import type { ScopeItem } from '@/types';
@@ -17,8 +17,8 @@ const INDIGO = '#6366F1';
 const CYAN   = '#06B6D4';
 
 /**
- * Navigates to the Document Analyzer tab and stores a scroll-hint in
- * sessionStorage so the analyzer can highlight + scroll to that section.
+ * Navigate to the Document Analyzer tab and store a scroll-hint
+ * so the analyzer can highlight + scroll to the referenced content.
  */
 function navigateToSection(
   setActiveTab: (t: 'document-analyzer') => void,
@@ -32,7 +32,7 @@ function navigateToSection(
 }
 
 // ── Ref-link with tooltip ──────────────────────────────────────
-function RefLink({ section, page }: { section: string; page: string }) {
+function RefLink({ section, page, color = CYAN }: { section: string; page: string; color?: string }) {
   const [show, setShow] = useState(false);
   const { setActiveTab } = useRFPStore();
   return (
@@ -45,7 +45,7 @@ function RefLink({ section, page }: { section: string; page: string }) {
         onFocus={() => setShow(true)}
         onBlur={() => setShow(false)}
         className="inline-flex items-center gap-1 text-xs underline underline-offset-2 font-medium transition-all hover:opacity-70 cursor-pointer"
-        style={{ color: CYAN }}
+        style={{ color }}
         aria-label={`View source: ${section} — ${page}`}
       >
         {section}
@@ -74,46 +74,43 @@ function RefLink({ section, page }: { section: string; page: string }) {
   );
 }
 
-// ── Page-link with tooltip ─────────────────────────────────────
-function PageLink({ page, section }: { page: string; section: string }) {
-  const [show, setShow] = useState(false);
+// ── T&C clickable link chip ────────────────────────────────────
+function TCLink({ text, page, section }: { text: string; page: string; section: string }) {
   const { setActiveTab } = useRFPStore();
+  if (!text || text.trim().length < 2) return null;
+  const preview = text.length > 60 ? text.slice(0, 60) + '…' : text;
   return (
-    <div className="relative inline-flex items-center gap-1">
-      <button
-        type="button"
-        onClick={() => navigateToSection(setActiveTab, section, page)}
-        onMouseEnter={() => setShow(true)}
-        onMouseLeave={() => setShow(false)}
-        onFocus={() => setShow(true)}
-        onBlur={() => setShow(false)}
-        className="inline-flex items-center gap-1 text-xs underline underline-offset-2 font-medium transition-all hover:opacity-70 cursor-pointer"
-        style={{ color: INDIGO }}
-        aria-label={`View source: ${section} — ${page}`}
-      >
-        {page}
-        <FileText size={10} />
-      </button>
-      {show && (
-        <div
-          className="absolute left-0 bottom-full mb-2 whitespace-nowrap pointer-events-none z-50"
-          style={{
-            background: '#1E2436',
-            border: '1px solid rgba(99,102,241,0.35)',
-            borderRadius: 8,
-            padding: '5px 10px',
-            fontSize: 11,
-            color: '#F1F5F9',
-            boxShadow: '0 8px 32px rgba(0,0,0,0.5)',
-            lineHeight: 1.5,
-          }}
-        >
-          📄 View in document:{' '}
-          <span style={{ fontWeight: 700, color: '#F1F5F9' }}>{section}</span>{' '}
-          — {page}
-        </div>
-      )}
-    </div>
+    <button
+      type="button"
+      onClick={() => navigateToSection(setActiveTab, text.slice(0, 40), page || section)}
+      className="inline-flex items-center gap-1.5 text-xs font-medium px-2 py-0.5 rounded-lg border transition-all hover:opacity-80 cursor-pointer text-left"
+      style={{ background: '#FEE2E2', color: '#991B1B', border: '1px solid #FECACA' }}
+      title={`View T&C in document: ${text}`}
+    >
+      <Shield size={10} />
+      <span>{preview}</span>
+      <ExternalLink size={9} />
+    </button>
+  );
+}
+
+// ── Penalties clickable link chip ──────────────────────────────
+function PenaltyLink({ text, page, section }: { text: string; page: string; section: string }) {
+  const { setActiveTab } = useRFPStore();
+  if (!text || text.trim().length < 2) return null;
+  const preview = text.length > 60 ? text.slice(0, 60) + '…' : text;
+  return (
+    <button
+      type="button"
+      onClick={() => navigateToSection(setActiveTab, text.slice(0, 40), page || section)}
+      className="inline-flex items-center gap-1.5 text-xs font-medium px-2 py-0.5 rounded-lg border transition-all hover:opacity-80 cursor-pointer text-left"
+      style={{ background: '#FEF3C7', color: '#92400E', border: '1px solid #FDE68A' }}
+      title={`View penalty clause in document: ${text}`}
+    >
+      <AlertTriangle size={10} />
+      <span>{preview}</span>
+      <ExternalLink size={9} />
+    </button>
   );
 }
 
@@ -121,7 +118,8 @@ function PageLink({ page, section }: { page: string; section: string }) {
 export default function ScopeDeliverables() {
   const { activeDocumentId, analysisResults, setAnalysisResult } = useRFPStore();
   const result = activeDocumentId ? analysisResults[activeDocumentId] : null;
-  const [search, setSearch] = useState('');
+  const [search, setSearch]           = useState('');
+  const [expandedId, setExpandedId]   = useState<string | null>(null);
 
   if (!result) return (
     <div className="p-6 text-center mt-20 text-slate-400">
@@ -152,6 +150,8 @@ export default function ScopeDeliverables() {
       referenceSection: 'Section TBD',
       pageNumber: 'Page TBD',
       category: 'in-scope',
+      termsAndConditions: '',
+      penalties: '',
     };
     setAnalysisResult(activeDocumentId!, { ...result, scopeItems: [...scopeItems, newItem] });
   };
@@ -168,6 +168,9 @@ export default function ScopeDeliverables() {
       scopeItems: scopeItems.map((i) => (i.id === id ? { ...i, [field]: value } : i)),
     });
 
+  const tcCount      = scopeItems.filter(i => i.termsAndConditions?.trim()).length;
+  const penaltyCount = scopeItems.filter(i => i.penalties?.trim()).length;
+
   return (
     <div className="p-6 max-w-7xl mx-auto space-y-4">
 
@@ -180,6 +183,19 @@ export default function ScopeDeliverables() {
           </p>
         </div>
         <div className="flex items-center gap-2">
+          {/* Summary pills */}
+          {tcCount > 0 && (
+            <span className="inline-flex items-center gap-1.5 text-[10px] font-semibold px-2.5 py-1 rounded-full"
+              style={{ background: '#FEE2E2', color: '#991B1B', border: '1px solid #FECACA' }}>
+              <Shield size={10} /> {tcCount} T&amp;C
+            </span>
+          )}
+          {penaltyCount > 0 && (
+            <span className="inline-flex items-center gap-1.5 text-[10px] font-semibold px-2.5 py-1 rounded-full"
+              style={{ background: '#FEF3C7', color: '#92400E', border: '1px solid #FDE68A' }}>
+              <AlertTriangle size={10} /> {penaltyCount} Penalty
+            </span>
+          )}
           {/* Search */}
           <div className="flex items-center gap-2 rounded-xl px-3 py-1.5 bg-white border border-slate-200 shadow-sm">
             <Search size={14} className="text-slate-400" />
@@ -194,10 +210,7 @@ export default function ScopeDeliverables() {
           <button
             onClick={addScope}
             className="flex items-center gap-1.5 text-sm font-semibold px-3 py-1.5 rounded-xl text-white transition-all duration-200"
-            style={{
-              background: `linear-gradient(135deg, ${INDIGO}, #4F46E5)`,
-              boxShadow: `0 2px 10px rgba(99,102,241,0.35)`,
-            }}
+            style={{ background: `linear-gradient(135deg, ${INDIGO}, #4F46E5)`, boxShadow: `0 2px 10px rgba(99,102,241,0.35)` }}
           >
             <Plus size={14} /> Add
           </button>
@@ -210,87 +223,172 @@ export default function ScopeDeliverables() {
           <table className="w-full border-collapse" style={{ overflow: 'visible' }}>
             <thead>
               <tr className="bg-slate-50 border-b border-slate-200">
-                <th className="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wider text-slate-500" style={{ minWidth: 260 }}>Description</th>
-                <th className="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wider text-slate-500" style={{ minWidth: 170 }}>Reference Section ↗</th>
-                <th className="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wider text-slate-500" style={{ minWidth: 130 }}>Page ↗</th>
+                <th className="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wider text-slate-500" style={{ minWidth: 240 }}>Description</th>
+                <th className="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wider text-slate-500" style={{ minWidth: 160 }}>Reference ↗</th>
+                <th className="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wider text-slate-500" style={{ minWidth: 110 }}>Page ↗</th>
                 <th className="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wider text-slate-500" style={{ minWidth: 130 }}>Category</th>
+                {/* T&C column with red header accent */}
+                <th className="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wider"
+                  style={{ minWidth: 200, color: '#991B1B', background: '#FEF2F2' }}>
+                  <span className="inline-flex items-center gap-1"><Shield size={11} /> Terms &amp; Conditions ↗</span>
+                </th>
+                {/* Penalties column with amber header accent */}
+                <th className="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wider"
+                  style={{ minWidth: 200, color: '#92400E', background: '#FFFBEB' }}>
+                  <span className="inline-flex items-center gap-1"><AlertTriangle size={11} /> Penalties / SLA ↗</span>
+                </th>
                 <th className="px-4 py-3 text-center text-xs font-semibold uppercase tracking-wider text-slate-500" style={{ minWidth: 60 }}>Actions</th>
               </tr>
             </thead>
             <tbody>
               {filteredScope.map((item, rowIdx) => {
-                const colors = CAT_COLORS[item.category];
+                const colors    = CAT_COLORS[item.category];
+                const isExpanded = expandedId === item.id;
                 return (
-                  <tr
-                    key={item.id}
-                    className="border-b border-slate-100 hover:bg-slate-50 transition-colors"
-                    style={{ overflow: 'visible', background: rowIdx % 2 === 0 ? '#FFFFFF' : '#F8FAFC' }}
-                  >
-                    {/* ── Description — explicitly dark text ── */}
-                    <td className="px-4 py-3" style={{ overflow: 'visible', color: '#1E293B' }}>
-                      <input
-                        value={item.description}
-                        onChange={(e) => updateScope(item.id, 'description', e.target.value)}
-                        className="w-full text-sm outline-none bg-transparent transition-colors"
-                        style={{
-                          color: '#1E293B',
-                          borderBottom: '1px dashed rgba(100,116,139,0.3)',
-                        }}
-                      />
-                    </td>
-
-                    {/* ── Reference Section ── */}
-                    <td className="px-4 py-3" style={{ overflow: 'visible', position: 'relative' }}>
-                      <div className="flex flex-col gap-1" style={{ overflow: 'visible' }}>
-                        <RefLink section={item.referenceSection} page={item.pageNumber} />
+                  <React.Fragment key={item.id}>
+                    <tr
+                      className="border-b border-slate-100 hover:bg-slate-50 transition-colors"
+                      style={{ overflow: 'visible', background: rowIdx % 2 === 0 ? '#FFFFFF' : '#F8FAFC' }}
+                    >
+                      {/* ── Description ── */}
+                      <td className="px-4 py-3" style={{ color: '#1E293B' }}>
                         <input
-                          value={item.referenceSection}
-                          onChange={(e) => updateScope(item.id, 'referenceSection', e.target.value)}
-                          className="text-[10px] outline-none bg-transparent w-full"
-                          style={{ color: '#94A3B8' }}
-                          placeholder="Edit section…"
+                          value={item.description}
+                          onChange={(e) => updateScope(item.id, 'description', e.target.value)}
+                          className="w-full text-sm outline-none bg-transparent"
+                          style={{ color: '#1E293B', borderBottom: '1px dashed rgba(100,116,139,0.3)' }}
                         />
-                      </div>
-                    </td>
+                      </td>
 
-                    {/* ── Page Number ── */}
-                    <td className="px-4 py-3" style={{ overflow: 'visible', position: 'relative' }}>
-                      <div className="flex flex-col gap-1" style={{ overflow: 'visible' }}>
-                        <PageLink page={item.pageNumber} section={item.referenceSection} />
-                        <input
-                          value={item.pageNumber}
-                          onChange={(e) => updateScope(item.id, 'pageNumber', e.target.value)}
-                          className="text-[10px] outline-none bg-transparent w-full"
-                          style={{ color: '#94A3B8' }}
-                          placeholder="Edit page…"
-                        />
-                      </div>
-                    </td>
+                      {/* ── Reference Section ── */}
+                      <td className="px-4 py-3" style={{ overflow: 'visible', position: 'relative' }}>
+                        <div className="flex flex-col gap-1" style={{ overflow: 'visible' }}>
+                          <RefLink section={item.referenceSection} page={item.pageNumber} color={CYAN} />
+                          <input
+                            value={item.referenceSection}
+                            onChange={(e) => updateScope(item.id, 'referenceSection', e.target.value)}
+                            className="text-[10px] outline-none bg-transparent w-full"
+                            style={{ color: '#94A3B8' }}
+                            placeholder="Edit section…"
+                          />
+                        </div>
+                      </td>
 
-                    {/* ── Category badge ── */}
-                    <td className="px-4 py-3">
-                      <select
-                        value={item.category}
-                        onChange={(e) => updateScope(item.id, 'category', e.target.value)}
-                        className="text-xs font-semibold px-2 py-0.5 rounded-full border outline-none cursor-pointer"
-                        style={{ background: colors.bg, color: colors.text, border: `1px solid ${colors.border}` }}
-                      >
-                        <option value="in-scope">In Scope</option>
-                        <option value="out-of-scope">Out of Scope</option>
-                        <option value="assumption">Assumption</option>
-                      </select>
-                    </td>
+                      {/* ── Page ── */}
+                      <td className="px-4 py-3" style={{ overflow: 'visible', position: 'relative' }}>
+                        <div className="flex flex-col gap-1" style={{ overflow: 'visible' }}>
+                          <RefLink section={item.referenceSection} page={item.pageNumber} color={INDIGO} />
+                          <input
+                            value={item.pageNumber}
+                            onChange={(e) => updateScope(item.id, 'pageNumber', e.target.value)}
+                            className="text-[10px] outline-none bg-transparent w-full"
+                            style={{ color: '#94A3B8' }}
+                            placeholder="Edit page…"
+                          />
+                        </div>
+                      </td>
 
-                    {/* ── Remove ── */}
-                    <td className="px-4 py-3 text-center">
-                      <button
-                        onClick={() => removeScope(item.id)}
-                        className="transition-colors text-slate-400 hover:text-rose-500"
-                      >
-                        <Trash2 size={14} />
-                      </button>
-                    </td>
-                  </tr>
+                      {/* ── Category ── */}
+                      <td className="px-4 py-3">
+                        <select
+                          value={item.category}
+                          onChange={(e) => updateScope(item.id, 'category', e.target.value)}
+                          className="text-xs font-semibold px-2 py-0.5 rounded-full border outline-none cursor-pointer"
+                          style={{ background: colors.bg, color: colors.text, border: `1px solid ${colors.border}` }}
+                        >
+                          <option value="in-scope">In Scope</option>
+                          <option value="out-of-scope">Out of Scope</option>
+                          <option value="assumption">Assumption</option>
+                        </select>
+                      </td>
+
+                      {/* ── Terms & Conditions ── */}
+                      <td className="px-4 py-3" style={{ background: rowIdx % 2 === 0 ? '#FFF9F9' : '#FFF5F5' }}>
+                        <div className="space-y-1">
+                          {item.termsAndConditions?.trim() ? (
+                            <TCLink text={item.termsAndConditions} page={item.pageNumber} section={item.referenceSection} />
+                          ) : (
+                            <span className="text-[10px] text-slate-300 italic">None specified</span>
+                          )}
+                          {/* Inline editable textarea toggle */}
+                          <button
+                            type="button"
+                            onClick={() => setExpandedId(isExpanded ? null : item.id)}
+                            className="text-[10px] text-rose-400 hover:text-rose-600 underline underline-offset-1 block"
+                          >
+                            {isExpanded ? '▲ Hide editor' : '▼ Edit T&C / Penalties'}
+                          </button>
+                        </div>
+                      </td>
+
+                      {/* ── Penalties / SLA ── */}
+                      <td className="px-4 py-3" style={{ background: rowIdx % 2 === 0 ? '#FFFDF5' : '#FFFBEB' }}>
+                        <div className="space-y-1">
+                          {item.penalties?.trim() ? (
+                            <PenaltyLink text={item.penalties} page={item.pageNumber} section={item.referenceSection} />
+                          ) : (
+                            <span className="text-[10px] text-slate-300 italic">None specified</span>
+                          )}
+                        </div>
+                      </td>
+
+                      {/* ── Remove ── */}
+                      <td className="px-4 py-3 text-center">
+                        <button
+                          onClick={() => removeScope(item.id)}
+                          className="transition-colors text-slate-400 hover:text-rose-500"
+                        >
+                          <Trash2 size={14} />
+                        </button>
+                      </td>
+                    </tr>
+
+                    {/* ── Inline T&C + Penalties editor (expanded row) ── */}
+                    {isExpanded && (
+                      <tr style={{ background: '#FFF8F8' }}>
+                        <td colSpan={7} className="px-5 py-3 border-b border-slate-100">
+                          <div className="grid grid-cols-2 gap-4">
+                            {/* T&C editor */}
+                            <div>
+                              <label className="text-[10px] font-semibold uppercase tracking-wider flex items-center gap-1 mb-1"
+                                style={{ color: '#991B1B' }}>
+                                <Shield size={10} /> Terms &amp; Conditions text
+                                <span className="font-normal normal-case text-slate-400 ml-1">
+                                  (will become clickable link to Document page)
+                                </span>
+                              </label>
+                              <textarea
+                                rows={3}
+                                value={item.termsAndConditions ?? ''}
+                                onChange={(e) => updateScope(item.id, 'termsAndConditions', e.target.value)}
+                                placeholder="Paste or type the T&C clause text here…"
+                                className="w-full text-xs rounded-lg p-2 outline-none resize-none"
+                                style={{ background: '#FEF2F2', border: '1px solid #FECACA', color: '#7F1D1D', lineHeight: 1.6 }}
+                              />
+                            </div>
+                            {/* Penalties editor */}
+                            <div>
+                              <label className="text-[10px] font-semibold uppercase tracking-wider flex items-center gap-1 mb-1"
+                                style={{ color: '#92400E' }}>
+                                <AlertTriangle size={10} /> Penalties / SLA clause
+                                <span className="font-normal normal-case text-slate-400 ml-1">
+                                  (will become clickable link to Document page)
+                                </span>
+                              </label>
+                              <textarea
+                                rows={3}
+                                value={item.penalties ?? ''}
+                                onChange={(e) => updateScope(item.id, 'penalties', e.target.value)}
+                                placeholder="Paste or type the penalty / SLA clause here…"
+                                className="w-full text-xs rounded-lg p-2 outline-none resize-none"
+                                style={{ background: '#FFFBEB', border: '1px solid #FDE68A', color: '#78350F', lineHeight: 1.6 }}
+                              />
+                            </div>
+                          </div>
+                        </td>
+                      </tr>
+                    )}
+                  </React.Fragment>
                 );
               })}
             </tbody>
@@ -301,6 +399,26 @@ export default function ScopeDeliverables() {
             No scope items found
           </div>
         )}
+      </div>
+
+      {/* ── Legend ── */}
+      <div className="flex items-center gap-4 flex-wrap text-[11px] text-slate-400 pt-1">
+        <span className="flex items-center gap-1.5">
+          <span className="w-2.5 h-2.5 rounded-sm" style={{ background: '#DCFCE7', border: '1px solid #86EFAC' }} />
+          In-Scope items highlighted green in Document
+        </span>
+        <span className="flex items-center gap-1.5">
+          <span className="w-2.5 h-2.5 rounded-sm" style={{ background: '#FEE2E2', border: '1px solid #FCA5A5' }} />
+          T&amp;C phrases highlighted red in Document
+        </span>
+        <span className="flex items-center gap-1.5">
+          <span className="w-2.5 h-2.5 rounded-sm" style={{ background: '#FEF3C7', border: '1px solid #FDE68A' }} />
+          Penalty/SLA phrases highlighted amber in Document
+        </span>
+        <span className="flex items-center gap-1.5">
+          <ExternalLink size={10} />
+          Any link chip navigates directly to that text in the Document tab
+        </span>
       </div>
     </div>
   );

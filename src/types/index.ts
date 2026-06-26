@@ -79,6 +79,10 @@ export interface ScopeItem {
   referenceSection: string;
   pageNumber: string;
   category: 'in-scope' | 'out-of-scope' | 'assumption';
+  /** Optional: Terms & Conditions text linked from this scope item */
+  termsAndConditions?: string;
+  /** Optional: Penalties / SLA clause linked from this scope item */
+  penalties?: string;
 }
 
 export interface DeliverableItem {
