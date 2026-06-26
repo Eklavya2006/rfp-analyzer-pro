@@ -46,6 +46,35 @@ const tooltipStyle = {
 const tooltipWrapperStyle = { zIndex: 10000, outline: 'none' };
 const tooltipLabelStyle  = { color: '#0F172A', fontWeight: 700, fontSize: 13, marginBottom: 4 };
 
+// ── CustomTooltip — WCAG-AA, dynamic border/title colour ──────
+function CustomTooltip({ active, payload, label }: {
+  active?: boolean;
+  payload?: Array<{ color?: string; name: string; value: number }>;
+  label?: string;
+}) {
+  if (!active || !payload?.length) return null;
+  const color = payload[0].color ?? '#6366F1';
+  return (
+    <div style={{
+      backgroundColor: '#F8F9FA',
+      border: `2px solid ${color}`,
+      borderRadius: 8,
+      padding: '10px 14px',
+      boxShadow: '0 4px 12px rgba(0,0,0,0.15)',
+      minWidth: 140,
+    }}>
+      <div style={{ color, fontWeight: 600, fontSize: 13, marginBottom: 4 }}>{label}</div>
+      {payload.map(entry => (
+        <div key={entry.name} style={{ color: '#1F2937', fontSize: 13 }}>
+          {entry.name}: {entry.value >= 1000
+            ? `$${(entry.value / 1000).toFixed(1)}K`
+            : `$${entry.value}K`}
+        </div>
+      ))}
+    </div>
+  );
+}
+
 // ── Light card ─────────────────────────────────────────────────
 function Card({ children, style }: { children: React.ReactNode; style?: React.CSSProperties }) {
   return (
@@ -334,9 +363,7 @@ export default function Dashboard() {
                 />
                 <YAxis tick={{ fill: '#64748B', fontSize: 10 }} axisLine={false} tickLine={false}
                   tickFormatter={v => `$${v}K`} />
-                <Tooltip contentStyle={tooltipStyle} wrapperStyle={tooltipWrapperStyle}
-                  labelStyle={tooltipLabelStyle}
-                  formatter={(v: number) => [`$${v}K`, 'Cost']} />
+                <Tooltip content={<CustomTooltip />} wrapperStyle={tooltipWrapperStyle} />
                 <Bar
                   dataKey="cost" radius={[5, 5, 0, 0]}
                   onMouseEnter={(_: unknown, index: number) => setActiveBarIdx(index)}

@@ -1,8 +1,8 @@
 'use client';
 // StaffingPlan — Clean reference design
 // KPI tiles · Role cards with allocation bar · Team Summary table · Staffing Assumptions
-import React, { useState, useMemo } from 'react';
-import { Users, TrendingUp, DollarSign, Clock, Search, Plus, Trash2, ChevronDown, ChevronUp } from 'lucide-react';
+import React, { useState, useMemo, useEffect, useRef } from 'react';
+import { Users, TrendingUp, DollarSign, Flame, Search, Plus, Trash2, ChevronDown, ChevronUp } from 'lucide-react';
 import { useRFPStore } from '@/lib/store';
 import { v4 as uuid } from 'uuid';
 import type { IBMBand, StaffingRole, DeployCategory } from '@/types';
@@ -179,21 +179,97 @@ const ASSUMPTIONS = [
 ];
 
 // ════════════════════════════════════════════════════════════════
-// KPI Tile
+// Animated KPI Card
 // ════════════════════════════════════════════════════════════════
-interface KpiTileProps {
-  label: string; value: string; icon: React.ReactNode;
-  iconBg: string; iconColor: string; valueBg: string; valueColor: string;
+interface AnimatedKpiCardProps {
+  label: string;
+  targetValue: number;
+  /** 'count' | 'currency' — currency shows $K or $M */
+  format: 'count' | 'currency';
+  icon: React.ReactNode;
+  accentColor: string;
+  duration?: number;
 }
-function KpiTile({ label, value, icon, iconBg, iconColor, valueBg, valueColor }: KpiTileProps) {
+function AnimatedKpiCard({ label, targetValue, format, icon, accentColor, duration = 1600 }: AnimatedKpiCardProps) {
+  const [displayed, setDisplayed] = useState(0);
+  const [hovered, setHovered] = useState(false);
+  const rafRef = useRef<number | null>(null);
+  const startRef = useRef<number | null>(null);
+
+  useEffect(() => {
+    startRef.current = null;
+    setDisplayed(0);
+
+    function tick(ts: number) {
+      if (startRef.current === null) startRef.current = ts;
+      const elapsed = ts - startRef.current;
+      const t = Math.min(elapsed / duration, 1);
+      const progress = 1 - Math.pow(1 - t, 3); // ease-out cubic
+      setDisplayed(Math.round(progress * targetValue));
+      if (t < 1) {
+        rafRef.current = requestAnimationFrame(tick);
+      }
+    }
+    rafRef.current = requestAnimationFrame(tick);
+    return () => {
+      if (rafRef.current !== null) cancelAnimationFrame(rafRef.current);
+    };
+  // Re-animates whenever targetValue changes (e.g. re-mount / data update)
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [targetValue]);
+
+  function fmt(n: number): string {
+    if (format === 'currency') {
+      if (n >= 1_000_000) return `$${(n / 1_000_000).toFixed(2)}M`;
+      if (n >= 1_000)     return `$${(n / 1_000).toFixed(1)}K`;
+      return `$${n}`;
+    }
+    return String(n);
+  }
+
   return (
-    <div className="rounded-2xl p-5 flex items-center justify-between" style={{ background: valueBg, border: '1px solid #E2E8F0' }}>
-      <div>
-        <div className="text-xs font-semibold uppercase tracking-wider text-slate-500 mb-2">{label}</div>
-        <div className="text-3xl font-bold" style={{ color: valueColor }}>{value}</div>
-      </div>
-      <div className="w-10 h-10 rounded-xl flex items-center justify-center shrink-0" style={{ background: iconBg }}>
-        <span style={{ color: iconColor }}>{icon}</span>
+    <div
+      onMouseEnter={() => setHovered(true)}
+      onMouseLeave={() => setHovered(false)}
+      style={{
+        position: 'relative',
+        borderRadius: 12,
+        padding: 24,
+        background: '#FFFFFF',
+        border: '1px solid #E2E8F0',
+        borderLeft: `4px solid ${accentColor}`,
+        boxShadow: hovered
+          ? `0 8px 24px rgba(0,0,0,0.14)`
+          : '0 4px 16px rgba(0,0,0,0.10)',
+        transform: hovered ? 'translateY(-4px)' : 'translateY(0)',
+        transition: 'box-shadow 0.25s ease, transform 0.25s ease',
+        overflow: 'hidden',
+      }}
+    >
+      {/* Radial gradient accent layer */}
+      <div style={{
+        position: 'absolute', inset: 0, pointerEvents: 'none',
+        background: `radial-gradient(circle at top right, ${accentColor}14, transparent 70%)`,
+      }} />
+
+      <div style={{ position: 'relative', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+        <div>
+          <div style={{
+            fontSize: 11, fontWeight: 600, textTransform: 'uppercase',
+            letterSpacing: '0.07em', color: '#64748B', marginBottom: 8,
+          }}>{label}</div>
+          <div style={{ fontSize: 28, fontWeight: 700, color: accentColor, lineHeight: 1 }}>
+            {fmt(displayed)}
+          </div>
+        </div>
+        <div style={{
+          width: 44, height: 44, borderRadius: 12, flexShrink: 0,
+          background: `${accentColor}18`,
+          display: 'flex', alignItems: 'center', justifyContent: 'center',
+          color: accentColor,
+        }}>
+          {icon}
+        </div>
       </div>
     </div>
   );
@@ -387,31 +463,35 @@ export default function StaffingPlanModule() {
         </div>
       </div>
 
-      {/* ══ 4 KPI Tiles ═════════════════════════════════════════ */}
-      <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
-        <KpiTile
-          label="Total Roles" value={String(roles.length)}
-          icon={<Users size={18} />}
-          iconBg="rgba(99,102,241,0.12)" iconColor="#6366F1"
-          valueBg="rgba(99,102,241,0.05)" valueColor="#6366F1"
+      {/* ══ 4 Animated KPI Cards ════════════════════════════════ */}
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+        <AnimatedKpiCard
+          label="Total Roles"
+          targetValue={roles.length}
+          format="count"
+          icon={<Users size={20} />}
+          accentColor="#3B82F6"
         />
-        <KpiTile
-          label="Peak Headcount" value={String(peakHC)}
-          icon={<TrendingUp size={18} />}
-          iconBg="rgba(99,102,241,0.12)" iconColor="#6366F1"
-          valueBg="rgba(99,102,241,0.05)" valueColor="#6366F1"
+        <AnimatedKpiCard
+          label="Peak Headcount"
+          targetValue={peakHC}
+          format="count"
+          icon={<TrendingUp size={20} />}
+          accentColor="#10B981"
         />
-        <KpiTile
-          label="Total Labor Cost" value={fmtCost(totalLaborCost)}
-          icon={<DollarSign size={18} />}
-          iconBg="rgba(16,185,129,0.12)" iconColor="#10B981"
-          valueBg="rgba(16,185,129,0.05)" valueColor="#059669"
+        <AnimatedKpiCard
+          label="Total Labor Cost"
+          targetValue={totalLaborCost}
+          format="currency"
+          icon={<DollarSign size={20} />}
+          accentColor="#8B5CF6"
         />
-        <KpiTile
-          label="Avg Monthly Burn" value={fmtCost(avgMonthlyBurn)}
-          icon={<Clock size={18} />}
-          iconBg="rgba(245,158,11,0.12)" iconColor="#F59E0B"
-          valueBg="rgba(245,158,11,0.05)" valueColor="#D97706"
+        <AnimatedKpiCard
+          label="Avg Monthly Burn"
+          targetValue={avgMonthlyBurn}
+          format="currency"
+          icon={<Flame size={20} />}
+          accentColor="#F59E0B"
         />
       </div>
 

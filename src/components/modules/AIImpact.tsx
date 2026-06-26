@@ -27,6 +27,55 @@ const tooltipStyle = {
   fontFamily: 'var(--font-mono)',
 };
 
+// ── CustomTooltip — WCAG-AA, #F8F9FA bg, dynamic border/title colour ──
+function CustomTooltip({ active, payload, label }: {
+  active?: boolean;
+  payload?: Array<{ color?: string; name: string; value: number }>;
+  label?: string;
+}) {
+  if (!active || !payload?.length) return null;
+  const color = payload[0].color ?? '#0f62fe';
+  return (
+    <div style={{
+      backgroundColor: '#F8F9FA',
+      border: `2px solid ${color}`,
+      borderRadius: 8,
+      padding: '10px 14px',
+      boxShadow: '0 4px 12px rgba(0,0,0,0.15)',
+      minWidth: 140,
+    }}>
+      <div style={{ color, fontWeight: 600, fontSize: 13, marginBottom: 4 }}>{label}</div>
+      {payload.map(entry => (
+        <div key={entry.name} style={{ color: '#1F2937', fontSize: 13 }}>
+          {entry.name}: {typeof entry.value === 'number' ? entry.value.toLocaleString() : entry.value}
+        </div>
+      ))}
+    </div>
+  );
+}
+
+// ── PieCustomTooltip for task-type donut ──────────────────────
+function PieCustomTooltip({ active, payload }: {
+  active?: boolean;
+  payload?: Array<{ color?: string; name: string; value: number }>;
+}) {
+  if (!active || !payload?.length) return null;
+  const color = payload[0].color ?? '#0f62fe';
+  return (
+    <div style={{
+      backgroundColor: '#F8F9FA',
+      border: `2px solid ${color}`,
+      borderRadius: 8,
+      padding: '10px 14px',
+      boxShadow: '0 4px 12px rgba(0,0,0,0.15)',
+      minWidth: 140,
+    }}>
+      <div style={{ color, fontWeight: 600, fontSize: 13, marginBottom: 4 }}>{payload[0].name}</div>
+      <div style={{ color: '#1F2937', fontSize: 13 }}>{payload[0].value}h</div>
+    </div>
+  );
+}
+
 // ── Interfaces ────────────────────────────────────────────────
 interface ActivityPoint  { hour: string; [agent: string]: number | string }
 interface TaskTypeSlice  { name: string; value: number }
@@ -170,7 +219,7 @@ function AgenticView({ ai }: { ai: AIImpact }) {
             <CartesianGrid strokeDasharray="3 3" stroke="#f0f0f0" />
             <XAxis dataKey="name" tick={{ fontSize: 11 }} />
             <YAxis tick={{ fontSize: 11 }} />
-            <Tooltip />
+            <Tooltip content={<CustomTooltip />} />
             <Legend />
             <Bar dataKey="Traditional" fill="#da1e28" radius={[4, 4, 0, 0]} />
             <Bar dataKey="AI-Assisted" fill={ACCENT} radius={[4, 4, 0, 0]} />
@@ -448,7 +497,7 @@ export default function AgenticImpactModule() {
               <XAxis dataKey="hour" tick={{ fontSize: 9, fill: '#94A3B8' }} axisLine={false} tickLine={false}
                 interval={3} />
               <YAxis tick={{ fontSize: 11, fill: '#94A3B8' }} axisLine={false} tickLine={false} />
-              <Tooltip contentStyle={tooltipStyle} labelStyle={{ color: '#f4f4f4' }} />
+              <Tooltip content={<CustomTooltip />} />
               <Legend wrapperStyle={{ fontSize: 11 }} />
               {agentNames.map((name, i) => (
                 <Area key={name} type="monotone" dataKey={name}
@@ -473,7 +522,7 @@ export default function AgenticImpactModule() {
                   <Cell key={i} fill={TASK_COLORS[i % TASK_COLORS.length]} />
                 ))}
               </Pie>
-              <Tooltip contentStyle={tooltipStyle} labelStyle={{ color: '#f4f4f4' }} />
+              <Tooltip content={<PieCustomTooltip />} />
             </PieChart>
           </ResponsiveContainer>
           <div className="space-y-1 mt-1">
@@ -499,7 +548,7 @@ export default function AgenticImpactModule() {
               <CartesianGrid strokeDasharray="3 3" stroke="#E2E8F0" vertical={false} />
               <XAxis dataKey="bucket" tick={{ fontSize: 11, fill: '#94A3B8' }} axisLine={false} tickLine={false} />
               <YAxis tick={{ fontSize: 11, fill: '#94A3B8' }} axisLine={false} tickLine={false} />
-              <Tooltip contentStyle={tooltipStyle} labelStyle={{ color: '#f4f4f4' }} />
+              <Tooltip content={<CustomTooltip />} />
               <Bar dataKey="count" radius={[6, 6, 0, 0]}>
                 {respBuckets.map((_, i) => (
                   <Cell key={i} fill={AGENT_COLORS[i % AGENT_COLORS.length]} />

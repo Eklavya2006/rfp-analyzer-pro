@@ -111,6 +111,67 @@ const TT_STYLE = {
   boxShadow: '0 4px 16px rgba(0,0,0,0.12)',
 };
 
+// ── CustomTooltip — WCAG-AA, dynamic border/title colour ──────
+function CustomTooltip({ active, payload, label }: {
+  active?: boolean;
+  payload?: Array<{ color?: string; name: string; value: number; payload?: Record<string, unknown> }>;
+  label?: string;
+}) {
+  if (!active || !payload?.length) return null;
+  const color = payload[0].color ?? '#6366F1';
+  return (
+    <div style={{
+      backgroundColor: '#F8F9FA',
+      border: `2px solid ${color}`,
+      borderRadius: 8,
+      padding: '10px 14px',
+      boxShadow: '0 4px 12px rgba(0,0,0,0.15)',
+      minWidth: 140,
+    }}>
+      <div style={{ color, fontWeight: 600, fontSize: 13, marginBottom: 4 }}>{label}</div>
+      {payload.map(entry => {
+        // For the horizontal bar chart, show the full role name and full dollar amount
+        const p = entry.payload as { costK?: number; fullName?: string } | undefined;
+        const displayName  = p?.fullName ?? entry.name;
+        const displayValue = p?.costK != null
+          ? fmtFull(p.costK * 1000)
+          : (entry.value >= 1000
+              ? `$${(entry.value / 1000).toFixed(1)}K`
+              : fmtFull(entry.value));
+        return (
+          <div key={entry.name} style={{ color: '#1F2937', fontSize: 13 }}>
+            {displayName}: {displayValue}
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
+// ── CustomTooltip for PieChart (no label, uses name from payload) ─
+function PieCustomTooltip({ active, payload }: {
+  active?: boolean;
+  payload?: Array<{ color?: string; name: string; value: number }>;
+}) {
+  if (!active || !payload?.length) return null;
+  const color = payload[0].color ?? '#6366F1';
+  return (
+    <div style={{
+      backgroundColor: '#F8F9FA',
+      border: `2px solid ${color}`,
+      borderRadius: 8,
+      padding: '10px 14px',
+      boxShadow: '0 4px 12px rgba(0,0,0,0.15)',
+      minWidth: 140,
+    }}>
+      <div style={{ color, fontWeight: 600, fontSize: 13, marginBottom: 4 }}>{payload[0].name}</div>
+      <div style={{ color: '#1F2937', fontSize: 13 }}>
+        {fmtFull(payload[0].value)}
+      </div>
+    </div>
+  );
+}
+
 // ── Slider row ────────────────────────────────────────────────
 function SliderRow({
   label, value, min, max, step, display, onChange,
@@ -429,9 +490,8 @@ export default function EstimationModule() {
                 width={80}
               />
               <Tooltip
-                contentStyle={TT_STYLE}
+                content={<CustomTooltip />}
                 cursor={{ fill: 'rgba(99,102,241,0.05)' }}
-                formatter={(v: number, _name, props) => [fmtFull(props.payload.costK * 1000), props.payload.fullName]}
               />
               <Bar dataKey="costK" radius={[0, 4, 4, 0]} label={<BarLabel />}>
                 {barData.map((_, i) => (
@@ -460,10 +520,7 @@ export default function EstimationModule() {
                     <Cell key={entry.name} fill={CAT_COLORS[entry.name] ?? INDIGO} />
                   ))}
                 </Pie>
-                <Tooltip
-                  contentStyle={TT_STYLE}
-                  formatter={(v: number, name) => [fmtFull(v), name]}
-                />
+                <Tooltip content={<PieCustomTooltip />} />
               </PieChart>
             </ResponsiveContainer>
             <div className="flex-1">
