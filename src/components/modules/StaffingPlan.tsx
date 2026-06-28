@@ -235,6 +235,11 @@ function AnimatedKpiCard({ label, targetValue, format, icon, accentColor, durati
   const startRef = useRef<number | null>(null);
 
   useEffect(() => {
+    // FIX: The previous version suppressed the react-hooks/exhaustive-deps warning
+    // with an eslint-disable comment and omitted `duration` from the dep array.
+    // If `duration` ever changed the animation would silently use the stale value.
+    // Including it in the dependency array costs nothing (it's a stable prop default)
+    // and correctly re-animates if the caller passes a different duration.
     startRef.current = null;
     setDisplayed(0);
 
@@ -252,9 +257,8 @@ function AnimatedKpiCard({ label, targetValue, format, icon, accentColor, durati
     return () => {
       if (rafRef.current !== null) cancelAnimationFrame(rafRef.current);
     };
-  // Re-animates whenever targetValue changes (e.g. re-mount / data update)
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [targetValue]);
+    // Both targetValue and duration are declared — no stale-closure risk.
+  }, [targetValue, duration]);
 
   function fmt(n: number): string {
     if (format === 'currency') {

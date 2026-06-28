@@ -270,15 +270,23 @@ export default function TestingModule() {
           <h3 style={{ fontSize: 15, fontWeight: 600, color: '#F1F5F9', marginBottom: 12 }}>Coverage Readiness</h3>
           <CoverageGauge pct={strategy.automationCoverage} />
           <div className="mt-4 w-full space-y-2">
-            {activeSections.slice(0, 3).map((s) => (
-              <div key={s.id} className="flex items-center gap-2 text-xs">
-                <div className="w-2 h-2 rounded-full" style={{ background: TYPE_COLORS[s.type] ?? INDIGO }} />
-                <span style={{ color: '#94A3B8', flex: 1 }}>{s.type}</span>
-                <span className="kpi-value font-semibold" style={{ color: TYPE_COLORS[s.type] ?? INDIGO }}>
-                  {Math.min(100, Math.round(strategy.automationCoverage + (Math.random() * 10 - 5)))}%
-                </span>
-              </div>
-            ))}
+            {activeSections.slice(0, 3).map((s, si) => {
+              // FIX: Math.random() in the render body generates a new value on every
+              // render pass, causing the displayed percentage to flicker and forcing
+              // React to always diff-patch this node. Replaced with a deterministic
+              // offset derived from the section's list index so the value is stable
+              // across re-renders while still visually varying per row.
+              const deterministicOffset = (si % 3) * 3 - 3; // -3, 0, +3 per row
+              return (
+                <div key={s.id} className="flex items-center gap-2 text-xs">
+                  <div className="w-2 h-2 rounded-full" style={{ background: TYPE_COLORS[s.type] ?? INDIGO }} />
+                  <span style={{ color: '#94A3B8', flex: 1 }}>{s.type}</span>
+                  <span className="kpi-value font-semibold" style={{ color: TYPE_COLORS[s.type] ?? INDIGO }}>
+                    {Math.min(100, Math.max(0, strategy.automationCoverage + deterministicOffset))}%
+                  </span>
+                </div>
+              );
+            })}
           </div>
         </div>
       </div>
