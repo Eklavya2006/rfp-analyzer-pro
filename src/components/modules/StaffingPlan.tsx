@@ -1,14 +1,52 @@
 'use client';
-// StaffingPlan — Clean reference design
-// KPI tiles · Role cards with allocation bar · Team Summary table · Staffing Assumptions
-import React, { useState, useMemo, useEffect, useRef } from 'react';
-import { Users, TrendingUp, DollarSign, Flame, Search, Plus, Trash2, ChevronDown, ChevronUp } from 'lucide-react';
+// StaffingPlan — Interactive KPI Dashboard + role cards + team summary
+import React, { useState, useMemo, useEffect, useRef, useCallback } from 'react';
+import {
+  Users, TrendingUp, DollarSign, Flame, Search, Plus, Trash2,
+  ChevronDown, ChevronUp, ArrowUpRight, ArrowDownRight, Minus,
+  BarChart2, Activity,
+} from 'lucide-react';
+import {
+  BarChart, Bar, AreaChart, Area,
+  XAxis, YAxis, CartesianGrid, Tooltip,
+  ResponsiveContainer, Cell, Legend,
+} from 'recharts';
 import { useRFPStore } from '@/lib/store';
 import { v4 as uuid } from 'uuid';
 import type { IBMBand, StaffingRole, DeployCategory } from '@/types';
 
 // ── Palette ────────────────────────────────────────────────────
 const INDIGO = '#6366F1';
+
+// ── Chart colour palette ──────────────────────────────────────
+const CHART_COLORS = ['#6366F1','#10B981','#8B5CF6','#F59E0B','#06B6D4','#F43F5E','#3B82F6','#EC4899','#14B8A6','#A78BFA'];
+
+// ── CustomTooltip (same pattern as all other pages) ───────────
+function CustomTooltip({ active, payload, label }: {
+  active?: boolean;
+  payload?: Array<{ color?: string; name: string; value: number }>;
+  label?: string;
+}) {
+  if (!active || !payload?.length) return null;
+  const color = payload[0].color ?? '#6366F1';
+  return (
+    <div style={{
+      backgroundColor: '#F8F9FA',
+      border: `2px solid ${color}`,
+      borderRadius: 8,
+      padding: '10px 14px',
+      boxShadow: '0 4px 12px rgba(0,0,0,0.15)',
+      minWidth: 140,
+    }}>
+      <div style={{ color, fontWeight: 600, fontSize: 13, marginBottom: 4 }}>{label}</div>
+      {payload.map(entry => (
+        <div key={entry.name} style={{ color: '#1F2937', fontSize: 13 }}>
+          {entry.name}: {typeof entry.value === 'number' ? entry.value.toLocaleString() : entry.value}
+        </div>
+      ))}
+    </div>
+  );
+}
 
 // ── IBM Band data ──────────────────────────────────────────────
 const IBM_BANDS: IBMBand[] = ['6A','6B','6G','7A','7B','8','9','10','Executive','D'];
@@ -494,6 +532,229 @@ export default function StaffingPlanModule() {
           accentColor="#F59E0B"
         />
       </div>
+
+      {/* ══ Interactive KPI Dashboard ═══════════════════════════ */}
+      {(() => {
+        // ── Derived chart data ────────────────────────────────────
+        // Headcount by role
+        const hcByRole = roles.map(r => ({
+          name: r.roleName.replace('Developer-', 'Dev-').replace('Consultant', 'Cons.'),
+          Headcount: r.numberOfResources ?? 1,
+          Hours: r.totalHours,
+        })).sort((a, b) => b.Headcount - a.Headcount).slice(0, 10);
+
+        // Utilisation rate by role
+        const utilByRole = roles.map(r => {
+          const pct = getAllocPct(r, projectMonths);
+          return {
+            name: r.roleName.replace('Developer-', 'Dev-').replace('Consultant', 'Cons.'),
+            Utilisation: pct,
+            status: pct >= 80 ? 'full' : pct >= 50 ? 'moderate' : 'low',
+          };
+        }).sort((a, b) => b.Utilisation - a.Utilisation).slice(0, 10);
+
+        // Monthly burn curve (linear ramp over projectMonths)
+        const burnCurve = Array.from({ length: Math.min(projectMonths, 18) }, (_, i) => ({
+          month: `M${i + 1}`,
+          Burn: Math.round(avgMonthlyBurn * (i < 2 ? 0.6 + i * 0.2 : i >= projectMonths - 2 ? 0.9 - (i - (projectMonths - 3)) * 0.2 : 1)),
+        }));
+
+        // Seniority mix
+        const senMap: Record<string, number> = {};
+        roles.forEach(r => {
+          const s = getSeniority(r.band);
+          senMap[s] = (senMap[s] ?? 0) + (r.numberOfResources ?? 1);
+        });
+
+        // Trend helpers (compare vs. "baseline" of single-resource roles)
+        const avgUtil = utilByRole.length > 0 ? Math.round(utilByRole.reduce((a, r) => a + r.Utilisation, 0) / utilByRole.length) : 0;
+        const fullUtilCount = utilByRole.filter(r => r.status === 'full').length;
+        const fullUtilPct   = utilByRole.length > 0 ? Math.round((fullUtilCount / utilByRole.length) * 100) : 0;
+
+        type Trend = 'up' | 'down' | 'neutral';
+        function TrendBadge({ value, suffix = '%', trend }: { value: number; suffix?: string; trend: Trend }) {
+          const up = trend === 'up';
+          const neutral = trend === 'neutral';
+          const color = neutral ? '#64748B' : up ? '#10B981' : '#F43F5E';
+          const bg    = neutral ? '#F1F5F9' : up ? '#D1FAE5' : '#FEE2E2';
+          const Icon  = neutral ? Minus : up ? ArrowUpRight : ArrowDownRight;
+          return (
+            <span style={{
+              display: 'inline-flex', alignItems: 'center', gap: 3,
+              background: bg, color, borderRadius: 999,
+              padding: '2px 8px', fontSize: 11, fontWeight: 600,
+            }}>
+              <Icon size={11} />
+              {value}{suffix}
+            </span>
+          );
+        }
+
+        function KpiMini({ label, value, suffix = '', trend, trendVal, color }:
+          { label: string; value: string; suffix?: string; trend: Trend; trendVal: number; color: string }) {
+          return (
+            <div style={{
+              background: '#FFFFFF', border: `1px solid #E2E8F0`,
+              borderTop: `3px solid ${color}`,
+              borderRadius: 12, padding: '16px 20px',
+            }}>
+              <div style={{ fontSize: 11, fontWeight: 600, color: '#64748B', textTransform: 'uppercase', letterSpacing: '0.07em', marginBottom: 8 }}>
+                {label}
+              </div>
+              <div style={{ fontSize: 24, fontWeight: 800, color: '#0F172A', marginBottom: 8 }}>
+                {value}{suffix}
+              </div>
+              <TrendBadge value={trendVal} trend={trend} />
+            </div>
+          );
+        }
+
+        const utilColor = (u: number) => u >= 80 ? '#10B981' : u >= 50 ? '#F59E0B' : '#F43F5E';
+
+        return (
+          <div className="space-y-4">
+            <div className="flex items-center gap-2 mb-1">
+              <Activity size={16} className="text-indigo-500" />
+              <span className="text-xs font-bold uppercase tracking-wider text-slate-400">Interactive KPI Dashboard</span>
+            </div>
+
+            {/* ── 4 trend KPIs ── */}
+            <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
+              <KpiMini
+                label="Total Headcount"
+                value={String(roles.reduce((a, r) => a + (r.numberOfResources ?? 1), 0))}
+                trend="up" trendVal={roles.length} color="#3B82F6"
+              />
+              <KpiMini
+                label="Avg. Utilisation"
+                value={String(avgUtil)} suffix="%"
+                trend={avgUtil >= 70 ? 'up' : avgUtil >= 50 ? 'neutral' : 'down'}
+                trendVal={avgUtil} color="#10B981"
+              />
+              <KpiMini
+                label="Fully Allocated"
+                value={String(fullUtilCount)} suffix={` / ${utilByRole.length}`}
+                trend={fullUtilPct >= 60 ? 'up' : 'neutral'}
+                trendVal={fullUtilPct} color="#8B5CF6"
+              />
+              <KpiMini
+                label="Avg Rate / hr"
+                value={roles.length > 0 ? `$${Math.round(roles.reduce((a, r) => a + r.hourlyRate, 0) / roles.length)}` : '$0'}
+                trend="neutral" trendVal={roles.length} color="#F59E0B"
+              />
+            </div>
+
+            {/* ── Charts row ── */}
+            <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+
+              {/* Headcount by Role bar chart */}
+              <div style={{ background: '#FFFFFF', border: '1px solid #E2E8F0', borderRadius: 16, padding: '20px 20px 12px' }}>
+                <div className="flex items-center gap-2 mb-4">
+                  <BarChart2 size={14} className="text-indigo-400" />
+                  <span style={{ fontSize: 13, fontWeight: 600, color: '#0F172A' }}>Headcount by Role</span>
+                </div>
+                <ResponsiveContainer width="100%" height={220}>
+                  <BarChart data={hcByRole} barSize={18} layout="vertical" margin={{ left: 8, right: 32, top: 0, bottom: 0 }}>
+                    <CartesianGrid strokeDasharray="3 3" stroke="#F1F5F9" horizontal={false} />
+                    <XAxis type="number" tick={{ fontSize: 10, fill: '#94A3B8' }} axisLine={false} tickLine={false} allowDecimals={false} />
+                    <YAxis type="category" dataKey="name" tick={{ fontSize: 10, fill: '#64748B' }} axisLine={false} tickLine={false} width={90} />
+                    <Tooltip content={<CustomTooltip />} cursor={{ fill: 'rgba(99,102,241,0.05)' }} />
+                    <Bar dataKey="Headcount" radius={[0, 4, 4, 0]}>
+                      {hcByRole.map((_, i) => (
+                        <Cell key={i} fill={CHART_COLORS[i % CHART_COLORS.length]} />
+                      ))}
+                    </Bar>
+                  </BarChart>
+                </ResponsiveContainer>
+              </div>
+
+              {/* Utilisation rate bar chart */}
+              <div style={{ background: '#FFFFFF', border: '1px solid #E2E8F0', borderRadius: 16, padding: '20px 20px 12px' }}>
+                <div className="flex items-center gap-2 mb-4">
+                  <Activity size={14} className="text-emerald-400" />
+                  <span style={{ fontSize: 13, fontWeight: 600, color: '#0F172A' }}>Utilisation Rate by Role</span>
+                  <span style={{ marginLeft: 'auto', fontSize: 11, color: '#64748B' }}>
+                    <span style={{ color: '#10B981', fontWeight: 600 }}>■</span> ≥80%&nbsp;
+                    <span style={{ color: '#F59E0B', fontWeight: 600 }}>■</span> 50–79%&nbsp;
+                    <span style={{ color: '#F43F5E', fontWeight: 600 }}>■</span> &lt;50%
+                  </span>
+                </div>
+                <ResponsiveContainer width="100%" height={220}>
+                  <BarChart data={utilByRole} barSize={18} layout="vertical" margin={{ left: 8, right: 32, top: 0, bottom: 0 }}>
+                    <CartesianGrid strokeDasharray="3 3" stroke="#F1F5F9" horizontal={false} />
+                    <XAxis type="number" domain={[0, 100]} tick={{ fontSize: 10, fill: '#94A3B8' }} axisLine={false} tickLine={false}
+                      tickFormatter={v => `${v}%`} />
+                    <YAxis type="category" dataKey="name" tick={{ fontSize: 10, fill: '#64748B' }} axisLine={false} tickLine={false} width={90} />
+                    <Tooltip content={<CustomTooltip />} cursor={{ fill: 'rgba(16,185,129,0.05)' }} />
+                    <Bar dataKey="Utilisation" radius={[0, 4, 4, 0]}>
+                      {utilByRole.map((r, i) => (
+                        <Cell key={i} fill={utilColor(r.Utilisation)} />
+                      ))}
+                    </Bar>
+                  </BarChart>
+                </ResponsiveContainer>
+              </div>
+            </div>
+
+            {/* Monthly Burn area chart */}
+            {burnCurve.length > 1 && (
+              <div style={{ background: '#FFFFFF', border: '1px solid #E2E8F0', borderRadius: 16, padding: '20px 20px 12px' }}>
+                <div className="flex items-center gap-2 mb-4">
+                  <Flame size={14} className="text-amber-400" />
+                  <span style={{ fontSize: 13, fontWeight: 600, color: '#0F172A' }}>Monthly Burn Curve</span>
+                  <span style={{ marginLeft: 'auto', fontSize: 11, color: '#64748B' }}>Projected over {projectMonths} months</span>
+                </div>
+                <ResponsiveContainer width="100%" height={180}>
+                  <AreaChart data={burnCurve} margin={{ left: -10, right: 10 }}>
+                    <defs>
+                      <linearGradient id="burnGrad" x1="0" y1="0" x2="0" y2="1">
+                        <stop offset="5%"  stopColor="#F59E0B" stopOpacity={0.22} />
+                        <stop offset="95%" stopColor="#F59E0B" stopOpacity={0}    />
+                      </linearGradient>
+                    </defs>
+                    <CartesianGrid strokeDasharray="3 3" stroke="#F1F5F9" vertical={false} />
+                    <XAxis dataKey="month" tick={{ fontSize: 10, fill: '#94A3B8' }} axisLine={false} tickLine={false} />
+                    <YAxis tick={{ fontSize: 10, fill: '#94A3B8' }} axisLine={false} tickLine={false}
+                      tickFormatter={v => v >= 1000 ? `$${Math.round(v / 1000)}K` : `$${v}`} />
+                    <Tooltip content={<CustomTooltip />} />
+                    <Area type="monotone" dataKey="Burn" stroke="#F59E0B" strokeWidth={2.5}
+                      fill="url(#burnGrad)" dot={false} activeDot={{ r: 5, fill: '#F59E0B' }} />
+                  </AreaChart>
+                </ResponsiveContainer>
+              </div>
+            )}
+
+            {/* Seniority mix row */}
+            {Object.keys(senMap).length > 0 && (
+              <div style={{ background: '#FFFFFF', border: '1px solid #E2E8F0', borderRadius: 16, padding: '16px 20px' }}>
+                <div className="flex items-center gap-2 mb-3">
+                  <Users size={14} className="text-indigo-400" />
+                  <span style={{ fontSize: 13, fontWeight: 600, color: '#0F172A' }}>Seniority Mix</span>
+                </div>
+                <div className="flex flex-wrap gap-3">
+                  {(['lead','senior','mid','junior'] as const).map(s => {
+                    const count = senMap[s] ?? 0;
+                    if (!count) return null;
+                    const total = Object.values(senMap).reduce((a, v) => a + v, 0);
+                    const pct   = Math.round((count / total) * 100);
+                    const style = SENIORITY_STYLE[s];
+                    return (
+                      <div key={s} style={{
+                        background: style.bg, border: `1px solid ${style.border}`,
+                        borderRadius: 10, padding: '10px 16px', minWidth: 110, textAlign: 'center',
+                      }}>
+                        <div style={{ fontSize: 22, fontWeight: 800, color: style.text }}>{count}</div>
+                        <div style={{ fontSize: 11, fontWeight: 600, color: style.text, textTransform: 'capitalize', marginTop: 2 }}>{s}</div>
+                        <div style={{ fontSize: 10, color: '#94A3B8', marginTop: 2 }}>{pct}% of team</div>
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+            )}
+          </div>
+        );
+      })()}
 
       {/* ══ Add Role Form ════════════════════════════════════════ */}
       {showAdd && (

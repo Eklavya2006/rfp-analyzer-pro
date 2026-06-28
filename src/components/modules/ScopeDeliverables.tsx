@@ -1,5 +1,5 @@
 'use client';
-// Scope — Light theme · T&C + Penalties hyperlinks · indigo/cyan accents
+// Scope — Light theme · T&C + Penalties hyperlinks moved to Description column · indigo/cyan accents
 import React, { useState } from 'react';
 import { Plus, Trash2, Search, FileText, ExternalLink, AlertTriangle, Shield } from 'lucide-react';
 import { useRFPStore } from '@/lib/store';
@@ -83,8 +83,8 @@ function TCLink({ text, page, section }: { text: string; page: string; section: 
     <button
       type="button"
       onClick={() => navigateToSection(setActiveTab, text.slice(0, 40), page || section)}
-      className="inline-flex items-center gap-1.5 text-xs font-medium px-2 py-0.5 rounded-lg border transition-all hover:opacity-80 cursor-pointer text-left"
-      style={{ background: '#FEE2E2', color: '#991B1B', border: '1px solid #FECACA' }}
+      className="inline-flex items-center gap-1.5 text-xs font-medium px-2 py-0.5 rounded-lg border transition-all hover:opacity-80 cursor-pointer text-left mt-1"
+      style={{ background: '#FEF3C7', color: '#92400E', border: '1px solid #F59E0B' }}
       title={`View T&C in document: ${text}`}
     >
       <Shield size={10} />
@@ -103,8 +103,8 @@ function PenaltyLink({ text, page, section }: { text: string; page: string; sect
     <button
       type="button"
       onClick={() => navigateToSection(setActiveTab, text.slice(0, 40), page || section)}
-      className="inline-flex items-center gap-1.5 text-xs font-medium px-2 py-0.5 rounded-lg border transition-all hover:opacity-80 cursor-pointer text-left"
-      style={{ background: '#FEF3C7', color: '#92400E', border: '1px solid #FDE68A' }}
+      className="inline-flex items-center gap-1.5 text-xs font-medium px-2 py-0.5 rounded-lg border transition-all hover:opacity-80 cursor-pointer text-left mt-1"
+      style={{ background: '#D1FAE5', color: '#065F46', border: '1px solid #10B981' }}
       title={`View penalty clause in document: ${text}`}
     >
       <AlertTriangle size={10} />
@@ -223,20 +223,10 @@ export default function ScopeDeliverables() {
           <table className="w-full border-collapse" style={{ overflow: 'visible' }}>
             <thead>
               <tr className="bg-slate-50 border-b border-slate-200">
-                <th className="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wider text-slate-500" style={{ minWidth: 240 }}>Description</th>
+                <th className="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wider text-slate-500" style={{ minWidth: 280 }}>Description</th>
                 <th className="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wider text-slate-500" style={{ minWidth: 160 }}>Reference ↗</th>
                 <th className="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wider text-slate-500" style={{ minWidth: 110 }}>Page ↗</th>
                 <th className="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wider text-slate-500" style={{ minWidth: 130 }}>Category</th>
-                {/* T&C column with red header accent */}
-                <th className="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wider"
-                  style={{ minWidth: 200, color: '#991B1B', background: '#FEF2F2' }}>
-                  <span className="inline-flex items-center gap-1"><Shield size={11} /> Terms &amp; Conditions ↗</span>
-                </th>
-                {/* Penalties column with amber header accent */}
-                <th className="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wider"
-                  style={{ minWidth: 200, color: '#92400E', background: '#FFFBEB' }}>
-                  <span className="inline-flex items-center gap-1"><AlertTriangle size={11} /> Penalties / SLA ↗</span>
-                </th>
                 <th className="px-4 py-3 text-center text-xs font-semibold uppercase tracking-wider text-slate-500" style={{ minWidth: 60 }}>Actions</th>
               </tr>
             </thead>
@@ -250,14 +240,30 @@ export default function ScopeDeliverables() {
                       className="border-b border-slate-100 hover:bg-slate-50 transition-colors"
                       style={{ overflow: 'visible', background: rowIdx % 2 === 0 ? '#FFFFFF' : '#F8FAFC' }}
                     >
-                      {/* ── Description ── */}
+                      {/* ── Description (+ inlined T&C and Penalty chips) ── */}
                       <td className="px-4 py-3" style={{ color: '#1E293B' }}>
                         <input
                           value={item.description}
                           onChange={(e) => updateScope(item.id, 'description', e.target.value)}
-                          className="w-full text-sm outline-none bg-transparent"
+                          className="w-full text-sm outline-none bg-transparent mb-1.5"
                           style={{ color: '#1E293B', borderBottom: '1px dashed rgba(100,116,139,0.3)' }}
                         />
+                        {/* T&C chip — amber highlight, preserved hyperlink */}
+                        {item.termsAndConditions?.trim() ? (
+                          <TCLink text={item.termsAndConditions} page={item.pageNumber} section={item.referenceSection} />
+                        ) : null}
+                        {/* Penalty chip — green highlight, preserved hyperlink */}
+                        {item.penalties?.trim() ? (
+                          <PenaltyLink text={item.penalties} page={item.pageNumber} section={item.referenceSection} />
+                        ) : null}
+                        {/* Inline editor toggle */}
+                        <button
+                          type="button"
+                          onClick={() => setExpandedId(isExpanded ? null : item.id)}
+                          className="text-[10px] text-slate-400 hover:text-indigo-500 underline underline-offset-1 block mt-1"
+                        >
+                          {isExpanded ? '▲ Hide editor' : '▼ Edit T&C / Penalties'}
+                        </button>
                       </td>
 
                       {/* ── Reference Section ── */}
@@ -302,36 +308,6 @@ export default function ScopeDeliverables() {
                         </select>
                       </td>
 
-                      {/* ── Terms & Conditions ── */}
-                      <td className="px-4 py-3" style={{ background: rowIdx % 2 === 0 ? '#FFF9F9' : '#FFF5F5' }}>
-                        <div className="space-y-1">
-                          {item.termsAndConditions?.trim() ? (
-                            <TCLink text={item.termsAndConditions} page={item.pageNumber} section={item.referenceSection} />
-                          ) : (
-                            <span className="text-[10px] text-slate-300 italic">None specified</span>
-                          )}
-                          {/* Inline editable textarea toggle */}
-                          <button
-                            type="button"
-                            onClick={() => setExpandedId(isExpanded ? null : item.id)}
-                            className="text-[10px] text-rose-400 hover:text-rose-600 underline underline-offset-1 block"
-                          >
-                            {isExpanded ? '▲ Hide editor' : '▼ Edit T&C / Penalties'}
-                          </button>
-                        </div>
-                      </td>
-
-                      {/* ── Penalties / SLA ── */}
-                      <td className="px-4 py-3" style={{ background: rowIdx % 2 === 0 ? '#FFFDF5' : '#FFFBEB' }}>
-                        <div className="space-y-1">
-                          {item.penalties?.trim() ? (
-                            <PenaltyLink text={item.penalties} page={item.pageNumber} section={item.referenceSection} />
-                          ) : (
-                            <span className="text-[10px] text-slate-300 italic">None specified</span>
-                          )}
-                        </div>
-                      </td>
-
                       {/* ── Remove ── */}
                       <td className="px-4 py-3 text-center">
                         <button
@@ -346,7 +322,7 @@ export default function ScopeDeliverables() {
                     {/* ── Inline T&C + Penalties editor (expanded row) ── */}
                     {isExpanded && (
                       <tr style={{ background: '#FFF8F8' }}>
-                        <td colSpan={7} className="px-5 py-3 border-b border-slate-100">
+                        <td colSpan={5} className="px-5 py-3 border-b border-slate-100">
                           <div className="grid grid-cols-2 gap-4">
                             {/* T&C editor */}
                             <div>
