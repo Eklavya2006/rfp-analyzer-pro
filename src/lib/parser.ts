@@ -93,13 +93,20 @@ export async function extractFromFile(
   // ── PDF — parsed server-side via /api/parse-pdf ──────────────
   // pdf-parse uses Node.js fs internally and crashes in the browser.
   // We POST the file to our Next.js API route which runs in Node.js.
+  //
+  // basePath note: Next.js does NOT automatically prefix relative fetch() URLs
+  // in client-side code. We read NEXT_PUBLIC_BASE_PATH (injected at build time
+  // by next.config.ts) so the request goes to the correct mounted path
+  // (e.g. /praddeeplambba-sih-connect/api/parse-pdf on Vercel).
+  // Fallback to '' keeps local `next dev` working with no basePath set.
   if (type === 'application/pdf' || name.endsWith('.pdf')) {
     onProgress?.('parsing', 25);
     try {
       const formData = new FormData();
       formData.append('file', file);
       onProgress?.('extracting', 50);
-      const res = await fetch('/api/parse-pdf', { method: 'POST', body: formData });
+      const basePath = process.env.NEXT_PUBLIC_BASE_PATH ?? '';
+      const res = await fetch(`${basePath}/api/parse-pdf`, { method: 'POST', body: formData });
       if (!res.ok) {
         const errBody = await res.json().catch(() => ({}));
         // Use the structured error fields if available
