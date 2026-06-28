@@ -48,8 +48,8 @@ interface NavItem {
 // ── Nav items — order: Document Analyzer → Scope → Dashboard → … ──
 const NAV_ITEMS: NavItem[] = [
   { id: 'document-analyzer', label: 'Document',              description: 'Upload & analyze RFP' },
-  { id: 'dashboard',         label: 'Dashboard',             description: 'Overview & metrics',         requiresDoc: true },
   { id: 'scope',             label: 'Scope',                 description: 'Scope & requirements',        requiresDoc: true },
+  { id: 'dashboard',         label: 'Dashboard',             description: 'Overview & metrics',         requiresDoc: true },
   { id: 'offerings',         label: 'Offerings',             description: 'IBM offerings & tech',        requiresDoc: true },
   { id: 'project-plan',      label: 'Project Plan',          description: 'Phases & timeline',           requiresDoc: true },
   { id: 'staffing',          label: 'Staffing',              description: 'Team composition',            requiresDoc: true },
