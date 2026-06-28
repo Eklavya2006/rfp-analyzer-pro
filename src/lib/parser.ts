@@ -10,6 +10,13 @@ import type { DocumentSummary, ExtractedSections } from '@/types';
 export interface ExtractionResult {
   text: string;
   pageCount: number;
+  /**
+   * TASK 3: Optional HTML representation of the document that preserves the
+   * original visual structure (headings, tables, lists, bold/italic, etc.).
+   * Populated only for DOCX via mammoth.convertToHtml(). When present,
+   * DocumentAnalyzer renders this as structured HTML rather than monospace text.
+   */
+  html?: string;
 }
 
 // ── Progress callback ─────────────────────────────────────────
@@ -126,6 +133,11 @@ export async function extractFromFile(
   }
 
   // ── DOCX / DOC ───────────────────────────────────────────────
+  // TASK 3: Use mammoth.convertToHtml() to preserve the original document
+  // structure — headings, paragraphs, tables, lists, bold/italic, hyperlinks,
+  // and indentation. extractRawText() is kept only as a text fallback for the
+  // analysis engine (which operates on plain text). The HTML output is stored
+  // separately as `html` in the result so the UI can render it faithfully.
   if (
     type === 'application/vnd.openxmlformats-officedocument.wordprocessingml.document' ||
     type === 'application/msword' ||
@@ -137,11 +149,36 @@ export async function extractFromFile(
       const arrayBuffer = await file.arrayBuffer();
       const mammoth = await import('mammoth');
       onProgress?.('extracting', 55);
-      const result = await mammoth.extractRawText({ arrayBuffer });
-      const text = sanitizeText(result.value?.trim() ?? '');
-      if (text.length > 50) {
+
+      // Convert to HTML — preserves headings, tables, lists, bold, italic, links.
+      // styleMap overrides map Word heading styles to semantic <h1>–<h6>.
+      const htmlResult = await mammoth.convertToHtml({ arrayBuffer }, {
+        styleMap: [
+          "p[style-name='Heading 1'] => h1:fresh",
+          "p[style-name='Heading 2'] => h2:fresh",
+          "p[style-name='Heading 3'] => h3:fresh",
+          "p[style-name='Heading 4'] => h4:fresh",
+          "p[style-name='Heading 5'] => h5:fresh",
+          "p[style-name='Heading 6'] => h6:fresh",
+          "p[style-name='Title'] => h1.doc-title:fresh",
+          "p[style-name='Subtitle'] => p.doc-subtitle:fresh",
+          "r[style-name='Strong'] => strong",
+          "r[style-name='Emphasis'] => em",
+        ],
+      });
+      const html = htmlResult.value?.trim() ?? '';
+
+      // Also extract plain text for the analysis engine (unchanged pipeline).
+      const textResult = await mammoth.extractRawText({ arrayBuffer });
+      const text = sanitizeText(textResult.value?.trim() ?? '');
+
+      if (text.length > 50 || html.length > 50) {
         onProgress?.('done', 100);
-        return { text, pageCount: estimatePageCount(text) };
+        return {
+          text: text.length > 50 ? text : sanitizeText(html.replace(/<[^>]+>/g, ' ')),
+          pageCount: estimatePageCount(text),
+          html: html.length > 50 ? html : undefined,
+        };
       }
     } catch (err) {
       console.warn('[parser] mammoth failed:', err);

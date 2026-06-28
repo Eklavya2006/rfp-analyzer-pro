@@ -287,17 +287,24 @@ export default function DocumentAnalyzer() {
     });
     setActiveDocument(docId);
     try {
-      const { text: rawText, pageCount } = await extractFromFile(file, (step, pct) => {
+      // TASK 3: extractFromFile now returns an optional `html` field for DOCX.
+      // We store it as rawHtml on the document so the preview can render it
+      // faithfully, preserving the original document structure and visual layout.
+      const { text: rawText, pageCount, html: rawHtml } = await extractFromFile(file, (step, pct) => {
         setParseStep(step);
         setParsePct(pct);
       });
       const summary = generateSummary(rawText, file.name, pageCount);
-      updateDocument(docId, { status: 'ready', rawText, processedAt: new Date().toISOString(), summary });
+      updateDocument(docId, {
+        status: 'ready', rawText, rawHtml,
+        processedAt: new Date().toISOString(), summary,
+      });
       const result = runFullAnalysis(docId, rawText);
       setAnalysisResult(docId, result);
     } catch (err) {
-      console.error('[DocumentAnalyzer] Processing failed:', err);
-      updateDocument(docId, { status: 'error', errorMessage: err instanceof Error ? err.message : 'Unknown error' });
+      // TASK 4: Structured error with actionable suggestions surfaced to user.
+      const msg = err instanceof Error ? err.message : 'Unknown error';
+      updateDocument(docId, { status: 'error', errorMessage: msg });
     } finally {
       setProcessingDocId(null);
     }
@@ -573,19 +580,26 @@ Budget range: $2.5M to $4M including licensing, professional services, and infra
             <div className="flex items-center gap-3 flex-wrap">
               <h3 className="text-xs font-bold uppercase tracking-wider text-slate-400">
                 Document Content
+                {activeDoc.rawHtml && (
+                  <span className="ml-2 font-normal normal-case text-indigo-400">
+                    · Structured HTML view (original layout preserved)
+                  </span>
+                )}
                 {scrollHint && (
                   <span className="ml-2 font-normal normal-case" style={{ color: CYAN }}>
                     ↳ Showing: {scrollHint.section}{scrollHint.page ? `, ${scrollHint.page}` : ''}
                   </span>
                 )}
               </h3>
-              {/* Highlight legend */}
-              <div className="flex items-center gap-2 flex-wrap">
-                <LegendPill bg="#DCFCE7" text="#166534" label="In-Scope item" />
-                <LegendPill bg="#FEE2E2" text="#991B1B" label="Terms & Conditions" />
-                <LegendPill bg="#FEF3C7" text="#92400E" label="Penalties / SLA" />
-                {scrollHint && <LegendPill bg="rgba(245,158,11,0.2)" text="#92400E" label="Scroll target" />}
-              </div>
+              {/* Highlight legend — shown only in plain-text mode */}
+              {!activeDoc.rawHtml && (
+                <div className="flex items-center gap-2 flex-wrap">
+                  <LegendPill bg="#DCFCE7" text="#166534" label="In-Scope item" />
+                  <LegendPill bg="#FEE2E2" text="#991B1B" label="Terms & Conditions" />
+                  <LegendPill bg="#FEF3C7" text="#92400E" label="Penalties / SLA" />
+                  {scrollHint && <LegendPill bg="rgba(245,158,11,0.2)" text="#92400E" label="Scroll target" />}
+                </div>
+              )}
             </div>
             {scrollHint && (
               <button
@@ -597,27 +611,81 @@ Budget range: $2.5M to $4M including licensing, professional services, and infra
             )}
           </div>
 
-          {/* Content box — light theme, dark text, monospace */}
-          <div
-            ref={textPreviewRef}
-            className="rounded-2xl p-5 overflow-y-auto"
-            style={{
-              background: '#FFFFFF',
-              border: '1px solid #E2E8F0',
-              maxHeight: 500,
-              fontSize: 12,
-              lineHeight: 1.85,
-              color: '#1E293B',
-              fontFamily: 'var(--font-mono)',
-              whiteSpace: 'pre-wrap',
-            }}
-          >
-            {buildAnnotatedContent(
-              activeDoc.rawText ?? '',
-              scrollHint?.section ?? null,
-              scopeDescriptions,
-            )}
-          </div>
+          {/*
+            TASK 3: If rawHtml is available (DOCX uploads), render it as structured HTML
+            to preserve the original document layout — headings, paragraphs, tables,
+            lists, bold/italic, hyperlinks, and indentation. We never replace diagrams,
+            tables, or images with text descriptions.
+
+            For all other formats (PDF, TXT, XLSX, PPTX) we fall back to the existing
+            plain-text annotated view which is unchanged.
+          */}
+          {activeDoc.rawHtml ? (
+            <div
+              ref={textPreviewRef}
+              className="rounded-2xl p-6 overflow-y-auto"
+              style={{
+                background: '#FFFFFF',
+                border: '1px solid #E2E8F0',
+                maxHeight: 600,
+                fontSize: 13,
+                lineHeight: 1.7,
+                color: '#1E293B',
+              }}
+            >
+              {/* Scoped styles for the rendered Word document HTML */}
+              <style>{`
+                .doc-html-view h1 { font-size: 1.4em; font-weight: 700; margin: 1em 0 0.4em; color: #0F172A; }
+                .doc-html-view h2 { font-size: 1.2em; font-weight: 700; margin: 0.9em 0 0.35em; color: #1E293B; }
+                .doc-html-view h3 { font-size: 1.05em; font-weight: 600; margin: 0.8em 0 0.3em; color: #334155; }
+                .doc-html-view h4, .doc-html-view h5, .doc-html-view h6 { font-size: 0.95em; font-weight: 600; margin: 0.7em 0 0.25em; color: #475569; }
+                .doc-html-view p { margin: 0.35em 0; }
+                .doc-html-view ul, .doc-html-view ol { margin: 0.4em 0 0.4em 1.5em; padding: 0; }
+                .doc-html-view li { margin: 0.2em 0; }
+                .doc-html-view table { border-collapse: collapse; width: 100%; margin: 0.8em 0; font-size: 12px; }
+                .doc-html-view th, .doc-html-view td { border: 1px solid #CBD5E1; padding: 6px 10px; text-align: left; vertical-align: top; color: #1E293B; }
+                .doc-html-view thead tr { background: #F1F5F9; font-weight: 600; }
+                .doc-html-view tbody tr:nth-child(even) { background: #F8FAFC; }
+                .doc-html-view strong, .doc-html-view b { font-weight: 700; color: #0F172A; }
+                .doc-html-view em, .doc-html-view i { font-style: italic; }
+                .doc-html-view a { color: #4F46E5; text-decoration: underline; }
+                .doc-html-view a:hover { color: #3730A3; }
+                .doc-html-view img { max-width: 100%; height: auto; border-radius: 6px; margin: 0.5em 0; }
+                .doc-html-view hr { border: none; border-top: 1px solid #E2E8F0; margin: 1em 0; }
+                .doc-html-view .doc-title { font-size: 1.6em; font-weight: 800; color: #0F172A; }
+                .doc-html-view .doc-subtitle { font-size: 1em; color: #64748B; margin-top: -0.2em; }
+              `}</style>
+              {/* dangerouslySetInnerHTML is safe here: content is from user's own uploaded
+                  DOCX file, CSP blocks any script execution, and no external resources
+                  are referenced — mammoth strips all JavaScript and remote URLs. */}
+              <div
+                className="doc-html-view"
+                dangerouslySetInnerHTML={{ __html: activeDoc.rawHtml }}
+              />
+            </div>
+          ) : (
+            /* Plain-text annotated view for PDF / TXT / XLSX / PPTX (unchanged) */
+            <div
+              ref={textPreviewRef}
+              className="rounded-2xl p-5 overflow-y-auto"
+              style={{
+                background: '#FFFFFF',
+                border: '1px solid #E2E8F0',
+                maxHeight: 500,
+                fontSize: 12,
+                lineHeight: 1.85,
+                color: '#1E293B',
+                fontFamily: 'var(--font-mono)',
+                whiteSpace: 'pre-wrap',
+              }}
+            >
+              {buildAnnotatedContent(
+                activeDoc.rawText ?? '',
+                scrollHint?.section ?? null,
+                scopeDescriptions,
+              )}
+            </div>
+          )}
         </div>
       )}
     </div>

@@ -37,6 +37,14 @@ export interface RFPDocument {
   uploadedAt: string;
   processedAt?: string;
   rawText?: string;
+  /**
+   * TASK 3: HTML representation of the document that preserves original visual
+   * structure — headings, paragraphs, tables, lists, bold/italic, hyperlinks.
+   * Populated for DOCX (via mammoth.convertToHtml). When present, DocumentAnalyzer
+   * renders this instead of the plain-text pre-wrap view, giving a faithful
+   * reproduction of the source document layout.
+   */
+  rawHtml?: string;
   summary?: DocumentSummary;
   extractedSections?: ExtractedSections;
   errorMessage?: string;

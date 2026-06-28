@@ -10,6 +10,16 @@ import { NextRequest, NextResponse } from 'next/server';
 export const runtime    = 'nodejs';
 export const maxDuration = 30; // Vercel hobby plan limit
 
+// ── TASK 4 FIX — root cause of the 500 error ─────────────────────────────────
+// pdf-parse/index.js contains a top-level `if (!module.parent)` debug block that
+// calls Fs.readFileSync('./test/data/05-versions-space.pdf').  In Node.js ≥14 and
+// in Next.js module resolution, `module.parent` is undefined when the module is
+// first required as a CJS module from an ESM context, so `!module.parent === true`
+// and the readFileSync runs immediately — throwing ENOENT and crashing the route.
+//
+// Fix: require the inner implementation file directly, bypassing index.js entirely.
+// This is the officially recommended workaround for this known pdf-parse issue.
+
 // ── Structured error codes ──────────────────────────────────────
 const PDF_ERRORS: Record<string, string> = {
   NO_FILE:         'No file provided in the request body.',
@@ -126,13 +136,15 @@ export async function POST(req: NextRequest) {
 
   // ── 7. Parse PDF ──────────────────────────────────────────────
   try {
+    // TASK 4 FIX: Require the inner lib directly to avoid the index.js debug block
+    // that crashes when module.parent is undefined (Next.js ESM/CJS interop).
     // eslint-disable-next-line @typescript-eslint/no-require-imports
-    const pdfParse = require('pdf-parse') as (
+    const pdfParse = require('pdf-parse/lib/pdf-parse.js') as (
       buf: Buffer,
       opts?: object,
     ) => Promise<{ text: string; numpages: number; info?: Record<string, unknown> }>;
 
-    console.log(`[parse-pdf] Parsing with pdf-parse@1.1.1 — ${buffer.length} bytes`);
+    console.log(`[parse-pdf] Parsing with pdf-parse/lib/pdf-parse.js — ${buffer.length} bytes`);
     const parsed    = await pdfParse(buffer, { max: 0 });
     const text      = parsed.text?.trim() ?? '';
     const pageCount = parsed.numpages > 0

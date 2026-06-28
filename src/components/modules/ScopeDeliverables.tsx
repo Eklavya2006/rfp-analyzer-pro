@@ -1,5 +1,11 @@
 'use client';
-// Scope — Light theme · T&C + Penalties hyperlinks moved to Description column · indigo/cyan accents
+// Scope — Light theme · T&C + Penalties hyperlinks in Description column · indigo/cyan accents
+// TASK 2: Removed the inline T&C/Penalties editor expansion row. The two data columns
+// (Terms & Conditions, Penalties / SLA) never existed as visible table columns — they
+// were only accessible via the "▼ Edit T&C / Penalties" toggle row below each row.
+// That toggle and its expanded editor <tr> have been removed. All TCLink and PenaltyLink
+// chips that were already inlined inside the Description cell are preserved and remain
+// fully functional with their highlighted amber / green colours.
 import React, { useState } from 'react';
 import { Plus, Trash2, Search, FileText, ExternalLink, AlertTriangle, Shield } from 'lucide-react';
 import { useRFPStore } from '@/lib/store';
@@ -118,8 +124,9 @@ function PenaltyLink({ text, page, section }: { text: string; page: string; sect
 export default function ScopeDeliverables() {
   const { activeDocumentId, analysisResults, setAnalysisResult } = useRFPStore();
   const result = activeDocumentId ? analysisResults[activeDocumentId] : null;
-  const [search, setSearch]           = useState('');
-  const [expandedId, setExpandedId]   = useState<string | null>(null);
+  const [search, setSearch] = useState('');
+  // expandedId removed — inline T&C/Penalties editor rows have been removed (TASK 2).
+  // All existing TCLink / PenaltyLink chips in the Description cell are preserved.
 
   if (!result) return (
     <div className="p-6 text-center mt-20 text-slate-400">
@@ -232,139 +239,86 @@ export default function ScopeDeliverables() {
             </thead>
             <tbody>
               {filteredScope.map((item, rowIdx) => {
-                const colors    = CAT_COLORS[item.category];
-                const isExpanded = expandedId === item.id;
+                const colors = CAT_COLORS[item.category];
                 return (
-                  <React.Fragment key={item.id}>
-                    <tr
-                      className="border-b border-slate-100 hover:bg-slate-50 transition-colors"
-                      style={{ overflow: 'visible', background: rowIdx % 2 === 0 ? '#FFFFFF' : '#F8FAFC' }}
-                    >
-                      {/* ── Description (+ inlined T&C and Penalty chips) ── */}
-                      <td className="px-4 py-3" style={{ color: '#1E293B' }}>
+                  // TASK 2: Removed expandable T&C/Penalties editor <tr>. Each row is
+                  // now a single <tr> with no toggle button. TCLink and PenaltyLink chips
+                  // remain in the Description cell with their amber / green highlights.
+                  <tr
+                    key={item.id}
+                    className="border-b border-slate-100 hover:bg-slate-50 transition-colors"
+                    style={{ overflow: 'visible', background: rowIdx % 2 === 0 ? '#FFFFFF' : '#F8FAFC' }}
+                  >
+                    {/* ── Description (+ preserved T&C and Penalty hyperlink chips) ── */}
+                    <td className="px-4 py-3" style={{ color: '#1E293B' }}>
+                      <input
+                        value={item.description}
+                        onChange={(e) => updateScope(item.id, 'description', e.target.value)}
+                        className="w-full text-sm outline-none bg-transparent mb-1.5"
+                        style={{ color: '#1E293B', borderBottom: '1px dashed rgba(100,116,139,0.3)' }}
+                      />
+                      {/* T&C chip — amber #F59E0B highlight, fully functional hyperlink */}
+                      {item.termsAndConditions?.trim() ? (
+                        <TCLink text={item.termsAndConditions} page={item.pageNumber} section={item.referenceSection} />
+                      ) : null}
+                      {/* Penalty chip — green #10B981 highlight, fully functional hyperlink */}
+                      {item.penalties?.trim() ? (
+                        <PenaltyLink text={item.penalties} page={item.pageNumber} section={item.referenceSection} />
+                      ) : null}
+                    </td>
+
+                    {/* ── Reference Section ── */}
+                    <td className="px-4 py-3" style={{ overflow: 'visible', position: 'relative' }}>
+                      <div className="flex flex-col gap-1" style={{ overflow: 'visible' }}>
+                        <RefLink section={item.referenceSection} page={item.pageNumber} color={CYAN} />
                         <input
-                          value={item.description}
-                          onChange={(e) => updateScope(item.id, 'description', e.target.value)}
-                          className="w-full text-sm outline-none bg-transparent mb-1.5"
-                          style={{ color: '#1E293B', borderBottom: '1px dashed rgba(100,116,139,0.3)' }}
+                          value={item.referenceSection}
+                          onChange={(e) => updateScope(item.id, 'referenceSection', e.target.value)}
+                          className="text-[10px] outline-none bg-transparent w-full"
+                          style={{ color: '#94A3B8' }}
+                          placeholder="Edit section…"
                         />
-                        {/* T&C chip — amber highlight, preserved hyperlink */}
-                        {item.termsAndConditions?.trim() ? (
-                          <TCLink text={item.termsAndConditions} page={item.pageNumber} section={item.referenceSection} />
-                        ) : null}
-                        {/* Penalty chip — green highlight, preserved hyperlink */}
-                        {item.penalties?.trim() ? (
-                          <PenaltyLink text={item.penalties} page={item.pageNumber} section={item.referenceSection} />
-                        ) : null}
-                        {/* Inline editor toggle */}
-                        <button
-                          type="button"
-                          onClick={() => setExpandedId(isExpanded ? null : item.id)}
-                          className="text-[10px] text-slate-400 hover:text-indigo-500 underline underline-offset-1 block mt-1"
-                        >
-                          {isExpanded ? '▲ Hide editor' : '▼ Edit T&C / Penalties'}
-                        </button>
-                      </td>
+                      </div>
+                    </td>
 
-                      {/* ── Reference Section ── */}
-                      <td className="px-4 py-3" style={{ overflow: 'visible', position: 'relative' }}>
-                        <div className="flex flex-col gap-1" style={{ overflow: 'visible' }}>
-                          <RefLink section={item.referenceSection} page={item.pageNumber} color={CYAN} />
-                          <input
-                            value={item.referenceSection}
-                            onChange={(e) => updateScope(item.id, 'referenceSection', e.target.value)}
-                            className="text-[10px] outline-none bg-transparent w-full"
-                            style={{ color: '#94A3B8' }}
-                            placeholder="Edit section…"
-                          />
-                        </div>
-                      </td>
+                    {/* ── Page ── */}
+                    <td className="px-4 py-3" style={{ overflow: 'visible', position: 'relative' }}>
+                      <div className="flex flex-col gap-1" style={{ overflow: 'visible' }}>
+                        <RefLink section={item.referenceSection} page={item.pageNumber} color={INDIGO} />
+                        <input
+                          value={item.pageNumber}
+                          onChange={(e) => updateScope(item.id, 'pageNumber', e.target.value)}
+                          className="text-[10px] outline-none bg-transparent w-full"
+                          style={{ color: '#94A3B8' }}
+                          placeholder="Edit page…"
+                        />
+                      </div>
+                    </td>
 
-                      {/* ── Page ── */}
-                      <td className="px-4 py-3" style={{ overflow: 'visible', position: 'relative' }}>
-                        <div className="flex flex-col gap-1" style={{ overflow: 'visible' }}>
-                          <RefLink section={item.referenceSection} page={item.pageNumber} color={INDIGO} />
-                          <input
-                            value={item.pageNumber}
-                            onChange={(e) => updateScope(item.id, 'pageNumber', e.target.value)}
-                            className="text-[10px] outline-none bg-transparent w-full"
-                            style={{ color: '#94A3B8' }}
-                            placeholder="Edit page…"
-                          />
-                        </div>
-                      </td>
+                    {/* ── Category ── */}
+                    <td className="px-4 py-3">
+                      <select
+                        value={item.category}
+                        onChange={(e) => updateScope(item.id, 'category', e.target.value)}
+                        className="text-xs font-semibold px-2 py-0.5 rounded-full border outline-none cursor-pointer"
+                        style={{ background: colors.bg, color: colors.text, border: `1px solid ${colors.border}` }}
+                      >
+                        <option value="in-scope">In Scope</option>
+                        <option value="out-of-scope">Out of Scope</option>
+                        <option value="assumption">Assumption</option>
+                      </select>
+                    </td>
 
-                      {/* ── Category ── */}
-                      <td className="px-4 py-3">
-                        <select
-                          value={item.category}
-                          onChange={(e) => updateScope(item.id, 'category', e.target.value)}
-                          className="text-xs font-semibold px-2 py-0.5 rounded-full border outline-none cursor-pointer"
-                          style={{ background: colors.bg, color: colors.text, border: `1px solid ${colors.border}` }}
-                        >
-                          <option value="in-scope">In Scope</option>
-                          <option value="out-of-scope">Out of Scope</option>
-                          <option value="assumption">Assumption</option>
-                        </select>
-                      </td>
-
-                      {/* ── Remove ── */}
-                      <td className="px-4 py-3 text-center">
-                        <button
-                          onClick={() => removeScope(item.id)}
-                          className="transition-colors text-slate-400 hover:text-rose-500"
-                        >
-                          <Trash2 size={14} />
-                        </button>
-                      </td>
-                    </tr>
-
-                    {/* ── Inline T&C + Penalties editor (expanded row) ── */}
-                    {isExpanded && (
-                      <tr style={{ background: '#FFF8F8' }}>
-                        <td colSpan={5} className="px-5 py-3 border-b border-slate-100">
-                          <div className="grid grid-cols-2 gap-4">
-                            {/* T&C editor */}
-                            <div>
-                              <label className="text-[10px] font-semibold uppercase tracking-wider flex items-center gap-1 mb-1"
-                                style={{ color: '#991B1B' }}>
-                                <Shield size={10} /> Terms &amp; Conditions text
-                                <span className="font-normal normal-case text-slate-400 ml-1">
-                                  (will become clickable link to Document page)
-                                </span>
-                              </label>
-                              <textarea
-                                rows={3}
-                                value={item.termsAndConditions ?? ''}
-                                onChange={(e) => updateScope(item.id, 'termsAndConditions', e.target.value)}
-                                placeholder="Paste or type the T&C clause text here…"
-                                className="w-full text-xs rounded-lg p-2 outline-none resize-none"
-                                style={{ background: '#FEF2F2', border: '1px solid #FECACA', color: '#7F1D1D', lineHeight: 1.6 }}
-                              />
-                            </div>
-                            {/* Penalties editor */}
-                            <div>
-                              <label className="text-[10px] font-semibold uppercase tracking-wider flex items-center gap-1 mb-1"
-                                style={{ color: '#92400E' }}>
-                                <AlertTriangle size={10} /> Penalties / SLA clause
-                                <span className="font-normal normal-case text-slate-400 ml-1">
-                                  (will become clickable link to Document page)
-                                </span>
-                              </label>
-                              <textarea
-                                rows={3}
-                                value={item.penalties ?? ''}
-                                onChange={(e) => updateScope(item.id, 'penalties', e.target.value)}
-                                placeholder="Paste or type the penalty / SLA clause here…"
-                                className="w-full text-xs rounded-lg p-2 outline-none resize-none"
-                                style={{ background: '#FFFBEB', border: '1px solid #FDE68A', color: '#78350F', lineHeight: 1.6 }}
-                              />
-                            </div>
-                          </div>
-                        </td>
-                      </tr>
-                    )}
-                  </React.Fragment>
+                    {/* ── Remove ── */}
+                    <td className="px-4 py-3 text-center">
+                      <button
+                        onClick={() => removeScope(item.id)}
+                        className="transition-colors text-slate-400 hover:text-rose-500"
+                      >
+                        <Trash2 size={14} />
+                      </button>
+                    </td>
+                  </tr>
                 );
               })}
             </tbody>
