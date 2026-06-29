@@ -400,10 +400,13 @@ function RoleCard({ role, canonical, projectMonths, onRemove }: RoleCardProps) {
 // Main Component
 // ════════════════════════════════════════════════════════════════
 export default function StaffingPlanModule() {
-  const {
-    activeDocumentId, analysisResults,
-    updateStaffingRole, addStaffingRole, removeStaffingRole, setAnalysisResult,
-  } = useRFPStore();
+  // Subscribe only to the staffing-related store slices to reduce rerenders from unrelated tabs.
+  const activeDocumentId = useRFPStore((state) => state.activeDocumentId);
+  const analysisResults = useRFPStore((state) => state.analysisResults);
+  const updateStaffingRole = useRFPStore((state) => state.updateStaffingRole);
+  const addStaffingRole = useRFPStore((state) => state.addStaffingRole);
+  const removeStaffingRole = useRFPStore((state) => state.removeStaffingRole);
+  const setAnalysisResult = useRFPStore((state) => state.setAnalysisResult);
   const result = activeDocumentId ? analysisResults[activeDocumentId] : null;
 
   const [search, setSearch]       = useState('');
@@ -430,8 +433,7 @@ export default function StaffingPlanModule() {
         },
       });
     }
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [activeDocumentId]);
+  }, [activeDocumentId, result, setAnalysisResult]);
 
   if (!plan) return (
     <div className="flex items-center justify-center mt-20 text-slate-400 text-sm">
@@ -448,14 +450,37 @@ export default function StaffingPlanModule() {
 
   const totalLaborCost = roles.reduce((a, r) => a + r.totalCost, 0);
   const avgMonthlyBurn = projectMonths > 0 ? Math.round(totalLaborCost / projectMonths) : 0;
-  const peakHC         = plan.peakHeadcount || roles.length;
+  const peakHC = plan.peakHeadcount || roles.length;
 
-  const filteredRoles = roles.filter(r =>
-    r.roleName.toLowerCase().includes(search.toLowerCase()),
+  const headcountOverTime = useMemo(() => {
+    const totalWeeks = result?.projectPlan?.totalDurationWeeks ?? 72;
+    const phases = result?.projectPlan?.phases ?? [];
+    return Array.from({ length: totalWeeks }, (_, index) => {
+      const week = index + 1;
+      const activeHeadcount = roles.reduce((sum, role) => {
+        const canonical = CANONICAL_ROLES.find((item) => item.roleName === role.roleName && item.band === role.band);
+        if (canonical) {
+          const { start, end } = getWeekRange(canonical);
+          return sum + (week >= start && week <= end ? role.numberOfResources : 0);
+        }
+        const matchingPhaseCount = phases.filter((phase) =>
+          week >= phase.startWeek &&
+          week <= phase.endWeek &&
+          phase.responsibleRoles.some((responsibleRole) => responsibleRole.toLowerCase().includes(role.roleName.toLowerCase()))
+        ).length;
+        return sum + (matchingPhaseCount > 0 ? role.numberOfResources : 0);
+      }, 0);
+      return { week: `W${week}`, Headcount: activeHeadcount };
+    });
+  }, [result, roles]);
+
+  const filteredRoles = useMemo(
+    () => roles.filter((role) => role.roleName.toLowerCase().includes(search.toLowerCase())),
+    [roles, search]
   );
 
   // ── Add handler ───────────────────────────────────────────────
-  const handleAdd = () => {
+  const handleAdd = useCallback(() => {
     if (!activeDocumentId || !newRole.roleName?.trim()) return;
     const band = (newRole.band ?? '7A') as IBMBand;
     const nr   = newRole.numberOfResources ?? 1;
@@ -471,7 +496,7 @@ export default function StaffingPlanModule() {
     });
     setShowAdd(false);
     setNewRole({ roleName:'', band:'7A', numberOfResources:1, hoursPerResource:640, hourlyRate:65, _location:'Offshore' });
-  };
+  }, [activeDocumentId, addStaffingRole, newRole]);
 
   // ── Input style for add form ──────────────────────────────────
   const inp: React.CSSProperties = {
@@ -727,6 +752,172 @@ export default function StaffingPlanModule() {
                 </ResponsiveContainer>
               </div>
             )}
+
+            {/* Headcount Over Time chart */}
+            {headcountOverTime.length > 1 && (
+              <div style={{ background: '#FFFFFF', border: '1px solid #E2E8F0', borderRadius: 16, padding: '20px 20px 12px' }}>
+                <div className="flex items-center gap-2 mb-4">
+                  <Users size={14} className="text-blue-400" />
+                  <span style={{ fontSize: 13, fontWeight: 600, color: '#0F172A' }}>Headcount Over Time</span>
+                  <span style={{ marginLeft: 'auto', fontSize: 11, color: '#64748B' }}>
+                    Derived from canonical staffing coverage and live project phase windows
+                  </span>
+                </div>
+                <ResponsiveContainer width="100%" height={220}>
+                  <AreaChart data={headcountOverTime} margin={{ left: -10, right: 10 }}>
+                    <defs>
+                      <linearGradient id="headcountGrad" x1="0" y1="0" x2="0" y2="1">
+                        <stop offset="5%" stopColor="#3B82F6" stopOpacity={0.22} />
+                        <stop offset="95%" stopColor="#3B82F6" stopOpacity={0} />
+                      </linearGradient>
+                    </defs>
+                    <CartesianGrid strokeDasharray="3 3" stroke="#F1F5F9" vertical={false} />
+                    <XAxis
+                      dataKey="week"
+                      tick={{ fontSize: 10, fill: '#94A3B8' }}
+                      axisLine={false}
+                      tickLine={false}
+                      interval={Math.max(0, Math.floor(headcountOverTime.length / 8) - 1)}
+                    />
+                    <YAxis
+                      tick={{ fontSize: 10, fill: '#94A3B8' }}
+                      axisLine={false}
+                      tickLine={false}
+                      allowDecimals={false}
+                      label={{ value: 'Headcount', angle: -90, position: 'insideLeft', style: { fill: '#64748B', fontSize: 10 } }}
+                    />
+                    <Tooltip content={<CustomTooltip />} />
+                    <Area
+                      type="monotone"
+                      dataKey="Headcount"
+                      stroke="#3B82F6"
+                      strokeWidth={2.5}
+                      fill="url(#headcountGrad)"
+                      dot={false}
+                      activeDot={{ r: 5, fill: '#3B82F6' }}
+                    />
+                  </AreaChart>
+                </ResponsiveContainer>
+              </div>
+            )}
+
+            {/* ── Headcount Roll-out by Phase ── */}
+            {(() => {
+              const phases = result?.projectPlan?.phases ?? [];
+              if (phases.length === 0 || roles.length === 0) return null;
+
+              // For each phase, tally how many resources from each role are active
+              // A role is "active" in a phase when the phase week-window overlaps
+              // its canonical week range (or falls within the phase dates for custom roles).
+              const topRoles = roles.slice(0, 8); // cap legend to 8 entries for readability
+
+              const rolloutData = phases.map((phase) => {
+                const row: Record<string, number | string> = {
+                  phase: phase.name.length > 11 ? phase.name.slice(0, 11) + '…' : phase.name,
+                };
+                topRoles.forEach((role) => {
+                  const canon = CANONICAL_ROLES.find(c => c.roleName === role.roleName && c.band === role.band);
+                  let active = 0;
+                  if (canon) {
+                    const { start, end } = getWeekRange(canon);
+                    // overlap check
+                    active = (phase.startWeek <= end && phase.endWeek >= start) ? role.numberOfResources : 0;
+                  } else {
+                    // custom role: active if phase references the role name
+                    active = phase.responsibleRoles.some(r =>
+                      r.toLowerCase().includes(role.roleName.toLowerCase())
+                    ) ? role.numberOfResources : 0;
+                  }
+                  const key = role.roleName.length > 16 ? role.roleName.slice(0, 16) + '…' : role.roleName;
+                  row[key] = (row[key] as number ?? 0) + active;
+                });
+                return row;
+              });
+
+              const barKeys = topRoles.map(r =>
+                r.roleName.length > 16 ? r.roleName.slice(0, 16) + '…' : r.roleName
+              );
+              // deduplicate keys that truncate to the same string
+              const uniqueKeys = [...new Set(barKeys)];
+
+              return (
+                <div style={{ background: '#FFFFFF', border: '1px solid #E2E8F0', borderRadius: 16, padding: '20px 20px 12px' }}>
+                  <div className="flex items-center gap-2 mb-1">
+                    <TrendingUp size={14} className="text-indigo-400" />
+                    <span style={{ fontSize: 13, fontWeight: 600, color: '#0F172A' }}>Headcount Roll-out by Phase</span>
+                    <span style={{ marginLeft: 'auto', fontSize: 11, color: '#64748B' }}>
+                      Active resources per role across project phases
+                    </span>
+                  </div>
+                  <p style={{ fontSize: 11, color: '#94A3B8', marginBottom: 12 }}>
+                    Stacked view — each colour represents a role; height = number of active resources in that phase
+                  </p>
+                  <ResponsiveContainer width="100%" height={260}>
+                    <BarChart data={rolloutData} margin={{ left: -10, right: 10, bottom: 20 }}>
+                      <CartesianGrid strokeDasharray="3 3" stroke="#F1F5F9" vertical={false} />
+                      <XAxis
+                        dataKey="phase"
+                        tick={{ fontSize: 11, fill: '#64748B' }}
+                        axisLine={false}
+                        tickLine={false}
+                        interval={0}
+                        angle={-20}
+                        textAnchor="end"
+                        height={48}
+                      />
+                      <YAxis
+                        tick={{ fontSize: 10, fill: '#94A3B8' }}
+                        axisLine={false}
+                        tickLine={false}
+                        allowDecimals={false}
+                        label={{ value: 'Headcount', angle: -90, position: 'insideLeft', style: { fill: '#64748B', fontSize: 10 } }}
+                      />
+                      <Tooltip
+                        content={({ active, payload, label }) => {
+                          if (!active || !payload?.length) return null;
+                          const total = payload.reduce((s, e) => s + (e.value as number), 0);
+                          return (
+                            <div style={{
+                              background: '#F8F9FA', border: '2px solid #6366F1',
+                              borderRadius: 8, padding: '10px 14px',
+                              boxShadow: '0 4px 12px rgba(0,0,0,0.15)', minWidth: 160,
+                            }}>
+                              <div style={{ color: '#6366F1', fontWeight: 700, fontSize: 13, marginBottom: 6 }}>{label}</div>
+                              {payload.filter(e => (e.value as number) > 0).map(e => (
+                                <div key={e.name} style={{ display: 'flex', justifyContent: 'space-between', gap: 12, fontSize: 12, color: '#374151' }}>
+                                  <span style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
+                                    <span style={{ width: 8, height: 8, borderRadius: '50%', background: e.color, display: 'inline-block' }} />
+                                    {e.name}
+                                  </span>
+                                  <span style={{ fontWeight: 600 }}>{e.value}</span>
+                                </div>
+                              ))}
+                              <div style={{ borderTop: '1px solid #E2E8F0', marginTop: 6, paddingTop: 6, fontSize: 12, fontWeight: 700, color: '#0F172A', display: 'flex', justifyContent: 'space-between' }}>
+                                <span>Total</span><span>{total}</span>
+                              </div>
+                            </div>
+                          );
+                        }}
+                      />
+                      <Legend
+                        wrapperStyle={{ fontSize: 10, paddingTop: 8 }}
+                        iconType="circle"
+                        iconSize={8}
+                      />
+                      {uniqueKeys.map((key, i) => (
+                        <Bar
+                          key={key}
+                          dataKey={key}
+                          stackId="hc"
+                          fill={CHART_COLORS[i % CHART_COLORS.length]}
+                          radius={i === uniqueKeys.length - 1 ? [4, 4, 0, 0] : [0, 0, 0, 0]}
+                        />
+                      ))}
+                    </BarChart>
+                  </ResponsiveContainer>
+                </div>
+              );
+            })()}
 
             {/* Seniority mix row */}
             {Object.keys(senMap).length > 0 && (

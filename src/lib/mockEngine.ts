@@ -10,6 +10,50 @@ import type {
 import { DEFAULT_COST_ASSUMPTIONS } from '@/types';
 import { applyAssumptions } from '@/lib/store';
 
+function extractMilestoneWeeks(text: string, fallbackTotalWeeks: number): number[] {
+  const milestoneMatch = text.match(/key milestones? at weeks?\s+([^.!?\n]+)/i);
+  if (!milestoneMatch?.[1]) return [];
+
+  const parsedWeeks = milestoneMatch[1]
+    .match(/\d+/g)
+    ?.map((value) => Number(value))
+    .filter((value, index, values) => Number.isFinite(value) && value > 0 && value <= fallbackTotalWeeks * 2 && values.indexOf(value) === index)
+    .sort((a, b) => a - b);
+
+  return parsedWeeks ?? [];
+}
+
+function milestoneLabel(week: number, totalWeeks: number, phaseName: string): string {
+  const lowerPhase = phaseName.toLowerCase();
+  const isLast = week >= totalWeeks;
+
+  if (week <= 4 || lowerPhase.includes('discovery')) return 'Kickoff Complete';
+  if (lowerPhase.includes('design')) return 'Architecture Approved';
+  if (lowerPhase.includes('development')) return week >= Math.round(totalWeeks * 0.45) ? 'MVP Feature Complete' : 'Sprint Demo';
+  if (lowerPhase.includes('testing')) return week >= Math.round(totalWeeks * 0.7) ? 'UAT Sign-off' : 'SIT Complete';
+  if (lowerPhase.includes('deployment') || isLast) return 'Production Go-Live';
+  if (lowerPhase.includes('hypercare')) return 'Hypercare Closure';
+  return `Milestone W${week}`;
+}
+
+// Default milestones per phase name when none are extracted from document text.
+const PHASE_DEFAULT_MILESTONES: Record<string, string[]> = {
+  discovery:   ['Kickoff Complete', 'Requirements Baselined'],
+  design:      ['Architecture Approved', 'Design Sign-off'],
+  development: ['Sprint 1 Demo', 'MVP Feature Complete'],
+  testing:     ['SIT Complete', 'UAT Sign-off'],
+  deployment:  ['Production Go-Live'],
+  hypercare:   ['Hypercare Closure', 'Project Handover'],
+};
+
+function defaultMilestonesForPhase(phaseName: string): string[] {
+  const lower = phaseName.toLowerCase();
+  for (const [key, milestones] of Object.entries(PHASE_DEFAULT_MILESTONES)) {
+    if (lower.includes(key)) return milestones;
+  }
+  return [`${phaseName} Complete`];
+}
+
 const IBM_BAND_RATES: Record<IBMBand, { desc: string; rate: number }> = {
   '6A': { desc: 'Fresher / Entry Level', rate: 45 },
   '6B': { desc: 'Fresher / Entry Level', rate: 48 },
@@ -159,20 +203,64 @@ export function runFullAnalysis(docId: string, text: string): AnalysisResult {
 
   // ── Project Plan ──────────────────────────────────────────
   const phases = [
-    { name: 'Discovery', dur: 3, roles: ['Project Manager', 'Business Analyst', 'Solution Architect'], del: ['Solution Architecture Document', 'Project Charter'] },
-    { name: 'Design', dur: 4, roles: ['Solution Architect', 'Senior Developer', 'Data Engineer'], del: ['Data Model', 'System Design', 'UI/UX Wireframes'] },
-    { name: 'Development', dur: 10, roles: ['Senior Developer', 'Developer', 'Junior Developer', 'Data Engineer'], del: ['MVP Release', 'Sprint Deliverables', 'API Documentation'] },
-    { name: 'Testing', dur: 4, roles: ['QA Lead', 'QA Engineer', 'Developer'], del: ['Test Cases', 'Test Reports', 'UAT Sign-off'] },
-    { name: 'Deployment', dur: 2, roles: ['Cloud Engineer', 'DevOps Engineer', 'Project Manager'], del: ['Deployment Runbook', 'Go-Live Sign-off'] },
-    { name: 'Hypercare', dur: 3, roles: ['Project Manager', 'Developer', 'Business Analyst'], del: ['Support Plan', 'Training Material', 'Handover Document'] },
+    {
+      name: 'Discovery',
+      dur: 3,
+      roles: ['Project Manager', 'Business Analyst', 'Solution Architect'],
+      del: ['Solution Architecture Document', 'Project Charter'],
+    },
+    {
+      name: 'Design',
+      dur: 4,
+      roles: ['Solution Architect', 'Senior Developer', 'Data Engineer'],
+      del: ['Data Model', 'System Design', 'UI/UX Wireframes'],
+    },
+    {
+      name: 'Development',
+      dur: 10,
+      roles: ['Senior Developer', 'Developer', 'Junior Developer', 'Data Engineer'],
+      del: ['MVP Release', 'Sprint Deliverables', 'API Documentation'],
+    },
+    {
+      name: 'Testing',
+      dur: 4,
+      roles: ['QA Lead', 'QA Engineer', 'Developer'],
+      del: ['Test Cases', 'Test Reports', 'UAT Sign-off'],
+    },
+    {
+      name: 'Deployment',
+      dur: 2,
+      roles: ['Cloud Engineer', 'DevOps Engineer', 'Project Manager'],
+      del: ['Deployment Runbook', 'Go-Live Sign-off'],
+    },
+    {
+      name: 'Hypercare',
+      dur: 3,
+      roles: ['Project Manager', 'Developer', 'Business Analyst'],
+      del: ['Support Plan', 'Training Material', 'Handover Document'],
+    },
   ];
+
+  const totalProjectWeeks = phases.reduce((sum, phase) => sum + phase.dur, 0);
+  const extractedMilestoneWeeks = extractMilestoneWeeks(text, totalProjectWeeks);
 
   let cursor = 1;
   const projectPhases = phases.map((p) => {
+    const startWeek = cursor;
+    const endWeek = cursor + p.dur - 1;
+    // Use extracted milestone weeks if the document contains them; fall back to
+    // sensible per-phase defaults so the KPI card never shows 0.
+    const extractedForPhase = extractedMilestoneWeeks
+      .filter((week) => week >= startWeek && week <= endWeek)
+      .map((week) => milestoneLabel(week, totalProjectWeeks, p.name));
+    const milestones = extractedForPhase.length > 0
+      ? extractedForPhase
+      : defaultMilestonesForPhase(p.name);
+
     const phase = {
       id: uuid(), name: p.name,
-      startWeek: cursor, durationWeeks: p.dur, endWeek: cursor + p.dur - 1,
-      responsibleRoles: p.roles, deliverables: p.del,
+      startWeek, durationWeeks: p.dur, endWeek,
+      responsibleRoles: p.roles, deliverables: p.del, milestones,
       status: 'not-started' as const,
     };
     cursor += p.dur;
