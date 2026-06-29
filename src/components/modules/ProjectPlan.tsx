@@ -2,10 +2,11 @@
 // ProjectPlan — Dark Gantt-style redesign with status pills, progress bars, resource chart
 import React, { useState, useRef, useCallback, useMemo } from 'react';
 import ReactDOM from 'react-dom';
-import { Pencil, Check, X, Plus, Trash2, Info, Flag } from 'lucide-react';
+import { Pencil, Check, X, Plus, Trash2, Info, Flag, Minus } from 'lucide-react';
 import {
-  BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip,
-  ResponsiveContainer, Cell, Legend, LabelList,
+  LineChart, Line, BarChart, Bar,
+  XAxis, YAxis, CartesianGrid, Tooltip,
+  ResponsiveContainer, Cell, Legend, ReferenceDot,
 } from 'recharts';
 import { useRFPStore } from '@/lib/store';
 import { T } from '@/lib/theme';
@@ -343,17 +344,17 @@ export default function ProjectPlanModule() {
 
       {/* ── Milestone KPI Graph ─────────────────────────── */}
       {(() => {
-        // Build one bar per phase: count of milestones, with full list in tooltip
-        interface MilestoneBarDatum {
-          phase:      string;           // short label for X-axis
-          fullName:   string;           // full phase name for tooltip header
-          count:      number;           // milestone count (bar height)
-          weeks:      string;           // "W1–W3" label
-          color:      string;           // phase colour
-          milestones: string[];         // full list for tooltip
+        interface MilestoneLineDatum {
+          phase:      string;     // short X-axis label
+          fullName:   string;     // full phase name for tooltip
+          count:      number;     // milestone count (Y value)
+          weeks:      string;     // "W1–W3"
+          color:      string;     // phase colour
+          milestones: string[];   // full list for tooltip
           status:     string;
         }
-        const barData: MilestoneBarDatum[] = plan!.phases.map((phase, idx) => ({
+
+        const lineData: MilestoneLineDatum[] = plan!.phases.map((phase, idx) => ({
           phase:      phase.name.length > 11 ? phase.name.slice(0, 11) + '…' : phase.name,
           fullName:   phase.name,
           count:      (phase.milestones ?? []).length,
@@ -363,10 +364,12 @@ export default function ProjectPlanModule() {
           status:     phase.status,
         }));
 
-        // Custom tooltip — rich card showing each milestone name
+        const yMax = Math.max(...lineData.map(d => d.count), 2);
+
+        // Custom tooltip — rich card showing each milestone name (unchanged)
         const MilestoneTooltip = ({ active, payload }: {
           active?: boolean;
-          payload?: Array<{ payload: MilestoneBarDatum }>;
+          payload?: Array<{ payload: MilestoneLineDatum }>;
         }) => {
           if (!active || !payload?.length) return null;
           const d = payload[0].payload;
@@ -444,15 +447,16 @@ export default function ProjectPlanModule() {
                 </span>
               </div>
               <span className="text-[11px]" style={{ color: PC.muted }}>
-                Hover a bar to see each milestone · colour matches phase
+                Hover a point to see each milestone · use +/− to adjust count
               </span>
             </div>
             <p className="text-[11px] mb-4" style={{ color: PC.muted }}>
-              Bar height = milestone count per phase. Tooltip lists every milestone name and phase status.
+              Each point = milestone count for that phase. Tooltip lists every milestone name and phase status.
             </p>
 
+            {/* Line chart */}
             <ResponsiveContainer width="100%" height={220}>
-              <BarChart data={barData} barSize={38} margin={{ left: -10, right: 10, bottom: 10, top: 16 }}>
+              <LineChart data={lineData} margin={{ left: -10, right: 24, bottom: 10, top: 20 }}>
                 <CartesianGrid strokeDasharray="3 3" stroke={PC.border} vertical={false} />
                 <XAxis
                   dataKey="phase"
@@ -462,42 +466,106 @@ export default function ProjectPlanModule() {
                 />
                 <YAxis
                   allowDecimals={false}
+                  domain={[0, yMax + 1]}
                   tick={{ fontSize: 10, fill: PC.muted }}
                   axisLine={false}
                   tickLine={false}
                   label={{ value: 'Milestones', angle: -90, position: 'insideLeft', style: { fill: PC.muted, fontSize: 10 } }}
                 />
-                <Tooltip content={<MilestoneTooltip />} cursor={{ fill: 'rgba(165,110,255,0.06)' }} />
-                <Bar dataKey="count" name="Milestones" radius={[6, 6, 0, 0]}>
-                  {barData.map((entry, i) => (
-                    <Cell key={i} fill={entry.color} fillOpacity={entry.count === 0 ? 0.25 : 1} />
-                  ))}
-                  <LabelList
-                    dataKey="count"
-                    position="top"
-                    style={{ fontSize: 12, fontWeight: 700, fill: PC.text }}
-                    formatter={(v: number) => v > 0 ? String(v) : '–'}
+                <Tooltip content={<MilestoneTooltip />} cursor={{ stroke: '#a56eff', strokeWidth: 1, strokeDasharray: '4 3' }} />
+                {/* Single gradient line */}
+                <Line
+                  type="monotone"
+                  dataKey="count"
+                  stroke="#a56eff"
+                  strokeWidth={2.5}
+                  dot={false}
+                  activeDot={false}
+                />
+                {/* One coloured dot + count label per phase point */}
+                {lineData.map((d, i) => (
+                  <ReferenceDot
+                    key={i}
+                    x={d.phase}
+                    y={d.count}
+                    r={7}
+                    fill={d.color}
+                    stroke="#fff"
+                    strokeWidth={2}
+                    label={{
+                      value: String(d.count),
+                      position: 'top',
+                      style: { fontSize: 11, fontWeight: 700, fill: d.color },
+                      offset: 8,
+                    }}
                   />
-                </Bar>
-              </BarChart>
+                ))}
+              </LineChart>
             </ResponsiveContainer>
 
-            {/* Legend row: one chip per phase with milestone count */}
+            {/* Phase chips with +/− add-remove controls */}
             <div className="flex flex-wrap gap-2 mt-3 pt-3 border-t" style={{ borderColor: PC.border }}>
-              {barData.map((d, i) => (
-                <div key={i} className="flex items-center gap-1.5 text-[11px] font-medium"
-                  style={{
-                    background: `${d.color}12`,
-                    border: `1px solid ${d.color}30`,
-                    borderRadius: 999,
-                    padding: '3px 10px',
-                    color: PC.text,
-                  }}>
-                  <div style={{ width: 7, height: 7, borderRadius: '50%', background: d.color, flexShrink: 0 }} />
-                  {d.fullName}
-                  <span style={{ fontWeight: 700, color: d.color, marginLeft: 2 }}>{d.count}</span>
-                </div>
-              ))}
+              {lineData.map((d, idx) => {
+                const phase = plan!.phases[idx];
+                return (
+                  <div key={idx} className="flex items-center gap-1 text-[11px] font-medium"
+                    style={{
+                      background: `${d.color}12`,
+                      border: `1px solid ${d.color}30`,
+                      borderRadius: 999,
+                      padding: '3px 4px 3px 10px',
+                      color: PC.text,
+                    }}>
+                    {/* Colour dot */}
+                    <div style={{ width: 7, height: 7, borderRadius: '50%', background: d.color, flexShrink: 0 }} />
+                    {/* Phase name */}
+                    <span className="mx-1">{d.fullName}</span>
+                    {/* Count badge */}
+                    <span style={{ fontWeight: 700, color: d.color }}>{d.count}</span>
+                    {/* Remove last milestone */}
+                    <button
+                      title="Remove last milestone"
+                      disabled={d.count === 0}
+                      onClick={() => {
+                        const updated = (phase.milestones ?? []).slice(0, -1);
+                        update(phase.id, { milestones: updated });
+                      }}
+                      style={{
+                        marginLeft: 4,
+                        width: 18, height: 18, borderRadius: '50%',
+                        background: d.count === 0 ? '#F1F5F9' : `${d.color}20`,
+                        color: d.count === 0 ? PC.notstart : d.color,
+                        border: `1px solid ${d.count === 0 ? PC.border : d.color}40`,
+                        display: 'flex', alignItems: 'center', justifyContent: 'center',
+                        cursor: d.count === 0 ? 'not-allowed' : 'pointer',
+                        flexShrink: 0,
+                      }}
+                    >
+                      <Minus size={9} strokeWidth={2.5} />
+                    </button>
+                    {/* Add new milestone */}
+                    <button
+                      title={`Add milestone to ${d.fullName}`}
+                      onClick={() => {
+                        const label = `Milestone ${d.count + 1}`;
+                        update(phase.id, { milestones: [...(phase.milestones ?? []), label] });
+                      }}
+                      style={{
+                        marginLeft: 2,
+                        width: 18, height: 18, borderRadius: '50%',
+                        background: `${d.color}20`,
+                        color: d.color,
+                        border: `1px solid ${d.color}40`,
+                        display: 'flex', alignItems: 'center', justifyContent: 'center',
+                        cursor: 'pointer',
+                        flexShrink: 0,
+                      }}
+                    >
+                      <Plus size={9} strokeWidth={2.5} />
+                    </button>
+                  </div>
+                );
+              })}
             </div>
           </div>
         );
