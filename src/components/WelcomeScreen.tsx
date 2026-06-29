@@ -69,15 +69,6 @@ export default function WelcomeScreen({ onDone }: WelcomeScreenProps) {
           Service Integration Hub (SIH)
         </p>
 
-        {/* Sub-line */}
-        <p style={{
-          margin: '0 0 28px', fontSize: 14,
-          color: 'rgba(255,255,255,0.65)',
-          textAlign: 'center', lineHeight: 1.5, fontFamily: FONT,
-        }}>
-          Sign in with your IBM w3 identity to continue
-        </p>
-
         {/* ── Sign-in button ── */}
         <button
           onClick={handleSignIn}
