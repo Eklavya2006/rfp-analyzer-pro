@@ -178,7 +178,7 @@ function AiBar({ label, subLabel, pct, value, color }: AiBarProps) {
 
 // ── Welcome state (no document loaded) ───────────────────────
 function WelcomeState() {
-  const { setActiveTab } = useRFPStore();
+  const setActiveTab = useRFPStore((state) => state.setActiveTab);
   const features = [
     { icon: <DollarSign size={14} />, title: 'Cost Estimation',  sub: 'Detailed breakdown by phase and role' },
     { icon: <CalendarDays size={14} />, title: 'Project Plan',   sub: 'Gantt-style phases and milestones' },
@@ -266,11 +266,15 @@ function PhaseTickDash({
 
 // ── Main Dashboard ─────────────────────────────────────────────
 export default function Dashboard() {
-  const { activeDocumentId, analysisResults, setActiveTab } = useRFPStore();
+  // Read only the dashboard-relevant slices so edits in other store branches do not rerender charts.
+  const activeDocumentId = useRFPStore((state) => state.activeDocumentId);
+  const analysisResults = useRFPStore((state) => state.analysisResults);
+  const documents = useRFPStore((state) => state.documents);
+  const setActiveTab = useRFPStore((state) => state.setActiveTab);
   const result = activeDocumentId ? analysisResults[activeDocumentId] : null;
   const [activeBarIdx, setActiveBarIdx] = useState(-1);
 
-  const navigate = (tab: TabId) => setActiveTab(tab);
+  const navigate = React.useCallback((tab: TabId) => setActiveTab(tab), [setActiveTab]);
 
   if (!result) return <WelcomeState />;
 
@@ -279,7 +283,10 @@ export default function Dashboard() {
   const testing    = result.testingStrategy;
   const aiImpact   = result.aiImpact;
   const plan       = result.projectPlan;
-  const doc        = useRFPStore.getState().documents.find(d => d.id === activeDocumentId);
+  const doc = useMemo(
+    () => documents.find((document) => document.id === activeDocumentId),
+    [documents, activeDocumentId]
+  );
 
   const totalCost  = estimation?.adjustedTotalCost ?? estimation?.totalCost ?? 0;
   const totalWeeks = plan?.totalDurationWeeks ?? 0;
@@ -289,10 +296,13 @@ export default function Dashboard() {
   const aiGainPct  = aiImpact?.overallProductivityGain ?? 0;
   const peakHC     = staffing?.peakHeadcount ?? teamSize;
 
-  const phaseData = (estimation?.phaseSubtotals ?? []).map(p => ({
-    name: p.phase.length > 14 ? p.phase.slice(0, 14) + '…' : p.phase,
-    cost: Math.round(p.cost / 1000),
-  }));
+  const phaseData = useMemo(
+    () => (estimation?.phaseSubtotals ?? []).map((phase) => ({
+      name: phase.phase.length > 14 ? phase.phase.slice(0, 14) + '…' : phase.phase,
+      cost: Math.round(phase.cost / 1000),
+    })),
+    [estimation]
+  );
 
   const headData = useMemo(() => {
     if (!totalWeeks || !peakHC) return [];
@@ -307,15 +317,18 @@ export default function Dashboard() {
   }, [totalWeeks, peakHC]);
 
   const bd = estimation?.costBreakdown;
-  const distItems = bd ? [
-    { label: 'Labor',            sub: `$${Math.round(bd.baseLaborCost / 1000)}K`,        val: bd.baseLaborCost },
-    { label: 'Infrastructure',   sub: `$${Math.round(bd.infrastructureAmount / 1000)}K`, val: bd.infrastructureAmount },
-    { label: 'Licenses & Tools', sub: `$${Math.round(bd.licensingAmount / 1000)}K`,      val: bd.licensingAmount },
-    { label: 'Overhead',         sub: `$${Math.round(bd.overheadAmount / 1000)}K`,       val: bd.overheadAmount },
-    { label: 'Contingency',      sub: `$${Math.round(bd.contingencyAmount / 1000)}K`,    val: bd.contingencyAmount },
-    { label: 'Travel',           sub: `$${Math.round(bd.travelAmount / 1000)}K`,         val: bd.travelAmount },
-  ].filter(d => d.val > 0) : [];
-  const maxDist = distItems.reduce((m, d) => Math.max(m, d.val), 1);
+  const distItems = useMemo(
+    () => bd ? [
+      { label: 'Labor', sub: `$${Math.round(bd.baseLaborCost / 1000)}K`, val: bd.baseLaborCost },
+      { label: 'Infrastructure', sub: `$${Math.round(bd.infrastructureAmount / 1000)}K`, val: bd.infrastructureAmount },
+      { label: 'Licenses & Tools', sub: `$${Math.round(bd.licensingAmount / 1000)}K`, val: bd.licensingAmount },
+      { label: 'Overhead', sub: `$${Math.round(bd.overheadAmount / 1000)}K`, val: bd.overheadAmount },
+      { label: 'Contingency', sub: `$${Math.round(bd.contingencyAmount / 1000)}K`, val: bd.contingencyAmount },
+      { label: 'Travel', sub: `$${Math.round(bd.travelAmount / 1000)}K`, val: bd.travelAmount },
+    ].filter((item) => item.val > 0) : [],
+    [bd]
+  );
+  const maxDist = useMemo(() => distItems.reduce((m, d) => Math.max(m, d.val), 1), [distItems]);
 
   const trad  = aiImpact?.totalTraditionalHours ?? 1;
   const saved = aiImpact?.totalHoursSaved       ?? 0;

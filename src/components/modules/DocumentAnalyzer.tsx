@@ -1,6 +1,7 @@
 'use client';
 // DocumentAnalyzer — Light theme · HTML-preserved content · T&C/Penalties red · Scope green
-import React, { useCallback, useState, useEffect, useRef } from 'react';
+// Deep-link navigation: Scope → Document scroll + IntersectionObserver bidirectional sync
+import React, { useCallback, useMemo, useState, useEffect, useRef } from 'react';
 import { useDropzone } from 'react-dropzone';
 import { motion, AnimatePresence } from 'framer-motion';
 import {
@@ -67,28 +68,35 @@ function buildKeywordRegex(keywords: string[]): RegExp {
  *  - Penalty phrases → orange-red (bg #FEF3C7, colour #92400E)
  *  - scrollHint section → amber pulse
  *
+ * Each scope item span gets data-scope-item-id so IntersectionObserver can
+ * identify which scope item is currently visible and sync the Scope list.
+ *
  * Returns an array of React nodes. Pure function — no hooks.
  */
 function buildAnnotatedContent(
   rawText: string,
   scrollHintSection: string | null,
-  scopeDescriptions: string[],
+  scopeDescriptions: Array<{ text: string; id: string }>,
 ): React.ReactNode[] {
   const text = safePreviewText(rawText);
 
   // ── 1. Collect all highlight ranges ──────────────────────────
-  type HRange = { start: number; end: number; type: 'scope' | 'tc' | 'penalty' | 'hint' };
+  type HRange = {
+    start: number; end: number;
+    type: 'scope' | 'tc' | 'penalty' | 'hint';
+    scopeItemId?: string;
+  };
   const ranges: HRange[] = [];
 
-  // Scope items (light green)
-  for (const desc of scopeDescriptions) {
-    const needle = desc.trim().slice(0, 80); // match up to first 80 chars
+  // Scope items (light green) — tagged with their scope item ID
+  for (const { text: desc, id: scopeItemId } of scopeDescriptions) {
+    const needle = desc.trim().slice(0, 80);
     if (needle.length < 6) continue;
     const escaped = needle.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
     const re = new RegExp(escaped, 'gi');
     let m: RegExpExecArray | null;
     while ((m = re.exec(text)) !== null) {
-      ranges.push({ start: m.index, end: m.index + m[0].length, type: 'scope' });
+      ranges.push({ start: m.index, end: m.index + m[0].length, type: 'scope', scopeItemId });
     }
   }
 
@@ -105,15 +113,17 @@ function buildAnnotatedContent(
     ranges.push({ start: m.index, end: m.index + m[0].length, type: 'penalty' });
   }
 
-  // Scroll-hint section (amber pulse)
+  // Scroll-hint section (amber pulse) — extend to full section for whole-section highlight
   if (scrollHintSection) {
-    const needle = scrollHintSection.replace('Section ', '');
+    const needle = scrollHintSection.replace(/^Section\s*/i, '');
     if (needle.length >= 3) {
       const escaped = needle.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
       const re = new RegExp(escaped, 'gi');
       while ((m = re.exec(text)) !== null) {
-        ranges.push({ start: m.index, end: m.index + m[0].length + 150, type: 'hint' });
-        break; // only first occurrence for scroll-hint
+        // Extend to end of paragraph / next section heading for full-section highlight
+        const sectionEnd = Math.min(text.length, m.index + m[0].length + 600);
+        ranges.push({ start: m.index, end: sectionEnd, type: 'hint' });
+        break; // only first occurrence
       }
     }
   }
@@ -124,13 +134,13 @@ function buildAnnotatedContent(
   const priority: Record<string, number> = { hint: 4, scope: 3, tc: 2, penalty: 1 };
   ranges.sort((a, b) => a.start - b.start || priority[b.type] - priority[a.type]);
 
-  // Merge overlapping ranges (keep highest priority)
+  // Merge overlapping ranges (keep highest priority + preserve scopeItemId)
   const merged: HRange[] = [];
   for (const r of ranges) {
     const last = merged[merged.length - 1];
     if (last && r.start < last.end) {
-      // overlap — extend last if needed, keep its type (already higher priority)
       last.end = Math.max(last.end, r.end);
+      if (!last.scopeItemId && r.scopeItemId) last.scopeItemId = r.scopeItemId;
     } else {
       merged.push({ ...r });
     }
@@ -144,8 +154,11 @@ function buildAnnotatedContent(
     scope:   { background: '#DCFCE7', color: '#166534', borderRadius: 3, padding: '0 2px', fontWeight: 600 },
     tc:      { background: '#FEE2E2', color: '#991B1B', borderRadius: 3, padding: '0 2px', fontWeight: 600 },
     penalty: { background: '#FEF3C7', color: '#92400E', borderRadius: 3, padding: '0 2px', fontWeight: 600 },
-    hint:    { background: 'rgba(245,158,11,0.25)', borderRadius: 4, padding: '1px 3px',
-               outline: '2px solid rgba(245,158,11,0.5)', outlineOffset: 1, color: '#92400E', fontWeight: 600 },
+    hint:    {
+      background: 'rgba(245,158,11,0.18)', borderRadius: 4, padding: '2px 3px',
+      outline: '2px solid rgba(245,158,11,0.5)', outlineOffset: 1,
+      color: '#78350F', fontWeight: 600, display: 'inline',
+    },
   };
   const classMap: Record<string, string> = { hint: 'rfp-highlight' };
 
@@ -154,7 +167,9 @@ function buildAnnotatedContent(
     nodes.push(
       <mark
         key={`h${r.start}`}
-        className={classMap[r.type] ?? ''}
+        className={[classMap[r.type], r.scopeItemId ? 'rfp-scope-mark' : ''].filter(Boolean).join(' ')}
+        // data attribute enables IntersectionObserver to map visible mark → scope item
+        data-scope-item-id={r.scopeItemId}
         style={styleMap[r.type]}
       >
         {text.slice(r.start, r.end)}
@@ -162,8 +177,96 @@ function buildAnnotatedContent(
     );
     cursor = r.end;
   }
-  if (cursor < text.length) nodes.push(<span key={`tail`}>{text.slice(cursor)}</span>);
+  if (cursor < text.length) nodes.push(<span key="tail">{text.slice(cursor)}</span>);
   return nodes;
+}
+
+// ── Section resolution for plain-text deep-linking ───────────
+/**
+ * Given a section label (e.g. "Section 2.1", "2.3", "Cloud Infrastructure"),
+ * find the best matching character offset in the plain text.
+ * Resolution order:
+ *   1. Exact section number match  (e.g. "2.1" → "2.1 Cloud Infrastructure:")
+ *   2. Section keyword match       (e.g. "Section 2" at start of line)
+ *   3. Partial text phrase match   (first occurrence of the keyword words)
+ *   4. Page number fallback        (search for "Page N" or "page N")
+ * Returns the character offset or -1 if not found.
+ */
+function resolveSection(text: string, section: string, page: string): number {
+  if (!text) return -1;
+
+  // 1. Exact section number (e.g. "2.1" or "Section 2.1")
+  const numMatch = section.match(/(\d[\d.]*)/);
+  if (numMatch) {
+    const num = numMatch[1].replace(/\./g, '\\.');
+    // Match section number at line start or after "Section "
+    const re = new RegExp(`(?:^|\\n)\\s*(?:Section\\s+)?${num}[\\s.:)]`, 'i');
+    const idx = text.search(re);
+    if (idx >= 0) return idx;
+  }
+
+  // 2. Keyword phrase from the section label (skip common words)
+  const stopWords = new Set(['section', 'the', 'a', 'an', 'of', 'and', 'or', 'for', 'to', 'in', 'on', 'at', 'by', 'page']);
+  const words = section.toLowerCase()
+    .replace(/[^a-z0-9\s]/g, ' ')
+    .split(/\s+/)
+    .filter(w => w.length > 3 && !stopWords.has(w));
+
+  for (const word of words) {
+    const re = new RegExp(`\\b${word.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\b`, 'i');
+    const idx = text.search(re);
+    if (idx >= 0) return idx;
+  }
+
+  // 3. Page number fallback
+  if (page) {
+    const pageNum = page.match(/\d+/)?.[0];
+    if (pageNum) {
+      const re = new RegExp(`(?:page|pg\\.?)\\s*${pageNum}\\b`, 'i');
+      const idx = text.search(re);
+      if (idx >= 0) return idx;
+    }
+  }
+
+  return -1;
+}
+
+// ── HTML view deep-link: find target heading element ──────────
+/**
+ * For DOCX HTML view: find the heading element that best matches `section`.
+ * Returns the matching element or null.
+ * Resolution order: section number in text → keyword phrase match.
+ */
+function resolveHtmlHeading(container: HTMLElement, section: string): HTMLElement | null {
+  const headings = Array.from(container.querySelectorAll<HTMLElement>('h1,h2,h3,h4,h5,h6,p'));
+
+  // 1. Section number match
+  const numMatch = section.match(/(\d[\d.]*)/);
+  if (numMatch) {
+    const num = numMatch[1];
+    for (const el of headings) {
+      const t = el.textContent?.trim() ?? '';
+      if (t.startsWith(num) || new RegExp(`^Section\\s+${num.replace(/\./g, '\\.')}\\b`, 'i').test(t)) {
+        return el;
+      }
+    }
+  }
+
+  // 2. Keyword match against heading text
+  const stopWords = new Set(['section', 'the', 'a', 'an', 'of', 'and', 'or', 'for', 'to', 'in', 'on', 'at', 'by']);
+  const words = section.toLowerCase()
+    .replace(/[^a-z0-9\s]/g, ' ')
+    .split(/\s+/)
+    .filter(w => w.length > 3 && !stopWords.has(w));
+
+  let bestEl: HTMLElement | null = null;
+  let bestScore = 0;
+  for (const el of headings) {
+    const t = (el.textContent ?? '').toLowerCase();
+    const score = words.filter(w => t.includes(w)).length;
+    if (score > bestScore) { bestScore = score; bestEl = el; }
+  }
+  return bestScore > 0 ? bestEl : null;
 }
 
 // ── Processing step indicator ─────────────────────────────────
@@ -224,30 +327,121 @@ function LegendPill({ bg, text, label }: { bg: string; text: string; label: stri
 
 // ── Main Component ─────────────────────────────────────────────
 export default function DocumentAnalyzer() {
-  const {
-    documents, activeDocumentId,
-    addDocument, updateDocument, setActiveDocument,
-    setAnalysisResult, setActiveTab, reset,
-    activeTab, analysisResults,
-  } = useRFPStore();
+  // Select only the slices this screen uses so unrelated store writes do not rerender the full document viewer.
+  const documents = useRFPStore((state) => state.documents);
+  const activeDocumentId = useRFPStore((state) => state.activeDocumentId);
+  const activeTab = useRFPStore((state) => state.activeTab);
+  const analysisResults = useRFPStore((state) => state.analysisResults);
+  const docScrollTarget = useRFPStore((state) => state.docScrollTarget);
+  const addDocument = useRFPStore((state) => state.addDocument);
+  const updateDocument = useRFPStore((state) => state.updateDocument);
+  const setActiveDocument = useRFPStore((state) => state.setActiveDocument);
+  const setAnalysisResult = useRFPStore((state) => state.setAnalysisResult);
+  const setActiveTab = useRFPStore((state) => state.setActiveTab);
+  const reset = useRFPStore((state) => state.reset);
+  const setDocScrollTarget = useRFPStore((state) => state.setDocScrollTarget);
+  const setActiveScopeItemId = useRFPStore((state) => state.setActiveScopeItemId);
   const [dragActive, setDragActive]         = useState(false);
   const [parseStep, setParseStep]           = useState<ParseStep>('uploading');
   const [parsePct,  setParsePct]            = useState(0);
   const [processingDocId, setProcessingDocId] = useState<string | null>(null);
+  // Inline nav-error shown when a section cannot be resolved
+  const [navError, setNavError]             = useState<string | null>(null);
 
-  const activeDoc    = documents.find((d) => d.id === activeDocumentId);
+  const activeDoc = useMemo(
+    () => documents.find((d) => d.id === activeDocumentId),
+    [documents, activeDocumentId]
+  );
   const activeResult = activeDocumentId ? analysisResults[activeDocumentId] : null;
 
-  // Collect scope descriptions for green highlighting
-  const scopeDescriptions: string[] = (activeResult?.scopeItems ?? [])
-    .filter(s => s.category === 'in-scope')
-    .map(s => s.description.trim())
-    .filter(s => s.length >= 6);
+  const scopeDescriptions = useMemo(
+    () => (activeResult?.scopeItems ?? [])
+      .filter((scopeItem) => scopeItem.category === 'in-scope')
+      .map((scopeItem) => ({ text: scopeItem.description.trim(), id: scopeItem.id }))
+      .filter((scopeItem) => scopeItem.text.length >= 6),
+    [activeResult]
+  );
 
-  // ── Scroll-hint banner ────────────────────────────────────────
+  // ── Scroll-hint banner (legacy sessionStorage path — kept for compatibility) ──
   const [scrollHint, setScrollHint] = useState<{ section: string; page: string } | null>(null);
   const textPreviewRef = useRef<HTMLDivElement>(null);
 
+  // ── Consume docScrollTarget from store (Scope → Document deep-link) ──────────
+  useEffect(() => {
+    if (!docScrollTarget) return;
+    if (activeTab !== 'document-analyzer') return;
+
+    const { section, page, scopeItemId } = docScrollTarget;
+    // Clear the target immediately so it doesn't re-fire
+    setDocScrollTarget(null);
+    setNavError(null);
+
+    // Show the scroll-hint banner
+    setScrollHint({ section, page });
+
+    // Allow the DOM to update (re-render with new scrollHint) then scroll
+    const timer = setTimeout(() => {
+      const container = textPreviewRef.current;
+      if (!container) return;
+
+      // ── HTML view (DOCX) ──────────────────────────────────────────────────────
+      if (activeDoc?.rawHtml) {
+        const heading = resolveHtmlHeading(container, section);
+        if (heading) {
+          // Remove previous active-section highlights
+          container.querySelectorAll<HTMLElement>('.doc-section-active').forEach(el => {
+            el.classList.remove('doc-section-active');
+          });
+          // Highlight the heading and all following sibling content until next heading
+          heading.classList.add('doc-section-active');
+          let sib = heading.nextElementSibling as HTMLElement | null;
+          while (sib && !['H1','H2','H3','H4','H5','H6'].includes(sib.tagName)) {
+            sib.classList.add('doc-section-active');
+            sib = sib.nextElementSibling as HTMLElement | null;
+          }
+          // Scroll heading to top of viewer
+          heading.scrollIntoView({ behavior: 'smooth', block: 'start' });
+          setActiveScopeItemId(scopeItemId);
+        } else {
+          setNavError(
+            `Section "${section}" could not be found in the document. ` +
+            `Try scrolling manually or check the reference in the Scope table.`
+          );
+        }
+        return;
+      }
+
+      // ── Plain-text view ───────────────────────────────────────────────────────
+      const rawText = activeDoc?.rawText ?? '';
+      const offset = resolveSection(rawText, section, page);
+
+      if (offset >= 0) {
+        // Find the DOM <mark> whose text content covers this offset, or use rfp-highlight
+        const marks = container.querySelectorAll<HTMLElement>('.rfp-highlight, .rfp-scope-mark');
+        if (marks.length > 0) {
+          marks[0].scrollIntoView({ behavior: 'smooth', block: 'start' });
+          marks[0].classList.remove('rfp-pulse');
+          void marks[0].offsetWidth; // reflow to restart animation
+          marks[0].classList.add('rfp-pulse');
+          setActiveScopeItemId(scopeItemId);
+        } else {
+          // Fallback: scroll proportionally to offset in text
+          const ratio = offset / Math.max(1, rawText.length);
+          container.scrollTop = ratio * container.scrollHeight;
+          setActiveScopeItemId(scopeItemId);
+        }
+      } else {
+        setNavError(
+          `Section "${section}" (${page || 'no page'}) could not be located in the document. ` +
+          `Check that the document is fully uploaded, or edit the reference in the Scope table.`
+        );
+      }
+    }, 120);
+
+    return () => clearTimeout(timer);
+  }, [docScrollTarget, activeTab, activeDoc, setDocScrollTarget, setActiveScopeItemId]);
+
+  // ── Legacy sessionStorage scroll-hint (kept for backwards compat) ──────────
   useEffect(() => {
     if (activeTab !== 'document-analyzer') return;
     try {
@@ -260,20 +454,51 @@ export default function DocumentAnalyzer() {
     } catch {}
   }, [activeTab]);
 
+  // ── Plain-text: scroll to rfp-highlight mark when scrollHint changes ───────
   useEffect(() => {
-    if (!scrollHint || !textPreviewRef.current) return;
+    if (!scrollHint || !textPreviewRef.current || activeDoc?.rawHtml) return;
     const timer = setTimeout(() => {
       if (!textPreviewRef.current) return;
       const marks = textPreviewRef.current.querySelectorAll<HTMLElement>('.rfp-highlight');
       if (marks.length > 0) {
-        marks[0].scrollIntoView({ behavior: 'smooth', block: 'center' });
+        marks[0].scrollIntoView({ behavior: 'smooth', block: 'start' });
         marks[0].classList.remove('rfp-pulse');
         void marks[0].offsetWidth;
         marks[0].classList.add('rfp-pulse');
       }
     }, 80);
     return () => clearTimeout(timer);
-  }, [scrollHint]);
+  }, [scrollHint, activeDoc?.rawHtml]);
+
+  // ── IntersectionObserver: as user scrolls, update activeScopeItemId ─────────
+  // Works for both plain-text (<mark data-scope-item-id>) and HTML (headings with
+  // data-scope-item-id injected after render).
+  useEffect(() => {
+    const container = textPreviewRef.current;
+    if (!container) return;
+
+    const observer = new IntersectionObserver(
+      (entries) => {
+        // Pick the topmost intersecting scope mark
+        const visible = entries
+          .filter(e => e.isIntersecting)
+          .sort((a, b) => a.boundingClientRect.top - b.boundingClientRect.top);
+        if (visible.length > 0) {
+          const el = visible[0].target as HTMLElement;
+          const id = el.dataset.scopeItemId;
+          if (id) setActiveScopeItemId(id);
+        }
+      },
+      { root: container, threshold: 0.1 }
+    );
+
+    // Observe all scope marks (plain text)
+    const marks = container.querySelectorAll<HTMLElement>('[data-scope-item-id]');
+    marks.forEach(m => observer.observe(m));
+
+    return () => observer.disconnect();
+  // Re-run when the document or scrollHint changes (new marks may appear)
+  }, [activeDoc?.rawText, activeDoc?.rawHtml, scrollHint, setActiveScopeItemId]);
 
   // ── File processing ───────────────────────────────────────────
   const processFile = useCallback(async (file: File) => {
@@ -287,9 +512,8 @@ export default function DocumentAnalyzer() {
     });
     setActiveDocument(docId);
     try {
-      // TASK 3: extractFromFile now returns an optional `html` field for DOCX.
-      // We store it as rawHtml on the document so the preview can render it
-      // faithfully, preserving the original document structure and visual layout.
+      // extractFromFile returns an optional `html` field for DOCX.
+      // We store it as rawHtml so the preview can render it faithfully.
       const { text: rawText, pageCount, html: rawHtml } = await extractFromFile(file, (step, pct) => {
         setParseStep(step);
         setParsePct(pct);
@@ -302,7 +526,6 @@ export default function DocumentAnalyzer() {
       const result = runFullAnalysis(docId, rawText);
       setAnalysisResult(docId, result);
     } catch (err) {
-      // TASK 4: Structured error with actionable suggestions surfaced to user.
       const msg = err instanceof Error ? err.message : 'Unknown error';
       updateDocument(docId, { status: 'error', errorMessage: msg });
     } finally {
@@ -333,7 +556,7 @@ export default function DocumentAnalyzer() {
     multiple: false,
   });
 
-  const loadDemo = async () => {
+  const loadDemo = useCallback(async () => {
     const demoText = `REQUEST FOR PROPOSAL — Enterprise Digital Transformation Platform
 
 Section 1: Executive Summary
@@ -363,7 +586,7 @@ Project timeline: 18 months.
 Section 7: Budget
 Budget range: $2.5M to $4M including licensing, professional services, and infrastructure.`;
     await processFile(new File([demoText], 'Demo_Enterprise_RFP.txt', { type: 'text/plain' }));
-  };
+  }, [processFile]);
 
   // ── Render ────────────────────────────────────────────────────
   return (
@@ -381,7 +604,31 @@ Budget range: $2.5M to $4M including licensing, professional services, and infra
         .doc-content-table td { border: 1px solid #CBD5E1; padding: 6px 10px; text-align: left; color: #1E293B; }
         .doc-content-table thead tr { background: #F1F5F9; font-weight: 600; color: #374151; }
         .doc-content-table tbody tr:nth-child(even) { background: #F8FAFC; }
+        /* Active section highlight for HTML (DOCX) view */
+        .doc-section-active {
+          background: rgba(245,158,11,0.12) !important;
+          outline: 2px solid rgba(245,158,11,0.45);
+          outline-offset: 2px;
+          border-radius: 3px;
+        }
       `}</style>
+
+      {/* ── Navigation error banner ────────────────────────────── */}
+      <AnimatePresence>
+        {navError && (
+          <motion.div
+            initial={{ opacity: 0, y: -8 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -8 }}
+            className="mb-4 flex items-start gap-3 px-4 py-3 rounded-xl text-sm"
+            style={{ background: 'rgba(244,63,94,0.07)', border: '1px solid rgba(244,63,94,0.25)' }}
+          >
+            <AlertCircle size={16} style={{ color: '#F43F5E', flexShrink: 0, marginTop: 1 }} />
+            <span className="text-slate-700 flex-1">{navError}</span>
+            <button onClick={() => setNavError(null)} className="text-slate-400 hover:text-slate-600 shrink-0">
+              <X size={14} />
+            </button>
+          </motion.div>
+        )}
+      </AnimatePresence>
 
       {/* ── Scroll-hint banner ─────────────────────────────────── */}
       <AnimatePresence>
@@ -611,15 +858,7 @@ Budget range: $2.5M to $4M including licensing, professional services, and infra
             )}
           </div>
 
-          {/*
-            TASK 3: If rawHtml is available (DOCX uploads), render it as structured HTML
-            to preserve the original document layout — headings, paragraphs, tables,
-            lists, bold/italic, hyperlinks, and indentation. We never replace diagrams,
-            tables, or images with text descriptions.
-
-            For all other formats (PDF, TXT, XLSX, PPTX) we fall back to the existing
-            plain-text annotated view which is unchanged.
-          */}
+          {/* HTML view (DOCX) — preserves original document structure */}
           {activeDoc.rawHtml ? (
             <div
               ref={textPreviewRef}
@@ -633,7 +872,6 @@ Budget range: $2.5M to $4M including licensing, professional services, and infra
                 color: '#1E293B',
               }}
             >
-              {/* Scoped styles for the rendered Word document HTML */}
               <style>{`
                 .doc-html-view h1 { font-size: 1.4em; font-weight: 700; margin: 1em 0 0.4em; color: #0F172A; }
                 .doc-html-view h2 { font-size: 1.2em; font-weight: 700; margin: 0.9em 0 0.35em; color: #1E293B; }
@@ -655,16 +893,13 @@ Budget range: $2.5M to $4M including licensing, professional services, and infra
                 .doc-html-view .doc-title { font-size: 1.6em; font-weight: 800; color: #0F172A; }
                 .doc-html-view .doc-subtitle { font-size: 1em; color: #64748B; margin-top: -0.2em; }
               `}</style>
-              {/* dangerouslySetInnerHTML is safe here: content is from user's own uploaded
-                  DOCX file, CSP blocks any script execution, and no external resources
-                  are referenced — mammoth strips all JavaScript and remote URLs. */}
               <div
                 className="doc-html-view"
                 dangerouslySetInnerHTML={{ __html: activeDoc.rawHtml }}
               />
             </div>
           ) : (
-            /* Plain-text annotated view for PDF / TXT / XLSX / PPTX (unchanged) */
+            /* Plain-text annotated view for PDF / TXT / XLSX / PPTX */
             <div
               ref={textPreviewRef}
               className="rounded-2xl p-5 overflow-y-auto"

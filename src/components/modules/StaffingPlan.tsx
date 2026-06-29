@@ -14,7 +14,7 @@ import {
 } from 'recharts';
 import { useRFPStore } from '@/lib/store';
 import { v4 as uuid } from 'uuid';
-import type { IBMBand, StaffingRole, DeployCategory } from '@/types';
+import type { IBMBand, StaffingRole, DeployCategory, ProjectPhase } from '@/types';
 
 // ── Palette ────────────────────────────────────────────────────
 const INDIGO = '#6366F1';
@@ -116,12 +116,42 @@ function getSkills(roleName: string): string[] {
   return SKILLS_MAP[roleName] ?? ['Consulting','Analysis','Delivery','Collaboration'];
 }
 
-// ── Week range from phase hours ───────────────────────────────
-// Approximate: compute first/last active phase, map to week numbers
-const PHASE_START_WEEK: Record<string, number> = {
-  Prepare:1, Explore:5, 'Realize-Build':13, 'Realize-Test':42,
-  Training:60, Deploy:68, Hypercare:72,
-};
+// ── Week range resolution ─────────────────────────────────────
+// Resolve a canonical role's active week range against the LIVE project phases.
+// Strategy: map the canonical IBM phase ordering onto the real project phase
+// ordering by index so both charts (line + bar) always share identical bounds.
+// Falls back to the full project span if no phase data is available.
+function resolveWeekRange(
+  cr: CanonicalRole,
+  phases: ProjectPhase[],
+): { start: number; end: number } {
+  // Identify which canonical IBM phases this role is actually active in.
+  const activeIBMPhases = IBM_PHASES.filter(p => (cr.phaseHours[p] ?? 0) > 0);
+  if (!activeIBMPhases.length || phases.length === 0) {
+    const lastEnd = phases.length > 0 ? phases[phases.length - 1].endWeek : 72;
+    return { start: 1, end: lastEnd };
+  }
+
+  // Map each canonical IBM phase slot to a real project phase by proportional
+  // index.  IBM_PHASES has 7 slots; real phases may differ in count.
+  const ibmCount  = IBM_PHASES.length;           // 7
+  const realCount = phases.length;
+
+  const firstIBMIdx = IBM_PHASES.indexOf(activeIBMPhases[0]);
+  const lastIBMIdx  = IBM_PHASES.indexOf(activeIBMPhases[activeIBMPhases.length - 1]);
+
+  // Map to real-phase index via proportional scaling (clamped).
+  const toRealIdx = (ibmIdx: number) =>
+    Math.min(Math.round((ibmIdx / (ibmCount - 1)) * (realCount - 1)), realCount - 1);
+
+  const firstRealIdx = toRealIdx(firstIBMIdx);
+  const lastRealIdx  = toRealIdx(lastIBMIdx);
+
+  return {
+    start: phases[firstRealIdx].startWeek,
+    end:   phases[lastRealIdx].endWeek,
+  };
+}
 
 // ── Format helpers ─────────────────────────────────────────────
 function fmtCost(n: number): string {
@@ -195,16 +225,6 @@ function buildRolesFromCanonical(): StaffingRole[] {
     totalCost: cr.totalHours * BAND_RATES[cr.band],
     deployCategory: LOCATION_CATEGORY[cr.location],
   } as StaffingRole));
-}
-
-function getWeekRange(cr: CanonicalRole): { start: number; end: number } {
-  const activePhases = IBM_PHASES.filter(p => (cr.phaseHours[p] ?? 0) > 0);
-  if (!activePhases.length) return { start: 1, end: 72 };
-  const first = activePhases[0];
-  const last  = activePhases[activePhases.length - 1];
-  const start = PHASE_START_WEEK[first] ?? 1;
-  const endBase = PHASE_START_WEEK[last] ?? 68;
-  return { start, end: Math.min(endBase + 8, 72) };
 }
 
 // ── Staffing Assumptions ───────────────────────────────────────
@@ -325,16 +345,17 @@ interface RoleCardProps {
   role: StaffingRole;
   canonical: CanonicalRole | undefined;
   projectMonths: number;
+  phases: ProjectPhase[];
   onRemove: (id: string) => void;
 }
-function RoleCard({ role, canonical, projectMonths, onRemove }: RoleCardProps) {
+function RoleCard({ role, canonical, projectMonths, phases, onRemove }: RoleCardProps) {
   const [showAll, setShowAll] = useState(false);
   const seniority = getSeniority(role.band);
   const senStyle  = SENIORITY_STYLE[seniority] ?? SENIORITY_STYLE.mid;
   const allocPct  = getAllocPct(role, projectMonths);
   const barColor  = allocColor(allocPct);
   const skills    = getSkills(role.roleName);
-  const wr        = canonical ? getWeekRange(canonical) : { start: 1, end: 72 };
+  const wr        = canonical ? resolveWeekRange(canonical, phases) : { start: 1, end: phases[phases.length - 1]?.endWeek ?? 72 };
   const totalWeeks = wr.end - wr.start + 1;
   const visibleSkills = showAll ? skills : skills.slice(0, 4);
   const hasMore = skills.length > 4;
@@ -461,7 +482,8 @@ export default function StaffingPlanModule() {
       const activeHeadcount = roles.reduce((sum, role) => {
         const canonical = CANONICAL_ROLES.find((item) => item.roleName === role.roleName && item.band === role.band);
         if (canonical) {
-          const { start, end } = getWeekRange(canonical);
+          // Use live project phases to resolve week range — same logic as bar chart.
+          const { start, end } = resolveWeekRange(canonical, phases);
           return sum + (week >= start && week <= end ? role.numberOfResources : 0);
         }
         const matchingPhaseCount = phases.filter((phase) =>
@@ -652,7 +674,7 @@ export default function StaffingPlanModule() {
           const activeRoles = roles
             .filter(role => {
               const canon = CANONICAL_ROLES.find(c => c.roleName === role.roleName && c.band === role.band);
-              if (canon) { const { start, end } = getWeekRange(canon); return week >= start && week <= end; }
+              if (canon) { const { start, end } = resolveWeekRange(canon, phases); return week >= start && week <= end; }
               return phase?.responsibleRoles.some(r => r.toLowerCase().includes(role.roleName.toLowerCase())) ?? false;
             })
             .map(r => r.roleName);
@@ -947,8 +969,9 @@ export default function StaffingPlanModule() {
                   const canon = CANONICAL_ROLES.find(c => c.roleName === role.roleName && c.band === role.band);
                   let active = 0;
                   if (canon) {
-                    const { start, end } = getWeekRange(canon);
-                    // overlap check
+                    // Use the same resolveWeekRange as the line chart — guaranteed sync.
+                    const { start, end } = resolveWeekRange(canon, phases);
+                    // overlap check: role is active in this phase if their week windows intersect
                     active = (phase.startWeek <= end && phase.endWeek >= start) ? role.numberOfResources : 0;
                   } else {
                     // custom role: active if phase references the role name
@@ -1202,12 +1225,14 @@ export default function StaffingPlanModule() {
         <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 gap-4">
           {filteredRoles.map(role => {
             const canon = CANONICAL_ROLES.find(c => c.roleName === role.roleName);
+            const livePhasesForCard = result?.projectPlan?.phases ?? [];
             return (
               <RoleCard
                 key={role.id}
                 role={role}
                 canonical={canon}
                 projectMonths={projectMonths}
+                phases={livePhasesForCard}
                 onRemove={(id) => { if (activeDocumentId) removeStaffingRole(activeDocumentId, id); }}
               />
             );
@@ -1240,7 +1265,8 @@ export default function StaffingPlanModule() {
               <tbody>
                 {filteredRoles.map((role, i) => {
                   const canon    = CANONICAL_ROLES.find(c => c.roleName === role.roleName);
-                  const wr       = canon ? getWeekRange(canon) : { start:1, end:72 };
+                  const livePhasesForTable = result?.projectPlan?.phases ?? [];
+                  const wr       = canon ? resolveWeekRange(canon, livePhasesForTable) : { start: 1, end: livePhasesForTable[livePhasesForTable.length - 1]?.endWeek ?? 72 };
                   const seniority = getSeniority(role.band);
                   const senStyle  = SENIORITY_STYLE[seniority];
                   const allocPct  = getAllocPct(role, projectMonths);

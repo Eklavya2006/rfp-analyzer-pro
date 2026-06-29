@@ -4,9 +4,7 @@
 
 Click the button below — Vercel will fork the repo, build, and give you a live URL in ~60 seconds:
 
-[![Deploy with Vercel](https://vercel.com/button)](https://vercel.com/new/clone?repository-url=https%3A%2F%2Fgithub.com%2FYOUR_GITHUB_USERNAME%2Frfp-analyzer-pro&project-name=rfp-analyzer-pro&repository-name=rfp-analyzer-pro&build-command=npm+run+build&install-command=npm+install+--legacy-peer-deps&output-directory=.next)
-
-> **Replace `YOUR_GITHUB_USERNAME`** with your GitHub handle after pushing the repo (see Step 1 below).
+[![Deploy with Vercel](https://vercel.com/button)](https://vercel.com/new/clone?repository-url=https%3A%2F%2Fgithub.com%2FEklavya2006%2Frfp-analyzer-pro&project-name=rfp-analyzer-pro&repository-name=rfp-analyzer-pro&build-command=npm+run+build&install-command=npm+install+--legacy-peer-deps&output-directory=.next)
 
 ---
 

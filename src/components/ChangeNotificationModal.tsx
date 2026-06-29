@@ -4,7 +4,9 @@ import { useRFPStore } from '@/lib/store';
 import { AlertTriangle } from 'lucide-react';
 
 export default function ChangeNotificationModal() {
-  const { pendingNotification, confirmNotification, cancelNotification } = useRFPStore();
+  const pendingNotification = useRFPStore((state) => state.pendingNotification);
+  const confirmNotification = useRFPStore((state) => state.confirmNotification);
+  const cancelNotification = useRFPStore((state) => state.cancelNotification);
   if (!pendingNotification) return null;
 
   return (

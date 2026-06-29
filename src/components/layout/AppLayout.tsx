@@ -163,9 +163,21 @@ function Avatar() {
 
 // ── Main Layout ───────────────────────────────────────────────
 export default function AppLayout({ children }: { children: React.ReactNode }) {
-  const { activeTab, setActiveTab, activeDocumentId, documents, sidebarOpen, toggleSidebar } = useRFPStore();
-  const activeDoc      = documents.find((d) => d.id === activeDocumentId);
-  const activeNavItem  = NAV_ITEMS.find((n) => n.id === activeTab);
+  // Use narrow selectors so layout chrome does not rerender for unrelated analysis payload updates.
+  const activeTab = useRFPStore((state) => state.activeTab);
+  const setActiveTab = useRFPStore((state) => state.setActiveTab);
+  const activeDocumentId = useRFPStore((state) => state.activeDocumentId);
+  const documents = useRFPStore((state) => state.documents);
+  const sidebarOpen = useRFPStore((state) => state.sidebarOpen);
+  const toggleSidebar = useRFPStore((state) => state.toggleSidebar);
+  const activeDoc = React.useMemo(
+    () => documents.find((d) => d.id === activeDocumentId),
+    [documents, activeDocumentId]
+  );
+  const activeNavItem = React.useMemo(
+    () => NAV_ITEMS.find((n) => n.id === activeTab),
+    [activeTab]
+  );
 
   return (
     <div className="flex h-screen overflow-hidden bg-slate-50">

@@ -1,6 +1,6 @@
 'use client';
 // Testing — Dark glassmorphism · KPI cards + QA Hours bar + coverage gauge
-import React, { useState } from 'react';
+import React, { useCallback, useMemo, useState } from 'react';
 import { Plus, Trash2, ToggleLeft, ToggleRight, Pencil, Check, X } from 'lucide-react';
 import {
   BarChart, Bar,
@@ -103,10 +103,14 @@ function CoverageGauge({ pct }: { pct: number }) {
 
 // ── Editable hours cell ───────────────────────────────────────
 function HoursCell({ sectionId, docId, hours }: { sectionId: string; docId: string; hours: number }) {
-  const { updateTestHours } = useRFPStore();
+  const updateTestHours = useRFPStore((state) => state.updateTestHours);
   const [editing, setEditing] = useState(false);
-  const [draft, setDraft]     = useState(String(hours));
-  const commit = () => { const n = Math.max(0, parseInt(draft, 10) || 0); updateTestHours(docId, sectionId, n); setEditing(false); };
+  const [draft, setDraft] = useState(String(hours));
+  const commit = useCallback(() => {
+    const nextHours = Math.max(0, parseInt(draft, 10) || 0);
+    updateTestHours(docId, sectionId, nextHours);
+    setEditing(false);
+  }, [docId, draft, sectionId, updateTestHours]);
 
   if (editing) {
     return (
@@ -136,7 +140,9 @@ interface CriteriaListProps {
   criteria: string[]; label: string; accentColor: string;
 }
 function CriteriaList({ sectionId, docId, type, criteria, label, accentColor }: CriteriaListProps) {
-  const { updateTestCriteria, addTestCriterion, removeTestCriterion } = useRFPStore();
+  const updateTestCriteria = useRFPStore((state) => state.updateTestCriteria);
+  const addTestCriterion = useRFPStore((state) => state.addTestCriterion);
+  const removeTestCriterion = useRFPStore((state) => state.removeTestCriterion);
   return (
     <div>
       <div className="text-xs font-bold mb-2 uppercase tracking-wider flex items-center gap-1" style={{ color: '#475569' }}>
@@ -173,7 +179,12 @@ function CriteriaList({ sectionId, docId, type, criteria, label, accentColor }: 
 
 // ── Main ──────────────────────────────────────────────────────
 export default function TestingModule() {
-  const { activeDocumentId, analysisResults, toggleTestSection, addTestSection, removeTestSection } = useRFPStore();
+  // Subscribe only to testing-specific slices so edits in other modules do not rerender this full screen.
+  const activeDocumentId = useRFPStore((state) => state.activeDocumentId);
+  const analysisResults = useRFPStore((state) => state.analysisResults);
+  const toggleTestSection = useRFPStore((state) => state.toggleTestSection);
+  const addTestSection = useRFPStore((state) => state.addTestSection);
+  const removeTestSection = useRFPStore((state) => state.removeTestSection);
   const result = activeDocumentId ? analysisResults[activeDocumentId] : null;
   const [showAdd, setShowAdd] = useState(false);
   const [newSection, setNewSection] = useState<Partial<TestSection>>({
@@ -186,10 +197,13 @@ export default function TestingModule() {
     </div>
   );
 
-  const strategy       = result.testingStrategy;
-  const activeSections = strategy.sections.filter((s) => s.enabled);
+  const strategy = result.testingStrategy;
+  const activeSections = useMemo(
+    () => strategy.sections.filter((section) => section.enabled),
+    [strategy.sections]
+  );
 
-  const handleAdd = () => {
+  const handleAdd = useCallback(() => {
     if (!activeDocumentId) return;
     const section: TestSection = {
       id: uuid(),
@@ -205,13 +219,28 @@ export default function TestingModule() {
     addTestSection(activeDocumentId, section);
     setShowAdd(false);
     setNewSection({ type: 'Unit', scope: '', estimatedHours: 100, responsibleBand: '7A', enabled: true });
-  };
+  }, [activeDocumentId, addTestSection, newSection]);
 
-  // ── Chart data ───────────────────────────────────────────────
-  const totalCases    = strategy.sections.reduce((s, sec) => s + Math.round(sec.estimatedHours * 1.2), 0);
-  const passRate      = Math.min(99, Math.round(strategy.automationCoverage * 0.95));
-  const failedTests   = Math.max(1, Math.round(totalCases * (1 - passRate / 100) * 0.6));
-  const pendingReview = Math.max(1, Math.round(totalCases * 0.05));
+  const totalCases = useMemo(
+    () => strategy.sections.reduce((sum, section) => sum + Math.round(section.estimatedHours * 1.2), 0),
+    [strategy.sections]
+  );
+  const passRate = useMemo(
+    () => Math.min(99, Math.round(strategy.automationCoverage * 0.95)),
+    [strategy.automationCoverage]
+  );
+  const failedTests = useMemo(
+    () => Math.max(1, Math.round(totalCases * (1 - passRate / 100) * 0.6)),
+    [passRate, totalCases]
+  );
+  const pendingReview = useMemo(
+    () => Math.max(1, Math.round(totalCases * 0.05)),
+    [totalCases]
+  );
+  const qaHoursByPhase = useMemo(
+    () => strategy.sections.map((section) => ({ name: section.type, Hours: section.estimatedHours, id: section.id })),
+    [strategy.sections]
+  );
 
   return (
     <div className="p-6 max-w-7xl mx-auto space-y-6">
@@ -251,15 +280,15 @@ export default function TestingModule() {
         <div className="lg:col-span-2 rounded-2xl p-5" style={{ background: GLASS, border: `1px solid ${BORDER}` }}>
           <h3 style={{ fontSize: 15, fontWeight: 600, color: '#F1F5F9', marginBottom: 18 }}>QA Hours by Phase</h3>
           <ResponsiveContainer width="100%" height={210}>
-            <BarChart data={strategy.sections.map(s => ({ name: s.type, Hours: s.estimatedHours }))}
+            <BarChart data={qaHoursByPhase}
               barSize={36} margin={{ left: -10, right: 10 }}>
               <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.05)" vertical={false} />
               <XAxis dataKey="name" tick={{ fontSize: 11, fill: '#64748B' }} axisLine={false} tickLine={false} />
               <YAxis tick={{ fontSize: 11, fill: '#64748B' }} axisLine={false} tickLine={false} />
               <Tooltip content={<CustomTooltip />} wrapperStyle={tooltipWrapperStyle} />
               <Bar dataKey="Hours" radius={[6, 6, 0, 0]}>
-                {strategy.sections.map((s) => (
-                  <Cell key={s.id} fill={TYPE_COLORS[s.type] ?? INDIGO} />
+                {qaHoursByPhase.map((section) => (
+                  <Cell key={section.id} fill={TYPE_COLORS[section.name] ?? INDIGO} />
                 ))}
               </Bar>
             </BarChart>

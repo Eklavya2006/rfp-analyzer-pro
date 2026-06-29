@@ -2,7 +2,7 @@
 // ============================================================
 // AgenticImpact — KPI cards + charts + 3-way view toggle
 // ============================================================
-import React, { useState } from 'react';
+import React, { useCallback, useState } from 'react';
 import {
   BarChart, Bar, AreaChart, Area, PieChart, Pie, Cell,
   XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Legend,
@@ -359,7 +359,10 @@ function ClientOutcomeView({ ai }: { ai: AIImpact }) {
 }
 
 export default function AgenticImpactModule() {
-  const { activeDocumentId, analysisResults, setAnalysisResult, showNotification } = useRFPStore();
+  const activeDocumentId = useRFPStore((state) => state.activeDocumentId);
+  const analysisResults = useRFPStore((state) => state.analysisResults);
+  const setAnalysisResult = useRFPStore((state) => state.setAnalysisResult);
+  const showNotification = useRFPStore((state) => state.showNotification);
   const result = activeDocumentId ? analysisResults[activeDocumentId] : null;
   const [view, setView] = useState<AgenticView>('client');
   const [editingRoleId, setEditingRoleId] = useState<string | null>(null);
@@ -371,12 +374,12 @@ export default function AgenticImpactModule() {
 
   const ai = result.aiImpact;
 
-  const startEdit = (row: AIRoleRow) => {
+  const startEdit = useCallback((row: AIRoleRow) => {
     setEditingRoleId(row.id);
     setEditValues({ productivityPct: row.productivityPct, automationCoveragePct: row.automationCoveragePct, reworkReductionPct: row.reworkReductionPct });
-  };
+  }, []);
 
-  const commitEdit = (rowId: string) => {
+  const commitEdit = useCallback((rowId: string) => {
     if (!activeDocumentId || !result.aiImpact) return;
     const roleRows = result.aiImpact.roleRows.map((r) => {
       if (r.id !== rowId) return r;
@@ -400,20 +403,23 @@ export default function AgenticImpactModule() {
       pendingUpdate: performUpdate,
     });
     setEditingRoleId(null);
-  };
+  }, [activeDocumentId, editValues, result, setAnalysisResult, showNotification]);
 
   // ── Build chart data ──────────────────────────────────────────
-  const HOURS = Array.from({ length: 24 }, (_, i) => `${String(i).padStart(2,'0')}:00`);
-  const agentNames = ai.roleRows.slice(0, 4).map(r => (r.agentName ?? r.role).split(' ')[0]);
+  const HOURS = React.useMemo(() => Array.from({ length: 24 }, (_, i) => `${String(i).padStart(2,'0')}:00`), []);
+  const agentNames = React.useMemo(
+    () => ai.roleRows.slice(0, 4).map((row) => (row.agentName ?? row.role).split(' ')[0]),
+    [ai.roleRows]
+  );
 
-  const activityData: ActivityPoint[] = HOURS.map((hour, hi) => {
+  const activityData: ActivityPoint[] = React.useMemo(() => HOURS.map((hour, hi) => {
     const row: ActivityPoint = { hour };
     agentNames.forEach((name, ni) => {
       const peak = (hi >= 8 && hi <= 18) ? 1 : 0.3;
       row[name] = Math.round(Math.max(0, (Math.sin((hi + ni * 2) * 0.5) * 8 + 6) * peak));
     });
     return row;
-  });
+  }), [HOURS, agentNames]);
 
   const taskTypeData: TaskTypeSlice[] = [
     { name: 'Analysis',      value: Math.round(ai.totalAIHours * 0.30) },

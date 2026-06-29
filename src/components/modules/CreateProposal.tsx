@@ -3,7 +3,7 @@
 // CreateProposal — S9: Proposal generation, branding, PDF export
 //                 + Animated Client Objection Handling Guide
 // ============================================================
-import React, { useState, useRef } from 'react';
+import React, { useCallback, useState, useRef } from 'react';
 import { FileText, Download, Link2, Image, Globe, Wand2 } from 'lucide-react';
 import { useRFPStore } from '@/lib/store';
 
@@ -402,9 +402,14 @@ function ObjectionsGuidePanel({ objections, onUpdate }: ObjectionsGuidePanelProp
 }
 
 export default function CreateProposalModule() {
-  const { activeDocumentId, analysisResults, documents } = useRFPStore();
+  const activeDocumentId = useRFPStore((state) => state.activeDocumentId);
+  const analysisResults = useRFPStore((state) => state.analysisResults);
+  const documents = useRFPStore((state) => state.documents);
   const result = activeDocumentId ? analysisResults[activeDocumentId] : null;
-  const doc = documents.find((d) => d.id === activeDocumentId);
+  const doc = React.useMemo(
+    () => documents.find((document) => document.id === activeDocumentId),
+    [documents, activeDocumentId]
+  );
   const [withLogo, setWithLogo] = useState(false);
   const [logoSource, setLogoSource] = useState<'upload' | 'website'>('upload');
   const [logoDataUrl, setLogoDataUrl] = useState<string | null>(null);
@@ -417,11 +422,11 @@ export default function CreateProposalModule() {
 
   // ── Editable objections state — seeded from PRESET_OBJECTIONS ──
   const [objections, setObjections] = useState<ClientObjection[]>(PRESET_OBJECTIONS);
-  const updateObjectionField = (
+  const updateObjectionField = useCallback((
     id: string,
     field: keyof Pick<ClientObjection, 'objection' | 'response' | 'supportingData'>,
     value: string,
-  ) => setObjections(prev => prev.map(o => o.id === id ? { ...o, [field]: value } : o));
+  ) => setObjections((prev) => prev.map((objection) => objection.id === id ? { ...objection, [field]: value } : objection)), []);
 
   const clientName = doc?.summary?.client || 'Enterprise Client';
   const projectTitle = doc?.summary?.title || 'Enterprise Digital Transformation';
@@ -431,15 +436,15 @@ export default function CreateProposalModule() {
     <div className="p-6 text-gray-400 text-sm text-center mt-20">Upload a document first to generate a proposal</div>
   );
 
-  const handleLogoUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+  const handleLogoUpload = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
     const reader = new FileReader();
     reader.onload = () => setLogoDataUrl(reader.result as string);
     reader.readAsDataURL(file);
-  };
+  }, []);
 
-  const handleFetchLogo = async () => {
+  const handleFetchLogo = useCallback(async () => {
     if (!websiteUrl) return;
     setFetchingLogo(true);
     try {
@@ -451,13 +456,13 @@ export default function CreateProposalModule() {
       setLogoDataUrl(null);
     }
     setFetchingLogo(false);
-  };
+  }, [websiteUrl]);
 
-  const generate = () => {
+  const generate = useCallback(() => {
     const html = buildProposalHTML({ clientName, projectTitle, date, result, logoDataUrl, withLogo, objections });
     setProposalHtml(html);
     setPreviewOpen(true);
-  };
+  }, [clientName, date, logoDataUrl, objections, projectTitle, result, withLogo]);
 
   const downloadPDF = () => {
     // Open proposal HTML in new tab — user can print to PDF

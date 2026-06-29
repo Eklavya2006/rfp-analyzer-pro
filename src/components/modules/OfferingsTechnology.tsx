@@ -48,13 +48,32 @@ function RelevanceGauge({ score, color }: { score: number; color: string }) {
 }
 
 export default function OfferingsTechnology() {
-  const { activeDocumentId, analysisResults } = useRFPStore();
+  const activeDocumentId = useRFPStore((state) => state.activeDocumentId);
+  const analysisResults = useRFPStore((state) => state.analysisResults);
   const result = activeDocumentId ? analysisResults[activeDocumentId] : null;
   const [groupByServiceLine, setGroupByServiceLine] = useState(false);
 
   if (!result?.offerings) return <div className="p-6 text-gray-400 text-sm text-center mt-20">Upload a document to see IBM offerings</div>;
 
   const offerings = result.offerings;
+  const groupedByCategory = React.useMemo(
+    () => CATEGORY_ORDER.map((category) => ({
+      category,
+      items: offerings
+        .filter((offering) => offering.category === category)
+        .sort((a, b) => b.relevanceScore - a.relevanceScore),
+    })).filter((group) => group.items.length > 0),
+    [offerings]
+  );
+  const groupedByServiceLine = React.useMemo(
+    () => SERVICE_LINE_ORDER.map((serviceLine) => ({
+      serviceLine,
+      items: offerings
+        .filter((offering) => offering.serviceLine === serviceLine)
+        .sort((a, b) => b.relevanceScore - a.relevanceScore),
+    })).filter((group) => group.items.length > 0),
+    [offerings]
+  );
 
   return (
     <div className="p-6 max-w-7xl mx-auto space-y-6">
@@ -83,9 +102,7 @@ export default function OfferingsTechnology() {
       </div>
 
       {/* Grouped by Category */}
-      {!groupByServiceLine && CATEGORY_ORDER.map((category) => {
-        const items = offerings.filter((o) => o.category === category).sort((a, b) => b.relevanceScore - a.relevanceScore);
-        if (items.length === 0) return null;
+      {!groupByServiceLine && groupedByCategory.map(({ category, items }) => {
         const colors = CATEGORY_COLORS[category];
         return (
           <div key={category}>
@@ -124,14 +141,12 @@ export default function OfferingsTechnology() {
       })}
 
       {/* Grouped by Service Line */}
-      {groupByServiceLine && SERVICE_LINE_ORDER.map((sl) => {
-        const items = offerings.filter((o) => o.serviceLine === sl).sort((a, b) => b.relevanceScore - a.relevanceScore);
-        if (items.length === 0) return null;
-        const slColor = SERVICE_LINE_COLORS[sl];
+      {groupByServiceLine && groupedByServiceLine.map(({ serviceLine, items }) => {
+        const slColor = SERVICE_LINE_COLORS[serviceLine];
         return (
-          <div key={sl}>
+          <div key={serviceLine}>
             <div className="flex items-center gap-3 mb-4">
-              <div className="px-3 py-1 rounded-full text-xs font-bold text-white" style={{ background: slColor }}>{sl}</div>
+              <div className="px-3 py-1 rounded-full text-xs font-bold text-white" style={{ background: slColor }}>{serviceLine}</div>
               <div className="text-xs text-gray-400">{items.length} offering{items.length !== 1 ? 's' : ''}</div>
               <div className="flex-1 h-px bg-gray-100" />
             </div>

@@ -257,7 +257,8 @@ function DonutLegend({ payload }: { payload?: any[] }) {
 // MAIN COMPONENT
 // ============================================================
 export default function EstimationModule() {
-  const { activeDocumentId, analysisResults } = useRFPStore();
+  const activeDocumentId = useRFPStore((state) => state.activeDocumentId);
+  const analysisResults = useRFPStore((state) => state.analysisResults);
   const hasDoc = !!(activeDocumentId && analysisResults[activeDocumentId]);
 
   // ── Assumptions state ─────────────────────────────────────
@@ -324,19 +325,18 @@ export default function EstimationModule() {
   }, [assump, rates]);
 
   // ── Bar chart data (in $K) ────────────────────────────────
-  const barData = calc.roleCosts.map((r) => ({
-    role: r.role.replace(' Developer', ' Dev').replace(' Engineer', ' Eng').replace(' Manager', ' Mgr').replace('Business Analyst', 'BA').replace('UX Designer', 'UX Des'),
-    costK: Math.round(r.cost / 1000),
-    fullName: r.role,
-  }));
+  const barData = useMemo(() => calc.roleCosts.map((roleCost) => ({
+    role: roleCost.role.replace(' Developer', ' Dev').replace(' Engineer', ' Eng').replace(' Manager', ' Mgr').replace('Business Analyst', 'BA').replace('UX Designer', 'UX Des'),
+    costK: Math.round(roleCost.cost / 1000),
+    fullName: roleCost.role,
+  })), [calc.roleCosts]);
 
-  // ── Role summary table ────────────────────────────────────
-  const roleSummary = calc.roleCosts.map((r) => ({
-    role:    r.role,
-    hours:   r.hours,
-    cost:    r.cost,
-    pctLabor: calc.laborCost > 0 ? (r.cost / calc.laborCost) * 100 : 0,
-  }));
+  const roleSummary = useMemo(() => calc.roleCosts.map((roleCost) => ({
+    role: roleCost.role,
+    hours: roleCost.hours,
+    cost: roleCost.cost,
+    pctLabor: calc.laborCost > 0 ? (roleCost.cost / calc.laborCost) * 100 : 0,
+  })), [calc.roleCosts, calc.laborCost]);
 
   if (!hasDoc) {
     return (
