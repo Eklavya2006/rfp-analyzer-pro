@@ -10,6 +10,7 @@ import {
   BarChart, Bar, AreaChart, Area,
   XAxis, YAxis, CartesianGrid, Tooltip,
   ResponsiveContainer, Cell, Legend,
+  ReferenceLine, ReferenceArea,
 } from 'recharts';
 import { useRFPStore } from '@/lib/store';
 import { v4 as uuid } from 'uuid';
@@ -640,6 +641,28 @@ export default function StaffingPlanModule() {
 
         const utilColor = (u: number) => u >= 80 ? '#10B981' : u >= 50 ? '#F59E0B' : '#F43F5E';
 
+        // ── Enhanced Headcount Over Time data ─────────────────────
+        // Build per-week data with phase label and active-role breakdown for tooltip
+        const phases = result?.projectPlan?.phases ?? [];
+        const totalWeeks = result?.projectPlan?.totalDurationWeeks ?? headcountOverTime.length;
+        const hcOverTimeEnhanced = headcountOverTime.map((pt, wkIdx) => {
+          const week = wkIdx + 1;
+          const phase = phases.find(p => week >= p.startWeek && week <= p.endWeek);
+          // active role names at this week (for tooltip)
+          const activeRoles = roles
+            .filter(role => {
+              const canon = CANONICAL_ROLES.find(c => c.roleName === role.roleName && c.band === role.band);
+              if (canon) { const { start, end } = getWeekRange(canon); return week >= start && week <= end; }
+              return phase?.responsibleRoles.some(r => r.toLowerCase().includes(role.roleName.toLowerCase())) ?? false;
+            })
+            .map(r => r.roleName);
+          return { ...pt, phase: phase?.name ?? '', activeRoles };
+        });
+        const peakHcWeek = hcOverTimeEnhanced.reduce(
+          (best, pt) => pt.Headcount > best.Headcount ? pt : best,
+          hcOverTimeEnhanced[0] ?? { week: 'W1', Headcount: 0, phase: '', activeRoles: [] }
+        );
+
         return (
           <div className="space-y-4">
             <div className="flex items-center gap-2 mb-1">
@@ -672,6 +695,182 @@ export default function StaffingPlanModule() {
                 trend="neutral" trendVal={roles.length} color="#F59E0B"
               />
             </div>
+
+            {/* ── Headcount Over Time — enhanced interactive chart ── */}
+            {hcOverTimeEnhanced.length > 1 && (() => {
+              // Phase boundary reference lines (skip week 1 — no line before first phase)
+              const phaseBoundaries = phases.map(p => p.startWeek);
+              const PHASE_TINTS = ['#EFF6FF','#F0FDF4','#FAF5FF','#FFFBEB','#FFF1F2','#F0FDFA'];
+
+              return (
+                <div style={{ background: '#FFFFFF', border: '1px solid #E2E8F0', borderRadius: 16, padding: '20px 20px 14px' }}>
+                  {/* Header */}
+                  <div className="flex items-center gap-2 mb-1">
+                    <Users size={14} className="text-blue-400" />
+                    <span style={{ fontSize: 13, fontWeight: 600, color: '#0F172A' }}>Headcount Over Time</span>
+                    {/* Peak badge */}
+                    <span style={{
+                      marginLeft: 6, background: '#EFF6FF', color: '#3B82F6',
+                      borderRadius: 999, padding: '2px 10px', fontSize: 11, fontWeight: 700,
+                    }}>
+                      Peak {peakHcWeek.Headcount} @ {peakHcWeek.week}
+                    </span>
+                    <span style={{ marginLeft: 'auto', fontSize: 11, color: '#64748B' }}>
+                      {totalWeeks}w project · hover for active roles
+                    </span>
+                  </div>
+                  <p style={{ fontSize: 11, color: '#94A3B8', marginBottom: 12 }}>
+                    Shaded bands = project phases · vertical dashes = phase starts · dot = peak headcount week
+                  </p>
+
+                  <ResponsiveContainer width="100%" height={240}>
+                    <AreaChart data={hcOverTimeEnhanced} margin={{ left: -10, right: 16, top: 8, bottom: 0 }}>
+                      <defs>
+                        <linearGradient id="hcGrad2" x1="0" y1="0" x2="0" y2="1">
+                          <stop offset="5%"  stopColor="#3B82F6" stopOpacity={0.28} />
+                          <stop offset="95%" stopColor="#3B82F6" stopOpacity={0.02} />
+                        </linearGradient>
+                      </defs>
+
+                      {/* Phase background tint bands */}
+                      {phases.map((ph, i) => (
+                        <ReferenceArea
+                          key={`band-${i}`}
+                          x1={`W${ph.startWeek}`}
+                          x2={`W${ph.endWeek}`}
+                          fill={PHASE_TINTS[i % PHASE_TINTS.length]}
+                          fillOpacity={0.55}
+                          strokeOpacity={0}
+                        />
+                      ))}
+
+                      <CartesianGrid strokeDasharray="3 3" stroke="#F1F5F9" vertical={false} />
+
+                      {/* Phase boundary reference lines (dashed vertical at each phase start) */}
+                      {phaseBoundaries.slice(1).map((sw, i) => (
+                        <ReferenceLine
+                          key={`bound-${i}`}
+                          x={`W${sw}`}
+                          stroke={CHART_COLORS[i % CHART_COLORS.length]}
+                          strokeWidth={1.5}
+                          strokeDasharray="5 3"
+                          label={{
+                            value: phases[i + 1]?.name ?? '',
+                            position: 'insideTopRight',
+                            style: { fontSize: 9, fill: CHART_COLORS[i % CHART_COLORS.length], fontWeight: 600 },
+                          }}
+                        />
+                      ))}
+
+                      <XAxis
+                        dataKey="week"
+                        tick={{ fontSize: 10, fill: '#94A3B8' }}
+                        axisLine={false}
+                        tickLine={false}
+                        interval={Math.max(0, Math.floor(hcOverTimeEnhanced.length / 8) - 1)}
+                      />
+                      <YAxis
+                        tick={{ fontSize: 10, fill: '#94A3B8' }}
+                        axisLine={false}
+                        tickLine={false}
+                        allowDecimals={false}
+                        label={{ value: 'Headcount', angle: -90, position: 'insideLeft', style: { fill: '#64748B', fontSize: 10 } }}
+                      />
+
+                      {/* Rich custom tooltip */}
+                      <Tooltip
+                        content={({ active, payload }) => {
+                          if (!active || !payload?.length) return null;
+                          const pt = payload[0].payload as typeof hcOverTimeEnhanced[0];
+                          return (
+                            <div style={{
+                              background: '#fff', border: '2px solid #3B82F6',
+                              borderRadius: 10, padding: '10px 14px',
+                              boxShadow: '0 6px 24px rgba(0,0,0,0.13)',
+                              minWidth: 200, maxWidth: 280,
+                            }}>
+                              <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 6 }}>
+                                <span style={{ fontWeight: 700, fontSize: 13, color: '#0F172A' }}>{pt.week}</span>
+                                {pt.phase && (
+                                  <span style={{ fontSize: 11, color: '#3B82F6', fontWeight: 600,
+                                    background: '#EFF6FF', borderRadius: 999, padding: '1px 8px' }}>
+                                    {pt.phase}
+                                  </span>
+                                )}
+                              </div>
+                              <div style={{ fontSize: 22, fontWeight: 800, color: '#3B82F6', marginBottom: 8 }}>
+                                {pt.Headcount}
+                                <span style={{ fontSize: 12, fontWeight: 500, color: '#64748B', marginLeft: 4 }}>active</span>
+                              </div>
+                              {pt.activeRoles.length > 0 && (
+                                <div style={{ borderTop: '1px solid #E2E8F0', paddingTop: 7 }}>
+                                  <div style={{ fontSize: 10, fontWeight: 600, color: '#94A3B8', textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: 5 }}>
+                                    Active Roles
+                                  </div>
+                                  <div style={{ display: 'flex', flexDirection: 'column', gap: 3 }}>
+                                    {pt.activeRoles.slice(0, 6).map((r, ri) => (
+                                      <div key={ri} style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 12 }}>
+                                        <div style={{ width: 6, height: 6, borderRadius: '50%', background: CHART_COLORS[ri % CHART_COLORS.length], flexShrink: 0 }} />
+                                        <span style={{ color: '#1F2937' }}>{r}</span>
+                                      </div>
+                                    ))}
+                                    {pt.activeRoles.length > 6 && (
+                                      <div style={{ fontSize: 11, color: '#94A3B8' }}>+{pt.activeRoles.length - 6} more</div>
+                                    )}
+                                  </div>
+                                </div>
+                              )}
+                              {pt.Headcount === peakHcWeek.Headcount && (
+                                <div style={{ marginTop: 8, background: '#EFF6FF', borderRadius: 6, padding: '3px 8px', fontSize: 11, fontWeight: 700, color: '#3B82F6', textAlign: 'center' }}>
+                                  ★ Peak Headcount
+                                </div>
+                              )}
+                            </div>
+                          );
+                        }}
+                        cursor={{ stroke: '#3B82F6', strokeWidth: 1, strokeDasharray: '4 3' }}
+                      />
+
+                      <Area
+                        type="monotone"
+                        dataKey="Headcount"
+                        stroke="#3B82F6"
+                        strokeWidth={2.5}
+                        fill="url(#hcGrad2)"
+                        dot={false}
+                        activeDot={(props: { cx?: number; cy?: number; payload?: typeof hcOverTimeEnhanced[0] }) => {
+                          const isPeak = props.payload?.Headcount === peakHcWeek.Headcount;
+                          return (
+                            <circle
+                              cx={props.cx} cy={props.cy}
+                              r={isPeak ? 7 : 4}
+                              fill={isPeak ? '#F59E0B' : '#3B82F6'}
+                              stroke="#fff" strokeWidth={2}
+                            />
+                          );
+                        }}
+                      />
+                    </AreaChart>
+                  </ResponsiveContainer>
+
+                  {/* Phase legend strip */}
+                  <div className="flex flex-wrap gap-2 mt-3 pt-3 border-t" style={{ borderColor: '#E2E8F0' }}>
+                    {phases.map((ph, i) => (
+                      <div key={i} className="flex items-center gap-1.5 text-[11px]"
+                        style={{
+                          background: `${CHART_COLORS[i % CHART_COLORS.length]}12`,
+                          border: `1px solid ${CHART_COLORS[i % CHART_COLORS.length]}30`,
+                          borderRadius: 999, padding: '2px 10px', color: '#374151',
+                        }}>
+                        <div style={{ width: 6, height: 6, borderRadius: '50%', background: CHART_COLORS[i % CHART_COLORS.length] }} />
+                        <span className="font-medium">{ph.name}</span>
+                        <span style={{ color: '#94A3B8' }}>W{ph.startWeek}–W{ph.endWeek}</span>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              );
+            })()}
 
             {/* ── Charts row ── */}
             <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
@@ -748,54 +947,6 @@ export default function StaffingPlanModule() {
                     <Tooltip content={<CustomTooltip />} />
                     <Area type="monotone" dataKey="Burn" stroke="#F59E0B" strokeWidth={2.5}
                       fill="url(#burnGrad)" dot={false} activeDot={{ r: 5, fill: '#F59E0B' }} />
-                  </AreaChart>
-                </ResponsiveContainer>
-              </div>
-            )}
-
-            {/* Headcount Over Time chart */}
-            {headcountOverTime.length > 1 && (
-              <div style={{ background: '#FFFFFF', border: '1px solid #E2E8F0', borderRadius: 16, padding: '20px 20px 12px' }}>
-                <div className="flex items-center gap-2 mb-4">
-                  <Users size={14} className="text-blue-400" />
-                  <span style={{ fontSize: 13, fontWeight: 600, color: '#0F172A' }}>Headcount Over Time</span>
-                  <span style={{ marginLeft: 'auto', fontSize: 11, color: '#64748B' }}>
-                    Derived from canonical staffing coverage and live project phase windows
-                  </span>
-                </div>
-                <ResponsiveContainer width="100%" height={220}>
-                  <AreaChart data={headcountOverTime} margin={{ left: -10, right: 10 }}>
-                    <defs>
-                      <linearGradient id="headcountGrad" x1="0" y1="0" x2="0" y2="1">
-                        <stop offset="5%" stopColor="#3B82F6" stopOpacity={0.22} />
-                        <stop offset="95%" stopColor="#3B82F6" stopOpacity={0} />
-                      </linearGradient>
-                    </defs>
-                    <CartesianGrid strokeDasharray="3 3" stroke="#F1F5F9" vertical={false} />
-                    <XAxis
-                      dataKey="week"
-                      tick={{ fontSize: 10, fill: '#94A3B8' }}
-                      axisLine={false}
-                      tickLine={false}
-                      interval={Math.max(0, Math.floor(headcountOverTime.length / 8) - 1)}
-                    />
-                    <YAxis
-                      tick={{ fontSize: 10, fill: '#94A3B8' }}
-                      axisLine={false}
-                      tickLine={false}
-                      allowDecimals={false}
-                      label={{ value: 'Headcount', angle: -90, position: 'insideLeft', style: { fill: '#64748B', fontSize: 10 } }}
-                    />
-                    <Tooltip content={<CustomTooltip />} />
-                    <Area
-                      type="monotone"
-                      dataKey="Headcount"
-                      stroke="#3B82F6"
-                      strokeWidth={2.5}
-                      fill="url(#headcountGrad)"
-                      dot={false}
-                      activeDot={{ r: 5, fill: '#3B82F6' }}
-                    />
                   </AreaChart>
                 </ResponsiveContainer>
               </div>
