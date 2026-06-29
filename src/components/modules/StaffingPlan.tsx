@@ -777,47 +777,113 @@ export default function StaffingPlanModule() {
                         label={{ value: 'Headcount', angle: -90, position: 'insideLeft', style: { fill: '#64748B', fontSize: 10 } }}
                       />
 
-                      {/* Compact tooltip */}
+                      {/* Master tooltip with inline sub-tooltip on phase hover */}
                       <Tooltip
                         content={({ active, payload }) => {
                           if (!active || !payload?.length) return null;
                           const pt = payload[0].payload as typeof hcOverTimeEnhanced[0];
                           const isPeak = pt.Headcount === peakHcWeek.Headcount;
-                          return (
-                            <div style={{
-                              background: '#fff',
-                              border: `1.5px solid ${isPeak ? '#F59E0B' : '#3B82F6'}`,
-                              borderRadius: 8, padding: '6px 10px',
-                              boxShadow: '0 3px 10px rgba(0,0,0,0.1)',
-                              fontSize: 11, minWidth: 130, maxWidth: 180,
-                            }}>
-                              {/* Week + phase on one line */}
-                              <div style={{ display: 'flex', alignItems: 'center', gap: 5, marginBottom: 3 }}>
-                                <span style={{ fontWeight: 700, color: '#0F172A' }}>{pt.week}</span>
-                                {pt.phase && (
-                                  <span style={{ color: '#3B82F6', fontWeight: 600,
-                                    background: '#EFF6FF', borderRadius: 999, padding: '0px 6px', fontSize: 10 }}>
-                                    {pt.phase}
+                          // Sub-tooltip state lives inside this render — React re-renders on every
+                          // tooltip update so we use a ref-based approach via onMouseEnter/Leave.
+                          // We wrap in an inner component so useState works correctly.
+                          const Inner = () => {
+                            const [subOpen, setSubOpen] = React.useState(false);
+                            const phaseColor = (() => {
+                              const idx = phases.findIndex(p => p.name === pt.phase);
+                              return idx >= 0 ? CHART_COLORS[idx % CHART_COLORS.length] : '#3B82F6';
+                            })();
+                            return (
+                              <div style={{
+                                background: '#fff',
+                                border: `1.5px solid ${isPeak ? '#F59E0B' : '#3B82F6'}`,
+                                borderRadius: 8, padding: '6px 10px',
+                                boxShadow: '0 3px 10px rgba(0,0,0,0.1)',
+                                fontSize: 11, minWidth: 130, maxWidth: 180,
+                                position: 'relative',
+                              }}>
+                                {/* Row 1: week · phase chip · peak star */}
+                                <div style={{ display: 'flex', alignItems: 'center', gap: 5, marginBottom: 3 }}>
+                                  <span style={{ fontWeight: 700, color: '#0F172A' }}>{pt.week}</span>
+                                  {pt.phase && (
+                                    <span
+                                      onMouseEnter={() => setSubOpen(true)}
+                                      onMouseLeave={() => setSubOpen(false)}
+                                      style={{
+                                        color: phaseColor, fontWeight: 600,
+                                        background: `${phaseColor}18`,
+                                        border: `1px solid ${phaseColor}40`,
+                                        borderRadius: 999, padding: '0px 6px', fontSize: 10,
+                                        cursor: 'default',
+                                        textDecoration: subOpen ? 'underline dotted' : 'none',
+                                      }}
+                                    >
+                                      {pt.phase} ▾
+                                    </span>
+                                  )}
+                                  {isPeak && (
+                                    <span style={{ color: '#F59E0B', fontWeight: 700, fontSize: 10 }}>★</span>
+                                  )}
+                                </div>
+
+                                {/* Row 2: headcount number */}
+                                <div style={{ display: 'flex', alignItems: 'baseline', gap: 4 }}>
+                                  <span style={{ fontSize: 16, fontWeight: 800, color: isPeak ? '#F59E0B' : '#3B82F6' }}>
+                                    {pt.Headcount}
                                   </span>
-                                )}
-                                {isPeak && (
-                                  <span style={{ color: '#F59E0B', fontWeight: 700, fontSize: 10 }}>★</span>
+                                  <span style={{ color: '#64748B' }}>active</span>
+                                  {pt.activeRoles.length > 0 && (
+                                    <span style={{ color: '#94A3B8', fontSize: 10, marginLeft: 2 }}>
+                                      · {pt.activeRoles.length} roles
+                                    </span>
+                                  )}
+                                </div>
+
+                                {/* Sub-tooltip — appears below the phase chip on hover */}
+                                {subOpen && pt.activeRoles.length > 0 && (
+                                  <div style={{
+                                    position: 'absolute',
+                                    top: '100%', left: 0,
+                                    marginTop: 4,
+                                    background: '#fff',
+                                    border: `1.5px solid ${phaseColor}`,
+                                    borderRadius: 8,
+                                    padding: '7px 10px',
+                                    boxShadow: '0 4px 14px rgba(0,0,0,0.12)',
+                                    minWidth: 160, maxWidth: 220,
+                                    zIndex: 9999,
+                                    fontSize: 11,
+                                  }}>
+                                    {/* Sub-header */}
+                                    <div style={{
+                                      display: 'flex', alignItems: 'center', gap: 5,
+                                      marginBottom: 6, paddingBottom: 5,
+                                      borderBottom: `1px solid ${phaseColor}25`,
+                                    }}>
+                                      <div style={{ width: 7, height: 7, borderRadius: '50%', background: phaseColor, flexShrink: 0 }} />
+                                      <span style={{ fontWeight: 700, color: '#0F172A' }}>{pt.phase}</span>
+                                      <span style={{ marginLeft: 'auto', color: phaseColor, fontWeight: 600, fontSize: 10 }}>
+                                        {pt.activeRoles.length} active
+                                      </span>
+                                    </div>
+                                    {/* Role list */}
+                                    <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+                                      {pt.activeRoles.map((r, ri) => (
+                                        <div key={ri} style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                                          <div style={{
+                                            width: 5, height: 5, borderRadius: '50%',
+                                            background: CHART_COLORS[ri % CHART_COLORS.length],
+                                            flexShrink: 0,
+                                          }} />
+                                          <span style={{ color: '#374151' }}>{r}</span>
+                                        </div>
+                                      ))}
+                                    </div>
+                                  </div>
                                 )}
                               </div>
-                              {/* Count + active roles count */}
-                              <div style={{ display: 'flex', alignItems: 'baseline', gap: 4 }}>
-                                <span style={{ fontSize: 16, fontWeight: 800, color: isPeak ? '#F59E0B' : '#3B82F6' }}>
-                                  {pt.Headcount}
-                                </span>
-                                <span style={{ color: '#64748B' }}>active</span>
-                                {pt.activeRoles.length > 0 && (
-                                  <span style={{ color: '#94A3B8', fontSize: 10, marginLeft: 2 }}>
-                                    · {pt.activeRoles.length} roles
-                                  </span>
-                                )}
-                              </div>
-                            </div>
-                          );
+                            );
+                          };
+                          return <Inner />;
                         }}
                         cursor={{ stroke: '#3B82F6', strokeWidth: 1, strokeDasharray: '4 3' }}
                       />
