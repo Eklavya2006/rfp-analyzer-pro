@@ -1,9 +1,9 @@
 'use client';
 // NewsPulseWidget — fetches articles from /api/news-pulse matching RFP keywords.
-// Drop-in component: add anywhere with <NewsPulseWidget keywords={['SAP','OpenShift']} />
-// Falls back to curated IBM articles when no API key is configured.
+// Drop-in: <NewsPulseWidget keywords={['SAP','OpenShift']} />
+// Always shows fallback curated IBM articles — no API key required.
 
-import React, { useEffect, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { Newspaper, ExternalLink, RefreshCw } from 'lucide-react';
 import type { NewsArticle } from '@/app/api/news-pulse/route';
 
@@ -21,25 +21,33 @@ function timeAgo(iso: string): string {
 
 export default function NewsPulseWidget({ keywords = ['IBM', 'enterprise AI', 'digital transformation'] }: Props) {
   const [articles, setArticles] = useState<NewsArticle[]>([]);
-  const [loading,  setLoading]  = useState(false);
+  const [loading,  setLoading]  = useState(true);
   const [source,   setSource]   = useState<'live' | 'fallback' | null>(null);
+  const [error,    setError]    = useState(false);
 
-  const load = async () => {
+  // Stable key — only re-fetch when the actual keyword list changes
+  const keyString = useMemo(() => keywords.slice().sort().join(','), [keywords]);
+
+  const load = useCallback(async () => {
     setLoading(true);
+    setError(false);
     try {
-      const q   = keywords.join(',');
-      const res = await fetch(`/api/news-pulse?q=${encodeURIComponent(q)}`);
+      const res  = await fetch(`/api/news-pulse?q=${encodeURIComponent(keyString)}`);
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
       const data = await res.json();
-      setArticles(data.articles ?? []);
-      setSource(data.source);
+      const fetched: NewsArticle[] = data.articles ?? [];
+      setArticles(fetched.length ? fetched : []);
+      setSource(data.source ?? 'fallback');
     } catch {
+      setError(true);
       setArticles([]);
     } finally {
       setLoading(false);
     }
-  };
+  }, [keyString]);
 
-  useEffect(() => { load(); }, [keywords.join(',')]); // eslint-disable-line react-hooks/exhaustive-deps
+  // Fire once when keyString changes (stable — sorted join)
+  useEffect(() => { load(); }, [load]);
 
   return (
     <div style={{
@@ -63,16 +71,16 @@ export default function NewsPulseWidget({ keywords = ['IBM', 'enterprise AI', 'd
         <button
           onClick={load}
           disabled={loading}
-          style={{ marginLeft: 'auto', background: 'none', border: 'none', cursor: 'pointer', color: '#94A3B8', padding: 2 }}
+          style={{ marginLeft: 'auto', background: 'none', border: 'none', cursor: loading ? 'default' : 'pointer', color: '#94A3B8', padding: 2 }}
           title="Refresh"
         >
-          <RefreshCw size={12} className={loading ? 'animate-spin' : ''} />
+          <RefreshCw size={12} style={{ animation: loading ? 'spin 1s linear infinite' : 'none' }} />
         </button>
       </div>
 
       {/* Keyword chips */}
       <div className="flex flex-wrap gap-1 mb-3">
-        {keywords.slice(0, 5).map(kw => (
+        {keywords.slice(0, 6).map(kw => (
           <span key={kw} style={{
             fontSize: 10, fontWeight: 600, background: '#EEF2FF', color: '#6366F1',
             borderRadius: 999, padding: '2px 8px', border: '1px solid #C7D2FE',
@@ -82,29 +90,34 @@ export default function NewsPulseWidget({ keywords = ['IBM', 'enterprise AI', 'd
         ))}
       </div>
 
-      {/* Articles */}
+      {/* States */}
       {loading && (
         <div style={{ fontSize: 12, color: '#94A3B8', textAlign: 'center', padding: '16px 0' }}>
           Fetching articles…
         </div>
       )}
-      {!loading && articles.length === 0 && (
+      {!loading && error && (
+        <div style={{ fontSize: 12, color: '#F43F5E', textAlign: 'center', padding: '8px 0 4px' }}>
+          Could not load articles.{' '}
+          <button onClick={load} style={{ color: '#6366F1', background: 'none', border: 'none', cursor: 'pointer', fontSize: 12, fontWeight: 600 }}>
+            Retry
+          </button>
+        </div>
+      )}
+      {!loading && !error && articles.length === 0 && (
         <div style={{ fontSize: 12, color: '#94A3B8', textAlign: 'center', padding: '16px 0' }}>
           No articles found.
         </div>
       )}
-      {!loading && articles.map((a, i) => (
+
+      {/* Article list */}
+      {!loading && !error && articles.map((a, i) => (
         <div key={i} style={{
           borderTop: i > 0 ? '1px solid #F1F5F9' : 'none',
           paddingTop: i > 0 ? 10 : 0,
           marginBottom: i < articles.length - 1 ? 10 : 0,
         }}>
-          <a
-            href={a.url}
-            target="_blank"
-            rel="noopener noreferrer"
-            style={{ textDecoration: 'none' }}
-          >
+          <a href={a.url} target="_blank" rel="noopener noreferrer" style={{ textDecoration: 'none' }}>
             <div className="flex items-start justify-between gap-2">
               <span style={{ fontSize: 12, fontWeight: 600, color: '#1E293B', lineHeight: 1.4, flex: 1 }}>
                 {a.title}
@@ -114,7 +127,7 @@ export default function NewsPulseWidget({ keywords = ['IBM', 'enterprise AI', 'd
           </a>
           {a.description && (
             <p style={{ fontSize: 11, color: '#64748B', marginTop: 3, lineHeight: 1.5 }}>
-              {a.description.length > 100 ? a.description.slice(0, 100) + '…' : a.description}
+              {a.description.length > 110 ? a.description.slice(0, 110) + '…' : a.description}
             </p>
           )}
           <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginTop: 4 }}>
@@ -123,6 +136,9 @@ export default function NewsPulseWidget({ keywords = ['IBM', 'enterprise AI', 'd
           </div>
         </div>
       ))}
+
+      {/* Spin keyframe — inline since no CSS file */}
+      <style>{`@keyframes spin { from { transform: rotate(0deg); } to { transform: rotate(360deg); } }`}</style>
     </div>
   );
 }

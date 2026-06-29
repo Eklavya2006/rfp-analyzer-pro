@@ -340,6 +340,13 @@ export default function Dashboard() {
     { label: 'Quality Score Uplift', subLabel: `${aiGainPct | 0}pts`,                      pct: Math.min(99, Math.round(aiGainPct * 1.1)),         value: `${Math.round(aiGainPct * 1.1)}%`,         color: D.aiColor[3] },
   ];
 
+  // Stable keyword list for NewsPulseWidget — must not be rebuilt on every render
+  const pulseKeywords = useMemo(
+    () => (result?.offerings ?? []).slice(0, 4).map(o => o.name).concat(['IBM', 'enterprise AI']).slice(0, 6),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [result?.offerings?.map(o => o.id).join(',')]
+  );
+
   const fmtCost = (n: number) => n >= 1_000_000 ? `$${(n / 1_000_000).toFixed(1)}M` : `$${Math.round(n / 1000)}K`;
 
   return (
@@ -443,14 +450,9 @@ export default function Dashboard() {
         </div>
       </div>
 
-      {/* ── Industry Pulse + Bottom row ── */}
-      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 14, marginBottom: 18 }}>
-        {/* News Pulse — keywords from RFP technologies */}
-        <div style={{ gridColumn: '1 / -1' }}>
-          <NewsPulseWidget keywords={
-            (result?.offerings ?? []).slice(0, 4).map(o => o.name).concat(['IBM', 'enterprise AI']).slice(0, 6)
-          } />
-        </div>
+      {/* ── Industry Pulse ── */}
+      <div style={{ marginBottom: 18 }}>
+        <NewsPulseWidget keywords={pulseKeywords} />
       </div>
 
       {/* ── Bottom row ── */}
