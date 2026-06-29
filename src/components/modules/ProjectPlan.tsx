@@ -1,8 +1,8 @@
 'use client';
 // ProjectPlan — Dark Gantt-style redesign with status pills, progress bars, resource chart
-import React, { useState, useRef, useCallback } from 'react';
+import React, { useState, useRef, useCallback, useMemo } from 'react';
 import ReactDOM from 'react-dom';
-import { Pencil, Check, X, Plus, Trash2, Info } from 'lucide-react';
+import { Pencil, Check, X, Plus, Trash2, Info, ChevronDown, ChevronUp, Flag } from 'lucide-react';
 import {
   BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip,
   ResponsiveContainer, Cell, Legend,
@@ -267,10 +267,86 @@ function AddPhaseForm({ onAdd, onCancel }: { onAdd: (p: Omit<ProjectPhase, 'id'>
 
 // ── Main ──────────────────────────────────────────────────────
 export default function ProjectPlanModule() {
-  const { activeDocumentId, analysisResults, updateProjectPhase, addProjectPhase, removeProjectPhase } = useRFPStore();
-  const result     = activeDocumentId ? analysisResults[activeDocumentId] : null;
+  // Subscribe only to project-plan related store slices so chart and table rerenders stay local to this module.
+  const activeDocumentId = useRFPStore((state) => state.activeDocumentId);
+  const analysisResults  = useRFPStore((state) => state.analysisResults);
+  const updateProjectPhase = useRFPStore((state) => state.updateProjectPhase);
+  const addProjectPhase    = useRFPStore((state) => state.addProjectPhase);
+  const removeProjectPhase = useRFPStore((state) => state.removeProjectPhase);
+  const result = activeDocumentId ? analysisResults[activeDocumentId] : null;
+
   const [editingPhaseId, setEditingPhaseId] = useState<string | null>(null);
   const [showAddForm, setShowAddForm]       = useState(false);
+  const [milestoneOpen, setMilestoneOpen]   = useState(true);
+  // Per-milestone done state: key = `${phaseId}::${milestoneText}`
+  const [doneMilestones, setDoneMilestones] = useState<Record<string, boolean>>({});
+  // Per-phase add-milestone input
+  const [addingMilestonePhaseId, setAddingMilestonePhaseId] = useState<string | null>(null);
+  const [newMilestoneText, setNewMilestoneText] = useState('');
+
+  // All hooks must be above the early return to satisfy Rules of Hooks
+  const update = useCallback((phaseId: string, updates: Partial<ProjectPhase>) => {
+    if (activeDocumentId) updateProjectPhase(activeDocumentId, phaseId, updates);
+  }, [activeDocumentId, updateProjectPhase]);
+
+  const handleAddPhase = useCallback((partial: Omit<ProjectPhase, 'id'>) => {
+    if (!activeDocumentId) return;
+    addProjectPhase(activeDocumentId, { id: uuid(), ...partial });
+    setShowAddForm(false);
+  }, [activeDocumentId, addProjectPhase]);
+
+  const handleRemovePhase = useCallback((phaseId: string) => {
+    if (activeDocumentId) removeProjectPhase(activeDocumentId, phaseId);
+  }, [activeDocumentId, removeProjectPhase]);
+
+  const plan       = result?.projectPlan ?? null;
+  const totalWeeks = plan?.totalDurationWeeks ?? 0;
+
+  interface PhaseBarData { phase: string; roles: number; duration: number; status: string }
+  const resData: PhaseBarData[] = useMemo(() => (plan?.phases ?? []).map((phase) => ({
+    phase: phase.name.length > 12 ? phase.name.slice(0, 12) + '…' : phase.name,
+    roles: phase.responsibleRoles.length > 0 ? phase.responsibleRoles.length : Math.max(2, Math.round(phase.durationWeeks / 2)),
+    duration: phase.durationWeeks,
+    status: phase.status,
+  })), [plan?.phases]);
+
+  const criticalCount = useMemo(
+    () => (plan?.phases ?? []).filter((phase) => phase.durationWeeks >= 4).length,
+    [plan?.phases]
+  );
+  const milestoneCount = useMemo(
+    () => (plan?.phases ?? []).reduce((sum, phase) => sum + (phase.milestones?.length ?? 0), 0),
+    [plan?.phases]
+  );
+  const completedCount = useMemo(
+    () => (plan?.phases ?? []).filter((phase) => phase.status === 'completed').length,
+    [plan?.phases]
+  );
+  const doneMilestoneCount = useMemo(
+    () => Object.values(doneMilestones).filter(Boolean).length,
+    [doneMilestones]
+  );
+
+  // Milestone add handler — appends to the phase's milestones array in the store
+  const handleAddMilestone = useCallback((phaseId: string) => {
+    const text = newMilestoneText.trim();
+    if (!text || !activeDocumentId || !plan) return;
+    const phase = plan.phases.find(p => p.id === phaseId);
+    if (!phase) return;
+    update(phaseId, { milestones: [...(phase.milestones ?? []), text] });
+    setNewMilestoneText('');
+    setAddingMilestonePhaseId(null);
+  }, [newMilestoneText, activeDocumentId, plan, update]);
+
+  // Milestone remove handler — filters out the milestone at the given index
+  const handleRemoveMilestone = useCallback((phaseId: string, milestoneIdx: number) => {
+    if (!plan) return;
+    const phase = plan.phases.find(p => p.id === phaseId);
+    if (!phase) return;
+    update(phaseId, {
+      milestones: (phase.milestones ?? []).filter((_, i) => i !== milestoneIdx),
+    });
+  }, [plan, update]);
 
   if (!result?.projectPlan) return (
     <div className="p-6 text-sm text-center mt-20" style={{ color: PC.muted }}>
@@ -278,46 +354,16 @@ export default function ProjectPlanModule() {
     </div>
   );
 
-  const plan       = result.projectPlan;
-  const totalWeeks = plan.totalDurationWeeks;
-
-  const update = (phaseId: string, updates: Partial<ProjectPhase>) => {
-    if (activeDocumentId) updateProjectPhase(activeDocumentId, phaseId, updates);
-  };
-  const handleAddPhase = (partial: Omit<ProjectPhase, 'id'>) => {
-    if (!activeDocumentId) return;
-    addProjectPhase(activeDocumentId, { id: uuid(), ...partial });
-    setShowAddForm(false);
-  };
-  const handleRemovePhase = (phaseId: string) => {
-    if (activeDocumentId) removeProjectPhase(activeDocumentId, phaseId);
-  };
-
-  // Resource allocation chart — per-phase hours bar chart
-  // Uses Phase Details data: each phase contributes its responsible-role count as a proxy for resource load.
-  // If roles are listed, actual count; otherwise a weighted estimate based on duration.
-  interface PhaseBarData { phase: string; roles: number; duration: number; status: string }
-  const resData: PhaseBarData[] = plan.phases.map((p) => ({
-    phase: p.name.length > 12 ? p.name.slice(0, 12) + '…' : p.name,
-    roles: p.responsibleRoles.length > 0 ? p.responsibleRoles.length : Math.max(2, Math.round(p.durationWeeks / 2)),
-    duration: p.durationWeeks,
-    status: p.status,
-  }));
-
-  const criticalCount = plan.phases.filter(p => p.durationWeeks >= 4).length;
-  const milestoneCount = plan.phases.reduce((s, p) => s + (p.milestones?.length ?? 0), 0);
-  const completedCount = plan.phases.filter(p => p.status === 'completed').length;
-
   return (
     <div className="p-6 max-w-7xl mx-auto space-y-6" style={{ background: PC.bg }}>
 
       {/* ── KPI Cards ──────────────────────────────────── */}
       <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
         {[
-          { label: 'Total Duration',      value: `${totalWeeks}w`,              color: PC.inprog },
-          { label: 'Total Phases',         value: String(plan.phases.length),    color: PC.completed },
-          { label: 'Total Milestones',     value: String(milestoneCount),        color: '#a56eff' },
-          { label: 'Critical Phases',      value: String(criticalCount),         color: PC.delayed },
+          { label: 'Total Duration',   value: `${totalWeeks}w`,              color: PC.inprog },
+          { label: 'Total Phases',     value: String(plan!.phases.length),   color: PC.completed },
+          { label: 'Total Milestones', value: String(milestoneCount),        color: '#a56eff' },
+          { label: 'Critical Phases',  value: String(criticalCount),         color: PC.delayed },
         ].map((m) => (
           <div key={m.label} className="bg-white rounded-2xl border p-5"
             style={{ borderColor: PC.border, borderBottom: `3px solid ${m.color}` }}>
@@ -325,6 +371,177 @@ export default function ProjectPlanModule() {
             <div className="kpi-value" style={{ fontSize: 28, fontWeight: 700, color: m.color }}>{m.value}</div>
           </div>
         ))}
+      </div>
+
+      {/* ── Milestone Tracker ──────────────────────────── */}
+      <div className="bg-white rounded-2xl border overflow-hidden" style={{ borderColor: PC.border }}>
+        {/* Header row — always visible */}
+        <div className="flex items-center justify-between px-5 py-3 border-b" style={{ borderColor: PC.border }}>
+          <div className="flex items-center gap-2">
+            <Flag size={15} style={{ color: '#a56eff' }} />
+            <span className="font-semibold text-sm" style={{ color: PC.text }}>Milestone Tracker</span>
+            <span className="text-[11px] px-2 py-0.5 rounded-full font-semibold"
+              style={{ background: '#a56eff18', color: '#a56eff' }}>
+              {milestoneCount} milestones
+            </span>
+            {doneMilestoneCount > 0 && (
+              <span className="text-[11px] px-2 py-0.5 rounded-full font-semibold"
+                style={{ background: `${PC.completed}18`, color: PC.completed }}>
+                {doneMilestoneCount} done
+              </span>
+            )}
+          </div>
+          <div className="flex items-center gap-3">
+            <span className="text-[11px]" style={{ color: PC.muted }}>
+              Click a milestone chip to mark done · <span style={{ color: PC.inprog }}>+ Add</span> appends to phase
+            </span>
+            <button
+              onClick={() => setMilestoneOpen(v => !v)}
+              className="flex items-center gap-1 text-xs font-semibold px-3 py-1 rounded-lg transition-colors"
+              style={{ background: PC.bg, color: PC.muted, border: `1px solid ${PC.border}` }}
+            >
+              {milestoneOpen
+                ? <><ChevronUp size={12} /> Collapse</>
+                : <><ChevronDown size={12} /> Expand</>
+              }
+            </button>
+          </div>
+        </div>
+
+        {/* Body — collapsible */}
+        {milestoneOpen && (
+          <div className="p-5 space-y-4">
+            {plan!.phases.map((phase, idx) => {
+              const phaseColor = PC.phases[idx % PC.phases.length];
+              const milestones = phase.milestones ?? [];
+              const isAddingHere = addingMilestonePhaseId === phase.id;
+
+              return (
+                <div key={phase.id}>
+                  {/* Phase label row */}
+                  <div className="flex items-center gap-2 mb-2">
+                    <div className="w-2 h-2 rounded-full flex-shrink-0" style={{ background: phaseColor }} />
+                    <span className="text-xs font-bold uppercase tracking-wider" style={{ color: phaseColor }}>
+                      {phase.name}
+                    </span>
+                    <span className="text-[10px] px-1.5 py-0.5 rounded"
+                      style={{ background: `${phaseColor}18`, color: phaseColor }}>
+                      W{phase.startWeek}–W{phase.endWeek}
+                    </span>
+                    <div className="flex-1" />
+                    {/* + Add milestone button */}
+                    {!isAddingHere && (
+                      <button
+                        onClick={() => { setAddingMilestonePhaseId(phase.id); setNewMilestoneText(''); }}
+                        className="flex items-center gap-1 text-[11px] font-semibold px-2 py-0.5 rounded-lg transition-colors hover:opacity-80"
+                        style={{ background: `${phaseColor}18`, color: phaseColor, border: `1px solid ${phaseColor}30` }}
+                      >
+                        <Plus size={10} /> Add
+                      </button>
+                    )}
+                  </div>
+
+                  {/* Milestone chips */}
+                  <div className="flex flex-wrap gap-2 ml-4">
+                    {milestones.length === 0 && !isAddingHere && (
+                      <span className="text-[11px] italic" style={{ color: PC.muted }}>No milestones — click + Add</span>
+                    )}
+                    {milestones.map((m, mIdx) => {
+                      const doneKey = `${phase.id}::${mIdx}`;
+                      const isDone  = doneMilestones[doneKey] ?? false;
+                      return (
+                        <div
+                          key={mIdx}
+                          className="flex items-center gap-1 group"
+                          style={{
+                            background: isDone ? `${PC.completed}15` : `${phaseColor}10`,
+                            border: `1px solid ${isDone ? PC.completed : phaseColor}40`,
+                            borderRadius: 999,
+                            padding: '4px 10px 4px 8px',
+                          }}
+                        >
+                          {/* Toggle done */}
+                          <button
+                            title="Click to toggle done"
+                            onClick={() => setDoneMilestones(prev => ({ ...prev, [doneKey]: !prev[doneKey] }))}
+                            style={{
+                              width: 14, height: 14, borderRadius: '50%', border: `1.5px solid ${isDone ? PC.completed : phaseColor}`,
+                              background: isDone ? PC.completed : 'transparent',
+                              display: 'flex', alignItems: 'center', justifyContent: 'center',
+                              cursor: 'pointer', flexShrink: 0,
+                            }}
+                          >
+                            {isDone && <Check size={8} color="#fff" strokeWidth={3} />}
+                          </button>
+                          <span
+                            className="text-[12px] font-medium cursor-pointer select-none"
+                            style={{
+                              color: isDone ? PC.completed : PC.text,
+                              textDecoration: isDone ? 'line-through' : 'none',
+                              opacity: isDone ? 0.7 : 1,
+                            }}
+                            onClick={() => setDoneMilestones(prev => ({ ...prev, [doneKey]: !prev[doneKey] }))}
+                          >
+                            {m}
+                          </span>
+                          {/* Remove button — visible on hover */}
+                          <button
+                            title="Remove milestone"
+                            onClick={() => handleRemoveMilestone(phase.id, mIdx)}
+                            className="opacity-0 group-hover:opacity-100 transition-opacity ml-0.5"
+                            style={{ color: PC.delayed, display: 'flex', alignItems: 'center' }}
+                          >
+                            <X size={11} />
+                          </button>
+                        </div>
+                      );
+                    })}
+
+                    {/* Inline add input */}
+                    {isAddingHere && (
+                      <div className="flex items-center gap-1.5">
+                        <input
+                          autoFocus
+                          value={newMilestoneText}
+                          onChange={e => setNewMilestoneText(e.target.value)}
+                          onKeyDown={e => {
+                            if (e.key === 'Enter') handleAddMilestone(phase.id);
+                            if (e.key === 'Escape') setAddingMilestonePhaseId(null);
+                          }}
+                          placeholder="Milestone name…"
+                          className="text-xs rounded-lg px-2.5 py-1 outline-none"
+                          style={{
+                            border: `1.5px solid ${phaseColor}`,
+                            background: '#fff', color: PC.text, width: 180,
+                          }}
+                        />
+                        <button
+                          onClick={() => handleAddMilestone(phase.id)}
+                          className="text-xs font-semibold px-2.5 py-1 rounded-lg text-white"
+                          style={{ background: phaseColor }}
+                        >
+                          Add
+                        </button>
+                        <button
+                          onClick={() => setAddingMilestonePhaseId(null)}
+                          className="text-xs px-2 py-1 rounded-lg"
+                          style={{ background: PC.bg, color: PC.muted, border: `1px solid ${PC.border}` }}
+                        >
+                          Cancel
+                        </button>
+                      </div>
+                    )}
+                  </div>
+
+                  {/* Divider between phases */}
+                  {idx < plan!.phases.length - 1 && (
+                    <div className="mt-3 border-t" style={{ borderColor: PC.border }} />
+                  )}
+                </div>
+              );
+            })}
+          </div>
+        )}
       </div>
 
       {/* Action bar */}
@@ -362,7 +579,7 @@ export default function ProjectPlanModule() {
             </div>
           </div>
           {/* Phase rows */}
-          {plan.phases.map((phase, idx) => {
+          {plan!.phases.map((phase, idx) => {
             const color = PC.phases[idx % PC.phases.length];
             return (
               <div key={phase.id} className="flex items-center mb-2 gap-2 group">
@@ -399,7 +616,7 @@ export default function ProjectPlanModule() {
           </div>
           <span className="text-xs font-semibold px-3 py-1 rounded-full"
             style={{ background: `${PC.completed}15`, color: PC.completed }}>
-            {completedCount}/{plan.phases.length} completed
+            {completedCount}/{plan!.phases.length} completed
           </span>
         </div>
         <div className="overflow-x-auto">
@@ -422,7 +639,7 @@ export default function ProjectPlanModule() {
               </tr>
             </thead>
             <tbody>
-              {plan.phases.map((phase, idx) => {
+              {plan!.phases.map((phase, idx) => {
                 const color      = PC.phases[idx % PC.phases.length];
                 const isExpanded = editingPhaseId === phase.id;
                 const pct        = statusPct(phase.status as PhaseStatus);
