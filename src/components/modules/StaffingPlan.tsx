@@ -116,40 +116,52 @@ function getSkills(roleName: string): string[] {
   return SKILLS_MAP[roleName] ?? ['Consulting','Analysis','Delivery','Collaboration'];
 }
 
-// ── Week range resolution ─────────────────────────────────────
-// Resolve a canonical role's active week range against the LIVE project phases.
-// Strategy: map the canonical IBM phase ordering onto the real project phase
-// ordering by index so both charts (line + bar) always share identical bounds.
-// Falls back to the full project span if no phase data is available.
-function resolveWeekRange(
-  cr: CanonicalRole,
-  phases: ProjectPhase[],
-): { start: number; end: number } {
-  // Identify which canonical IBM phases this role is actually active in.
-  const activeIBMPhases = IBM_PHASES.filter(p => (cr.phaseHours[p] ?? 0) > 0);
-  if (!activeIBMPhases.length || phases.length === 0) {
-    const lastEnd = phases.length > 0 ? phases[phases.length - 1].endWeek : 72;
-    return { start: 1, end: lastEnd };
-  }
+// ── Phase-hours active check ──────────────────────────────────
+// Single source of truth used by BOTH charts (line tooltip + bar rollout).
+//
+// A canonical role is considered "active" in a real project phase at index
+// `realPhaseIdx` when it has non-zero hours in at least one IBM canonical
+// phase that maps to the same proportional slot.
+//
+// IBM_PHASES has 7 slots (indices 0-6); real phases may differ in count.
+// Mapping: ibmSlot → realSlot = round((ibmSlot / (ibmCount-1)) * (realCount-1))
+//
+// This is a pure predicate — no continuous week-range arithmetic — so the
+// bar chart (per-phase count) and the line chart (per-week count inside a
+// phase's startWeek..endWeek) always see identical active/inactive decisions.
+function ibmToRealPhaseIdx(ibmIdx: number, realCount: number): number {
+  const ibmCount = IBM_PHASES.length; // 7
+  if (realCount <= 1) return 0;
+  return Math.min(Math.round((ibmIdx / (ibmCount - 1)) * (realCount - 1)), realCount - 1);
+}
 
-  // Map each canonical IBM phase slot to a real project phase by proportional
-  // index.  IBM_PHASES has 7 slots; real phases may differ in count.
-  const ibmCount  = IBM_PHASES.length;           // 7
-  const realCount = phases.length;
+/** True when canonical role `cr` has work hours mapped to real phase at index `realIdx`. */
+function canonicalActiveInPhase(cr: CanonicalRole, realIdx: number, realCount: number): boolean {
+  return IBM_PHASES.some(
+    (ibmPhase, ibmIdx) =>
+      (cr.phaseHours[ibmPhase] ?? 0) > 0 &&
+      ibmToRealPhaseIdx(ibmIdx, realCount) === realIdx,
+  );
+}
 
-  const firstIBMIdx = IBM_PHASES.indexOf(activeIBMPhases[0]);
-  const lastIBMIdx  = IBM_PHASES.indexOf(activeIBMPhases[activeIBMPhases.length - 1]);
+/** True when canonical role `cr` is active during `week`, given the live project phases. */
+function canonicalActiveAtWeek(cr: CanonicalRole, week: number, phases: ProjectPhase[]): boolean {
+  if (phases.length === 0) return true; // no phase data — show role as always active
+  const realIdx = phases.findIndex(p => week >= p.startWeek && week <= p.endWeek);
+  if (realIdx === -1) return false; // week outside all phases
+  return canonicalActiveInPhase(cr, realIdx, phases.length);
+}
 
-  // Map to real-phase index via proportional scaling (clamped).
-  const toRealIdx = (ibmIdx: number) =>
-    Math.min(Math.round((ibmIdx / (ibmCount - 1)) * (realCount - 1)), realCount - 1);
-
-  const firstRealIdx = toRealIdx(firstIBMIdx);
-  const lastRealIdx  = toRealIdx(lastIBMIdx);
-
+/** Display week range for role cards / summary table (first→last active real phase). */
+function resolveWeekRange(cr: CanonicalRole, phases: ProjectPhase[]): { start: number; end: number } {
+  if (phases.length === 0) return { start: 1, end: 72 };
+  const activeRealIndices = phases
+    .map((_, i) => i)
+    .filter(i => canonicalActiveInPhase(cr, i, phases.length));
+  if (!activeRealIndices.length) return { start: phases[0].startWeek, end: phases[phases.length - 1].endWeek };
   return {
-    start: phases[firstRealIdx].startWeek,
-    end:   phases[lastRealIdx].endWeek,
+    start: phases[activeRealIndices[0]].startWeek,
+    end:   phases[activeRealIndices[activeRealIndices.length - 1]].endWeek,
   };
 }
 
@@ -482,9 +494,8 @@ export default function StaffingPlanModule() {
       const activeHeadcount = roles.reduce((sum, role) => {
         const canonical = CANONICAL_ROLES.find((item) => item.roleName === role.roleName && item.band === role.band);
         if (canonical) {
-          // Use live project phases to resolve week range — same logic as bar chart.
-          const { start, end } = resolveWeekRange(canonical, phases);
-          return sum + (week >= start && week <= end ? role.numberOfResources : 0);
+          // Point-in-time active check — same IBM→real phase mapping as bar chart.
+          return sum + (canonicalActiveAtWeek(canonical, week, phases) ? role.numberOfResources : 0);
         }
         const matchingPhaseCount = phases.filter((phase) =>
           week >= phase.startWeek &&
@@ -674,7 +685,7 @@ export default function StaffingPlanModule() {
           const activeRoles = roles
             .filter(role => {
               const canon = CANONICAL_ROLES.find(c => c.roleName === role.roleName && c.band === role.band);
-              if (canon) { const { start, end } = resolveWeekRange(canon, phases); return week >= start && week <= end; }
+              if (canon) { return canonicalActiveAtWeek(canon, week, phases); }
               return phase?.responsibleRoles.some(r => r.toLowerCase().includes(role.roleName.toLowerCase())) ?? false;
             })
             .map(r => r.roleName);
@@ -969,10 +980,9 @@ export default function StaffingPlanModule() {
                   const canon = CANONICAL_ROLES.find(c => c.roleName === role.roleName && c.band === role.band);
                   let active = 0;
                   if (canon) {
-                    // Use the same resolveWeekRange as the line chart — guaranteed sync.
-                    const { start, end } = resolveWeekRange(canon, phases);
-                    // overlap check: role is active in this phase if their week windows intersect
-                    active = (phase.startWeek <= end && phase.endWeek >= start) ? role.numberOfResources : 0;
+                    // Per-phase active check — same IBM→real mapping as the line chart.
+                    const realIdx = phases.indexOf(phase);
+                    active = canonicalActiveInPhase(canon, realIdx, phases.length) ? role.numberOfResources : 0;
                   } else {
                     // custom role: active if phase references the role name
                     active = phase.responsibleRoles.some(r =>
