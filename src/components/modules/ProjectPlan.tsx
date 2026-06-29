@@ -2,10 +2,10 @@
 // ProjectPlan — Dark Gantt-style redesign with status pills, progress bars, resource chart
 import React, { useState, useRef, useCallback, useMemo } from 'react';
 import ReactDOM from 'react-dom';
-import { Pencil, Check, X, Plus, Trash2, Info, ChevronDown, ChevronUp, Flag } from 'lucide-react';
+import { Pencil, Check, X, Plus, Trash2, Info, Flag } from 'lucide-react';
 import {
   BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip,
-  ResponsiveContainer, Cell, Legend,
+  ResponsiveContainer, Cell, Legend, LabelList,
 } from 'recharts';
 import { useRFPStore } from '@/lib/store';
 import { T } from '@/lib/theme';
@@ -277,12 +277,6 @@ export default function ProjectPlanModule() {
 
   const [editingPhaseId, setEditingPhaseId] = useState<string | null>(null);
   const [showAddForm, setShowAddForm]       = useState(false);
-  const [milestoneOpen, setMilestoneOpen]   = useState(true);
-  // Per-milestone done state: key = `${phaseId}::${milestoneText}`
-  const [doneMilestones, setDoneMilestones] = useState<Record<string, boolean>>({});
-  // Per-phase add-milestone input
-  const [addingMilestonePhaseId, setAddingMilestonePhaseId] = useState<string | null>(null);
-  const [newMilestoneText, setNewMilestoneText] = useState('');
 
   // All hooks must be above the early return to satisfy Rules of Hooks
   const update = useCallback((phaseId: string, updates: Partial<ProjectPhase>) => {
@@ -322,32 +316,6 @@ export default function ProjectPlanModule() {
     () => (plan?.phases ?? []).filter((phase) => phase.status === 'completed').length,
     [plan?.phases]
   );
-  const doneMilestoneCount = useMemo(
-    () => Object.values(doneMilestones).filter(Boolean).length,
-    [doneMilestones]
-  );
-
-  // Milestone add handler — appends to the phase's milestones array in the store
-  const handleAddMilestone = useCallback((phaseId: string) => {
-    const text = newMilestoneText.trim();
-    if (!text || !activeDocumentId || !plan) return;
-    const phase = plan.phases.find(p => p.id === phaseId);
-    if (!phase) return;
-    update(phaseId, { milestones: [...(phase.milestones ?? []), text] });
-    setNewMilestoneText('');
-    setAddingMilestonePhaseId(null);
-  }, [newMilestoneText, activeDocumentId, plan, update]);
-
-  // Milestone remove handler — filters out the milestone at the given index
-  const handleRemoveMilestone = useCallback((phaseId: string, milestoneIdx: number) => {
-    if (!plan) return;
-    const phase = plan.phases.find(p => p.id === phaseId);
-    if (!phase) return;
-    update(phaseId, {
-      milestones: (phase.milestones ?? []).filter((_, i) => i !== milestoneIdx),
-    });
-  }, [plan, update]);
-
   if (!result?.projectPlan) return (
     <div className="p-6 text-sm text-center mt-20" style={{ color: PC.muted }}>
       Upload a document to see the project plan
@@ -373,176 +341,167 @@ export default function ProjectPlanModule() {
         ))}
       </div>
 
-      {/* ── Milestone Tracker ──────────────────────────── */}
-      <div className="bg-white rounded-2xl border overflow-hidden" style={{ borderColor: PC.border }}>
-        {/* Header row — always visible */}
-        <div className="flex items-center justify-between px-5 py-3 border-b" style={{ borderColor: PC.border }}>
-          <div className="flex items-center gap-2">
-            <Flag size={15} style={{ color: '#a56eff' }} />
-            <span className="font-semibold text-sm" style={{ color: PC.text }}>Milestone Tracker</span>
-            <span className="text-[11px] px-2 py-0.5 rounded-full font-semibold"
-              style={{ background: '#a56eff18', color: '#a56eff' }}>
-              {milestoneCount} milestones
-            </span>
-            {doneMilestoneCount > 0 && (
-              <span className="text-[11px] px-2 py-0.5 rounded-full font-semibold"
-                style={{ background: `${PC.completed}18`, color: PC.completed }}>
-                {doneMilestoneCount} done
-              </span>
-            )}
-          </div>
-          <div className="flex items-center gap-3">
-            <span className="text-[11px]" style={{ color: PC.muted }}>
-              Click a milestone chip to mark done · <span style={{ color: PC.inprog }}>+ Add</span> appends to phase
-            </span>
-            <button
-              onClick={() => setMilestoneOpen(v => !v)}
-              className="flex items-center gap-1 text-xs font-semibold px-3 py-1 rounded-lg transition-colors"
-              style={{ background: PC.bg, color: PC.muted, border: `1px solid ${PC.border}` }}
-            >
-              {milestoneOpen
-                ? <><ChevronUp size={12} /> Collapse</>
-                : <><ChevronDown size={12} /> Expand</>
-              }
-            </button>
-          </div>
-        </div>
+      {/* ── Milestone KPI Graph ─────────────────────────── */}
+      {(() => {
+        // Build one bar per phase: count of milestones, with full list in tooltip
+        interface MilestoneBarDatum {
+          phase:      string;           // short label for X-axis
+          fullName:   string;           // full phase name for tooltip header
+          count:      number;           // milestone count (bar height)
+          weeks:      string;           // "W1–W3" label
+          color:      string;           // phase colour
+          milestones: string[];         // full list for tooltip
+          status:     string;
+        }
+        const barData: MilestoneBarDatum[] = plan!.phases.map((phase, idx) => ({
+          phase:      phase.name.length > 11 ? phase.name.slice(0, 11) + '…' : phase.name,
+          fullName:   phase.name,
+          count:      (phase.milestones ?? []).length,
+          weeks:      `W${phase.startWeek}–W${phase.endWeek}`,
+          color:      PC.phases[idx % PC.phases.length],
+          milestones: phase.milestones ?? [],
+          status:     phase.status,
+        }));
 
-        {/* Body — collapsible */}
-        {milestoneOpen && (
-          <div className="p-5 space-y-4">
-            {plan!.phases.map((phase, idx) => {
-              const phaseColor = PC.phases[idx % PC.phases.length];
-              const milestones = phase.milestones ?? [];
-              const isAddingHere = addingMilestonePhaseId === phase.id;
-
-              return (
-                <div key={phase.id}>
-                  {/* Phase label row */}
-                  <div className="flex items-center gap-2 mb-2">
-                    <div className="w-2 h-2 rounded-full flex-shrink-0" style={{ background: phaseColor }} />
-                    <span className="text-xs font-bold uppercase tracking-wider" style={{ color: phaseColor }}>
-                      {phase.name}
-                    </span>
-                    <span className="text-[10px] px-1.5 py-0.5 rounded"
-                      style={{ background: `${phaseColor}18`, color: phaseColor }}>
-                      W{phase.startWeek}–W{phase.endWeek}
-                    </span>
-                    <div className="flex-1" />
-                    {/* + Add milestone button */}
-                    {!isAddingHere && (
-                      <button
-                        onClick={() => { setAddingMilestonePhaseId(phase.id); setNewMilestoneText(''); }}
-                        className="flex items-center gap-1 text-[11px] font-semibold px-2 py-0.5 rounded-lg transition-colors hover:opacity-80"
-                        style={{ background: `${phaseColor}18`, color: phaseColor, border: `1px solid ${phaseColor}30` }}
-                      >
-                        <Plus size={10} /> Add
-                      </button>
-                    )}
-                  </div>
-
-                  {/* Milestone chips */}
-                  <div className="flex flex-wrap gap-2 ml-4">
-                    {milestones.length === 0 && !isAddingHere && (
-                      <span className="text-[11px] italic" style={{ color: PC.muted }}>No milestones — click + Add</span>
-                    )}
-                    {milestones.map((m, mIdx) => {
-                      const doneKey = `${phase.id}::${mIdx}`;
-                      const isDone  = doneMilestones[doneKey] ?? false;
-                      return (
-                        <div
-                          key={mIdx}
-                          className="flex items-center gap-1 group"
-                          style={{
-                            background: isDone ? `${PC.completed}15` : `${phaseColor}10`,
-                            border: `1px solid ${isDone ? PC.completed : phaseColor}40`,
-                            borderRadius: 999,
-                            padding: '4px 10px 4px 8px',
-                          }}
-                        >
-                          {/* Toggle done */}
-                          <button
-                            title="Click to toggle done"
-                            onClick={() => setDoneMilestones(prev => ({ ...prev, [doneKey]: !prev[doneKey] }))}
-                            style={{
-                              width: 14, height: 14, borderRadius: '50%', border: `1.5px solid ${isDone ? PC.completed : phaseColor}`,
-                              background: isDone ? PC.completed : 'transparent',
-                              display: 'flex', alignItems: 'center', justifyContent: 'center',
-                              cursor: 'pointer', flexShrink: 0,
-                            }}
-                          >
-                            {isDone && <Check size={8} color="#fff" strokeWidth={3} />}
-                          </button>
-                          <span
-                            className="text-[12px] font-medium cursor-pointer select-none"
-                            style={{
-                              color: isDone ? PC.completed : PC.text,
-                              textDecoration: isDone ? 'line-through' : 'none',
-                              opacity: isDone ? 0.7 : 1,
-                            }}
-                            onClick={() => setDoneMilestones(prev => ({ ...prev, [doneKey]: !prev[doneKey] }))}
-                          >
-                            {m}
-                          </span>
-                          {/* Remove button — visible on hover */}
-                          <button
-                            title="Remove milestone"
-                            onClick={() => handleRemoveMilestone(phase.id, mIdx)}
-                            className="opacity-0 group-hover:opacity-100 transition-opacity ml-0.5"
-                            style={{ color: PC.delayed, display: 'flex', alignItems: 'center' }}
-                          >
-                            <X size={11} />
-                          </button>
+        // Custom tooltip — rich card showing each milestone name
+        const MilestoneTooltip = ({ active, payload }: {
+          active?: boolean;
+          payload?: Array<{ payload: MilestoneBarDatum }>;
+        }) => {
+          if (!active || !payload?.length) return null;
+          const d = payload[0].payload;
+          return (
+            <div style={{
+              background: '#fff',
+              border: `2px solid ${d.color}`,
+              borderRadius: 10,
+              padding: '12px 16px',
+              boxShadow: '0 6px 24px rgba(0,0,0,0.13)',
+              minWidth: 220,
+              maxWidth: 300,
+            }}>
+              {/* Phase header */}
+              <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 8 }}>
+                <div style={{ width: 10, height: 10, borderRadius: '50%', background: d.color, flexShrink: 0 }} />
+                <span style={{ fontWeight: 700, fontSize: 13, color: PC.text }}>{d.fullName}</span>
+                <span style={{ marginLeft: 'auto', fontSize: 11, color: d.color, fontWeight: 600 }}>{d.weeks}</span>
+              </div>
+              {/* Summary row */}
+              <div style={{
+                display: 'flex', gap: 8, marginBottom: 10,
+                paddingBottom: 8, borderBottom: `1px solid ${PC.border}`,
+              }}>
+                <span style={{
+                  background: `${d.color}18`, color: d.color,
+                  borderRadius: 999, padding: '2px 10px', fontSize: 11, fontWeight: 700,
+                }}>
+                  {d.count} milestone{d.count !== 1 ? 's' : ''}
+                </span>
+                <span style={{
+                  background: d.status === 'completed' ? `${PC.completed}18`
+                    : d.status === 'in-progress' ? `${PC.inprog}18` : `${PC.notstart}18`,
+                  color: d.status === 'completed' ? PC.completed
+                    : d.status === 'in-progress' ? PC.inprog : PC.notstart,
+                  borderRadius: 999, padding: '2px 10px', fontSize: 11, fontWeight: 600,
+                }}>
+                  {d.status === 'completed' ? 'Completed' : d.status === 'in-progress' ? 'In Progress' : 'Not Started'}
+                </span>
+              </div>
+              {/* Milestone list */}
+              {d.milestones.length === 0
+                ? <div style={{ fontSize: 12, color: PC.muted, fontStyle: 'italic' }}>No milestones defined</div>
+                : (
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: 5 }}>
+                    {d.milestones.map((m, i) => (
+                      <div key={i} style={{ display: 'flex', alignItems: 'flex-start', gap: 7, fontSize: 12 }}>
+                        <div style={{
+                          width: 16, height: 16, borderRadius: '50%',
+                          background: d.color, flexShrink: 0, marginTop: 1,
+                          display: 'flex', alignItems: 'center', justifyContent: 'center',
+                        }}>
+                          <Check size={9} color="#fff" strokeWidth={3} />
                         </div>
-                      );
-                    })}
-
-                    {/* Inline add input */}
-                    {isAddingHere && (
-                      <div className="flex items-center gap-1.5">
-                        <input
-                          autoFocus
-                          value={newMilestoneText}
-                          onChange={e => setNewMilestoneText(e.target.value)}
-                          onKeyDown={e => {
-                            if (e.key === 'Enter') handleAddMilestone(phase.id);
-                            if (e.key === 'Escape') setAddingMilestonePhaseId(null);
-                          }}
-                          placeholder="Milestone name…"
-                          className="text-xs rounded-lg px-2.5 py-1 outline-none"
-                          style={{
-                            border: `1.5px solid ${phaseColor}`,
-                            background: '#fff', color: PC.text, width: 180,
-                          }}
-                        />
-                        <button
-                          onClick={() => handleAddMilestone(phase.id)}
-                          className="text-xs font-semibold px-2.5 py-1 rounded-lg text-white"
-                          style={{ background: phaseColor }}
-                        >
-                          Add
-                        </button>
-                        <button
-                          onClick={() => setAddingMilestonePhaseId(null)}
-                          className="text-xs px-2 py-1 rounded-lg"
-                          style={{ background: PC.bg, color: PC.muted, border: `1px solid ${PC.border}` }}
-                        >
-                          Cancel
-                        </button>
+                        <span style={{ color: PC.text, lineHeight: 1.4 }}>{m}</span>
                       </div>
-                    )}
+                    ))}
                   </div>
+                )
+              }
+            </div>
+          );
+        };
 
-                  {/* Divider between phases */}
-                  {idx < plan!.phases.length - 1 && (
-                    <div className="mt-3 border-t" style={{ borderColor: PC.border }} />
-                  )}
+        return (
+          <div className="bg-white rounded-2xl border p-5" style={{ borderColor: PC.border }}>
+            {/* Header */}
+            <div className="flex items-center justify-between mb-1">
+              <div className="flex items-center gap-2">
+                <Flag size={15} style={{ color: '#a56eff' }} />
+                <span className="font-semibold" style={{ fontSize: 15, color: PC.text }}>Milestone KPI</span>
+                <span className="text-[11px] px-2 py-0.5 rounded-full font-semibold"
+                  style={{ background: '#a56eff18', color: '#a56eff' }}>
+                  {milestoneCount} total
+                </span>
+              </div>
+              <span className="text-[11px]" style={{ color: PC.muted }}>
+                Hover a bar to see each milestone · colour matches phase
+              </span>
+            </div>
+            <p className="text-[11px] mb-4" style={{ color: PC.muted }}>
+              Bar height = milestone count per phase. Tooltip lists every milestone name and phase status.
+            </p>
+
+            <ResponsiveContainer width="100%" height={220}>
+              <BarChart data={barData} barSize={38} margin={{ left: -10, right: 10, bottom: 10, top: 16 }}>
+                <CartesianGrid strokeDasharray="3 3" stroke={PC.border} vertical={false} />
+                <XAxis
+                  dataKey="phase"
+                  tick={{ fontSize: 11, fill: PC.muted }}
+                  axisLine={false}
+                  tickLine={false}
+                />
+                <YAxis
+                  allowDecimals={false}
+                  tick={{ fontSize: 10, fill: PC.muted }}
+                  axisLine={false}
+                  tickLine={false}
+                  label={{ value: 'Milestones', angle: -90, position: 'insideLeft', style: { fill: PC.muted, fontSize: 10 } }}
+                />
+                <Tooltip content={<MilestoneTooltip />} cursor={{ fill: 'rgba(165,110,255,0.06)' }} />
+                <Bar dataKey="count" name="Milestones" radius={[6, 6, 0, 0]}>
+                  {barData.map((entry, i) => (
+                    <Cell key={i} fill={entry.color} fillOpacity={entry.count === 0 ? 0.25 : 1} />
+                  ))}
+                  <LabelList
+                    dataKey="count"
+                    position="top"
+                    style={{ fontSize: 12, fontWeight: 700, fill: PC.text }}
+                    formatter={(v: number) => v > 0 ? String(v) : '–'}
+                  />
+                </Bar>
+              </BarChart>
+            </ResponsiveContainer>
+
+            {/* Legend row: one chip per phase with milestone count */}
+            <div className="flex flex-wrap gap-2 mt-3 pt-3 border-t" style={{ borderColor: PC.border }}>
+              {barData.map((d, i) => (
+                <div key={i} className="flex items-center gap-1.5 text-[11px] font-medium"
+                  style={{
+                    background: `${d.color}12`,
+                    border: `1px solid ${d.color}30`,
+                    borderRadius: 999,
+                    padding: '3px 10px',
+                    color: PC.text,
+                  }}>
+                  <div style={{ width: 7, height: 7, borderRadius: '50%', background: d.color, flexShrink: 0 }} />
+                  {d.fullName}
+                  <span style={{ fontWeight: 700, color: d.color, marginLeft: 2 }}>{d.count}</span>
                 </div>
-              );
-            })}
+              ))}
+            </div>
           </div>
-        )}
-      </div>
+        );
+      })()}
 
       {/* Action bar */}
       <div className="flex justify-end">
