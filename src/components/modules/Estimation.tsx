@@ -2,13 +2,14 @@
 // ============================================================
 // Cost Estimation — Live Calculation · Full reference-design implementation
 // Phase breakdown, role summary, bar chart, donut chart, editable assumptions
+// + FX Currency Toggle (Feature 1 — feature/enriched)
 // ============================================================
-import React, { useState, useMemo, useCallback } from 'react';
+import React, { useState, useMemo, useCallback, useEffect } from 'react';
 import {
   BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip,
   ResponsiveContainer, PieChart, Pie, Cell, Legend,
 } from 'recharts';
-import { ChevronDown, ChevronUp } from 'lucide-react';
+import { ChevronDown, ChevronUp, Globe } from 'lucide-react';
 import { useRFPStore } from '@/lib/store';
 
 // ── Palette ───────────────────────────────────────────────────
@@ -256,10 +257,36 @@ function DonutLegend({ payload }: { payload?: any[] }) {
 // ============================================================
 // MAIN COMPONENT
 // ============================================================
+const CURRENCY_SYMBOLS: Record<string, string> = {
+  USD: '$', EUR: '€', GBP: '£', INR: '₹', AUD: 'A$', CAD: 'C$', SGD: 'S$', AED: 'د.إ',
+};
+
 export default function EstimationModule() {
   const activeDocumentId = useRFPStore((state) => state.activeDocumentId);
   const analysisResults = useRFPStore((state) => state.analysisResults);
   const hasDoc = !!(activeDocumentId && analysisResults[activeDocumentId]);
+
+  // ── FX state ──────────────────────────────────────────────
+  const [currency,   setCurrency]   = useState('USD');
+  const [fxRates,    setFxRates]    = useState<Record<string, number>>({ USD: 1 });
+  const [fxSource,   setFxSource]   = useState<'live' | 'fallback' | null>(null);
+
+  useEffect(() => {
+    fetch('/api/fx-rate')
+      .then(r => r.json())
+      .then(d => { setFxRates(d.rates ?? { USD: 1 }); setFxSource(d.source); })
+      .catch(() => { /* stay USD */ });
+  }, []);
+
+  const fxRate = fxRates[currency] ?? 1;
+  const fxSym  = CURRENCY_SYMBOLS[currency] ?? currency;
+
+  function fmtFX(usd: number): string {
+    const v = usd * fxRate;
+    if (v >= 1_000_000) return `${fxSym}${(v / 1_000_000).toFixed(1)}M`;
+    if (v >= 1_000)     return `${fxSym}${Math.round(v / 1000)}K`;
+    return `${fxSym}${Math.round(v)}`;
+  }
 
   // ── Assumptions state ─────────────────────────────────────
   const [assump, setAssump] = useState(DEFAULT_ASSUMPTIONS);
@@ -379,14 +406,38 @@ export default function EstimationModule() {
         </button>
       </div>
 
+      {/* ── Currency Selector (FX Toggle) ── */}
+      <div className="flex items-center gap-2 flex-wrap">
+        <Globe size={13} className="text-indigo-400" />
+        <span className="text-xs text-slate-500 font-medium">Currency:</span>
+        <div className="flex gap-1 flex-wrap">
+          {Object.keys(CURRENCY_SYMBOLS).map(cur => (
+            <button
+              key={cur}
+              onClick={() => setCurrency(cur)}
+              className="text-xs font-semibold px-2.5 py-1 rounded-lg border transition-colors"
+              style={{
+                borderColor: currency === cur ? INDIGO : '#E2E8F0',
+                background:  currency === cur ? 'rgba(99,102,241,0.08)' : '#FFFFFF',
+                color:       currency === cur ? INDIGO : '#64748B',
+              }}
+            >
+              {cur}
+            </button>
+          ))}
+        </div>
+        {fxSource === 'live' && <span className="text-[10px] font-semibold bg-green-100 text-green-700 rounded-full px-2 py-0.5">Live rates</span>}
+        {fxSource === 'fallback' && <span className="text-[10px] font-semibold bg-amber-100 text-amber-700 rounded-full px-2 py-0.5">Approx. rates</span>}
+      </div>
+
       {/* ── 6 Summary Cards ── */}
       <div className="flex gap-3 flex-wrap">
-        <SummaryCard label="Total Cost"      value={fmtUSD(calc.totalCost)}    accent />
-        <SummaryCard label="Labor"           value={fmtUSD(calc.laborCost)} />
-        <SummaryCard label="Infrastructure"  value={fmtUSD(calc.infraCost)} />
-        <SummaryCard label="Contingency"     value={fmtUSD(calc.contingencyAmt)} />
-        <SummaryCard label="Overhead"        value={fmtUSD(calc.overheadAmt)} />
-        <SummaryCard label="Duration"        value={`${assump.projectDurationWeeks}w`} />
+        <SummaryCard label={`Total Cost (${currency})`} value={fmtFX(calc.totalCost)}    accent />
+        <SummaryCard label="Labor"                      value={fmtFX(calc.laborCost)} />
+        <SummaryCard label="Infrastructure"             value={fmtFX(calc.infraCost)} />
+        <SummaryCard label="Contingency"                value={fmtFX(calc.contingencyAmt)} />
+        <SummaryCard label="Overhead"                   value={fmtFX(calc.overheadAmt)} />
+        <SummaryCard label="Duration"                   value={`${assump.projectDurationWeeks}w`} />
       </div>
 
       {/* ── Editable Assumptions Panel ── */}

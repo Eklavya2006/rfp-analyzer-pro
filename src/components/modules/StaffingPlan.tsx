@@ -1,5 +1,6 @@
 'use client';
 // StaffingPlan — Interactive KPI Dashboard + role cards + team summary
+// + Market Rate benchmark badges (Feature 7 — feature/enriched)
 import React, { useState, useMemo, useEffect, useRef, useCallback } from 'react';
 import {
   Users, TrendingUp, DollarSign, Flame, Search, Plus, Trash2,
@@ -353,14 +354,17 @@ function AnimatedKpiCard({ label, targetValue, format, icon, accentColor, durati
 // ════════════════════════════════════════════════════════════════
 // Role Card  (matches screenshot)
 // ════════════════════════════════════════════════════════════════
+interface MarketBenchmark { role: string; p25: number; median: number; p75: number; source: string }
+
 interface RoleCardProps {
   role: StaffingRole;
   canonical: CanonicalRole | undefined;
   projectMonths: number;
   phases: ProjectPhase[];
+  benchmark?: MarketBenchmark;
   onRemove: (id: string) => void;
 }
-function RoleCard({ role, canonical, projectMonths, phases, onRemove }: RoleCardProps) {
+function RoleCard({ role, canonical, projectMonths, phases, benchmark, onRemove }: RoleCardProps) {
   const [showAll, setShowAll] = useState(false);
   const seniority = getSeniority(role.band);
   const senStyle  = SENIORITY_STYLE[seniority] ?? SENIORITY_STYLE.mid;
@@ -371,6 +375,13 @@ function RoleCard({ role, canonical, projectMonths, phases, onRemove }: RoleCard
   const totalWeeks = wr.end - wr.start + 1;
   const visibleSkills = showAll ? skills : skills.slice(0, 4);
   const hasMore = skills.length > 4;
+
+  // Market rate delta badge
+  const rateVsMarket = benchmark
+    ? role.hourlyRate < benchmark.p25 ? { label: 'Below market', color: '#10B981', bg: '#D1FAE5' }
+    : role.hourlyRate > benchmark.p75 ? { label: 'Above market', color: '#F43F5E', bg: '#FEE2E2' }
+    : { label: 'At market', color: '#3B82F6', bg: '#DBEAFE' }
+    : null;
 
   return (
     <div className="rounded-2xl bg-white border border-slate-200 p-5 hover:border-indigo-200 hover:shadow-sm transition-all">
@@ -408,9 +419,15 @@ function RoleCard({ role, canonical, projectMonths, phases, onRemove }: RoleCard
         </div>
       </div>
 
-      {/* ── Rate + Ramp row ── */}
-      <div className="flex items-center justify-between mt-3 mb-3">
+      {/* ── Rate + Ramp row + Market badge ── */}
+      <div className="flex items-center justify-between mt-3 mb-3 flex-wrap gap-1">
         <span className="text-xs font-semibold text-slate-700">${role.hourlyRate}/hr</span>
+        {rateVsMarket && (
+          <span style={{ fontSize: 10, fontWeight: 600, borderRadius: 999, padding: '2px 8px', background: rateVsMarket.bg, color: rateVsMarket.color }}>
+            {rateVsMarket.label}
+            {benchmark && ` · mkt $${benchmark.p25}–$${benchmark.p75}`}
+          </span>
+        )}
         <span className="text-xs text-slate-400">Ramp: 1w up / 2w down</span>
       </div>
 
@@ -443,15 +460,26 @@ export default function StaffingPlanModule() {
   const setAnalysisResult = useRFPStore((state) => state.setAnalysisResult);
   const result = activeDocumentId ? analysisResults[activeDocumentId] : null;
 
-  const [search, setSearch]       = useState('');
-  const [showAdd, setShowAdd]     = useState(false);
+  const [search, setSearch]           = useState('');
+  const [showAdd, setShowAdd]         = useState(false);
   const [showSummary, setShowSummary] = useState(true);
-  const [newRole, setNewRole]     = useState<Partial<StaffingRole & { _location: LocationType }>>({
+  const [newRole, setNewRole]         = useState<Partial<StaffingRole & { _location: LocationType }>>({
     roleName:'', band:'7A', numberOfResources:1, hoursPerResource:640, hourlyRate:65, _location:'Offshore',
   });
+  const [marketBenchmarks, setMarketBenchmarks] = useState<MarketBenchmark[]>([]);
 
   // ── Bootstrap canonical roles ─────────────────────────────────
   const plan = result?.staffingPlan;
+
+  // Fetch market rate benchmarks once roles are available
+  React.useEffect(() => {
+    if (!plan?.roles.length) return;
+    const roleNames = plan.roles.map(r => r.roleName).join(',');
+    fetch(`/api/market-rates?roles=${encodeURIComponent(roleNames)}`)
+      .then(r => r.json())
+      .then(d => setMarketBenchmarks(d.benchmarks ?? []))
+      .catch(() => {});
+  }, [plan?.roles]);
   React.useEffect(() => {
     if (!activeDocumentId || !result) return;
     if (!result.staffingPlan || result.staffingPlan.roles.length === 0) {
@@ -1236,6 +1264,10 @@ export default function StaffingPlanModule() {
           {filteredRoles.map(role => {
             const canon = CANONICAL_ROLES.find(c => c.roleName === role.roleName);
             const livePhasesForCard = result?.projectPlan?.phases ?? [];
+            const bm = marketBenchmarks.find(b =>
+              b.role.toLowerCase() === role.roleName.toLowerCase() ||
+              role.roleName.toLowerCase().includes(b.role.toLowerCase())
+            );
             return (
               <RoleCard
                 key={role.id}
@@ -1243,6 +1275,7 @@ export default function StaffingPlanModule() {
                 canonical={canon}
                 projectMonths={projectMonths}
                 phases={livePhasesForCard}
+                benchmark={bm}
                 onRemove={(id) => { if (activeDocumentId) removeStaffingRole(activeDocumentId, id); }}
               />
             );

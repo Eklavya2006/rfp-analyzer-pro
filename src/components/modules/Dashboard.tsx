@@ -1,6 +1,7 @@
 'use client';
 // Dashboard — Light theme · indigo/cyan chart palette
 import React, { useMemo, useState } from 'react';
+import NewsPulseWidget from '@/components/NewsPulseWidget';
 import {
   BarChart, Bar, AreaChart, Area,
   XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Cell,
@@ -439,6 +440,16 @@ export default function Dashboard() {
               <div className="kpi-value" style={{ fontSize: 12, fontWeight: 700, color: D.text }}>{m.value}</div>
             </Card>
           ))}
+        </div>
+      </div>
+
+      {/* ── Industry Pulse + Bottom row ── */}
+      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 14, marginBottom: 18 }}>
+        {/* News Pulse — keywords from RFP technologies */}
+        <div style={{ gridColumn: '1 / -1' }}>
+          <NewsPulseWidget keywords={
+            (result?.offerings ?? []).slice(0, 4).map(o => o.name).concat(['IBM', 'enterprise AI']).slice(0, 6)
+          } />
         </div>
       </div>
 

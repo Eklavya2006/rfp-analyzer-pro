@@ -1,8 +1,9 @@
 'use client';
 // ProjectPlan — Dark Gantt-style redesign with status pills, progress bars, resource chart
+// + Calendar Export (Feature 4 — feature/enriched)
 import React, { useState, useRef, useCallback, useMemo } from 'react';
 import ReactDOM from 'react-dom';
-import { Pencil, Check, X, Plus, Trash2, Info, Flag, Minus } from 'lucide-react';
+import { Pencil, Check, X, Plus, Trash2, Info, Flag, Minus, CalendarCheck } from 'lucide-react';
 import {
   LineChart, Line, BarChart, Bar,
   XAxis, YAxis, CartesianGrid, Tooltip,
@@ -572,7 +573,37 @@ export default function ProjectPlanModule() {
       })()}
 
       {/* Action bar */}
-      <div className="flex justify-end">
+      <div className="flex justify-end gap-2">
+        {/* Calendar Export button */}
+        <button
+          onClick={async () => {
+            const milestones = (plan?.phases ?? []).flatMap(p =>
+              (p.milestones ?? []).map((label, i) => ({
+                phase: p.name,
+                label,
+                weekOffset: p.startWeek + Math.round((i / Math.max(1, (p.milestones?.length ?? 1) - 1)) * (p.durationWeeks - 1)),
+              }))
+            );
+            const res = await fetch('/api/calendar-export', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({
+                projectName: plan?.projectName ?? 'RFP Project',
+                startDate: new Date().toISOString().split('T')[0],
+                milestones,
+              }),
+            });
+            const blob = await res.blob();
+            const url  = URL.createObjectURL(blob);
+            const a    = document.createElement('a');
+            a.href = url; a.download = 'project-milestones.ics'; a.click();
+            URL.revokeObjectURL(url);
+          }}
+          className="flex items-center gap-1.5 text-sm font-semibold px-4 py-2 rounded-xl border transition-colors hover:bg-slate-50"
+          style={{ borderColor: PC.border, color: PC.text }}
+        >
+          <CalendarCheck size={14} /> Export to Calendar
+        </button>
         <button onClick={() => setShowAddForm(true)}
           className="flex items-center gap-1.5 text-sm font-semibold px-4 py-2 rounded-xl text-white hover:opacity-90 transition-opacity"
           style={{ background: PC.inprog }}>

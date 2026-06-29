@@ -1,10 +1,13 @@
 'use client';
 // ============================================================
 // OfferingsTechnology — S4: Service Line badge + Group by toggle
+// + IBM Cloud Catalog live enrichment (Feature 6 — feature/enriched)
 // ============================================================
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { useRFPStore } from '@/lib/store';
 import type { OfferingCategory, ServiceLine } from '@/types';
+import type { CatalogEnrichment } from '@/app/api/ibm-catalog/route';
+import { ExternalLink } from 'lucide-react';
 
 const ACCENT = '#1E3A5F';
 const TEAL   = '#0D7377';
@@ -75,8 +78,48 @@ export default function OfferingsTechnology() {
     [offerings]
   );
 
+  // ── IBM Cloud Catalog enrichment ──────────────────────────
+  const [catalogItems, setCatalogItems] = useState<CatalogEnrichment[]>([]);
+  const [catalogSource, setCatalogSource] = useState<'live' | 'fallback' | null>(null);
+
+  useEffect(() => {
+    const keywords = offerings.slice(0, 4).flatMap(o => o.tags).slice(0, 6).join(',');
+    fetch(`/api/ibm-catalog?q=${encodeURIComponent(keywords)}`)
+      .then(r => r.json())
+      .then(d => { setCatalogItems(d.items ?? []); setCatalogSource(d.source); })
+      .catch(() => {});
+  }, [offerings]);
+
   return (
     <div className="p-6 max-w-7xl mx-auto space-y-6">
+
+      {/* IBM Cloud Catalog live enrichment panel */}
+      {catalogItems.length > 0 && (
+        <div style={{ background: '#EFF6FF', border: '1px solid #BFDBFE', borderRadius: 14, padding: '14px 18px' }}>
+          <div className="flex items-center gap-2 mb-3">
+            <div style={{ width: 8, height: 8, borderRadius: '50%', background: '#1E3A5F' }} />
+            <span style={{ fontSize: 12, fontWeight: 700, color: '#1E3A5F' }}>IBM Cloud Catalog</span>
+            {catalogSource === 'live' && <span style={{ fontSize: 10, fontWeight: 600, background: '#D1FAE5', color: '#065F46', borderRadius: 999, padding: '1px 7px' }}>LIVE</span>}
+            {catalogSource === 'fallback' && <span style={{ fontSize: 10, fontWeight: 600, background: '#FEF3C7', color: '#92400E', borderRadius: 999, padding: '1px 7px' }}>CURATED</span>}
+            <span style={{ marginLeft: 'auto', fontSize: 11, color: '#3B82F6' }}>{catalogItems.length} products matched</span>
+          </div>
+          <div className="flex flex-wrap gap-2">
+            {catalogItems.map(item => (
+              <a key={item.id} href={item.url} target="_blank" rel="noopener noreferrer"
+                style={{
+                  display: 'flex', alignItems: 'center', gap: 5,
+                  background: '#FFFFFF', border: '1px solid #BFDBFE',
+                  borderRadius: 8, padding: '5px 10px', textDecoration: 'none',
+                  fontSize: 11, color: '#1E3A5F', fontWeight: 600,
+                }}>
+                {item.name}
+                <ExternalLink size={9} style={{ color: '#93C5FD' }} />
+              </a>
+            ))}
+          </div>
+        </div>
+      )}
+
       {/* Controls */}
       <div className="flex items-center justify-between">
         <div>
