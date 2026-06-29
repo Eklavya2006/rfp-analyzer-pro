@@ -777,54 +777,45 @@ export default function StaffingPlanModule() {
                         label={{ value: 'Headcount', angle: -90, position: 'insideLeft', style: { fill: '#64748B', fontSize: 10 } }}
                       />
 
-                      {/* Rich custom tooltip */}
+                      {/* Compact tooltip */}
                       <Tooltip
                         content={({ active, payload }) => {
                           if (!active || !payload?.length) return null;
                           const pt = payload[0].payload as typeof hcOverTimeEnhanced[0];
+                          const isPeak = pt.Headcount === peakHcWeek.Headcount;
                           return (
                             <div style={{
-                              background: '#fff', border: '2px solid #3B82F6',
-                              borderRadius: 10, padding: '10px 14px',
-                              boxShadow: '0 6px 24px rgba(0,0,0,0.13)',
-                              minWidth: 200, maxWidth: 280,
+                              background: '#fff',
+                              border: `1.5px solid ${isPeak ? '#F59E0B' : '#3B82F6'}`,
+                              borderRadius: 8, padding: '6px 10px',
+                              boxShadow: '0 3px 10px rgba(0,0,0,0.1)',
+                              fontSize: 11, minWidth: 130, maxWidth: 180,
                             }}>
-                              <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 6 }}>
-                                <span style={{ fontWeight: 700, fontSize: 13, color: '#0F172A' }}>{pt.week}</span>
+                              {/* Week + phase on one line */}
+                              <div style={{ display: 'flex', alignItems: 'center', gap: 5, marginBottom: 3 }}>
+                                <span style={{ fontWeight: 700, color: '#0F172A' }}>{pt.week}</span>
                                 {pt.phase && (
-                                  <span style={{ fontSize: 11, color: '#3B82F6', fontWeight: 600,
-                                    background: '#EFF6FF', borderRadius: 999, padding: '1px 8px' }}>
+                                  <span style={{ color: '#3B82F6', fontWeight: 600,
+                                    background: '#EFF6FF', borderRadius: 999, padding: '0px 6px', fontSize: 10 }}>
                                     {pt.phase}
                                   </span>
                                 )}
+                                {isPeak && (
+                                  <span style={{ color: '#F59E0B', fontWeight: 700, fontSize: 10 }}>★</span>
+                                )}
                               </div>
-                              <div style={{ fontSize: 22, fontWeight: 800, color: '#3B82F6', marginBottom: 8 }}>
-                                {pt.Headcount}
-                                <span style={{ fontSize: 12, fontWeight: 500, color: '#64748B', marginLeft: 4 }}>active</span>
+                              {/* Count + active roles count */}
+                              <div style={{ display: 'flex', alignItems: 'baseline', gap: 4 }}>
+                                <span style={{ fontSize: 16, fontWeight: 800, color: isPeak ? '#F59E0B' : '#3B82F6' }}>
+                                  {pt.Headcount}
+                                </span>
+                                <span style={{ color: '#64748B' }}>active</span>
+                                {pt.activeRoles.length > 0 && (
+                                  <span style={{ color: '#94A3B8', fontSize: 10, marginLeft: 2 }}>
+                                    · {pt.activeRoles.length} roles
+                                  </span>
+                                )}
                               </div>
-                              {pt.activeRoles.length > 0 && (
-                                <div style={{ borderTop: '1px solid #E2E8F0', paddingTop: 7 }}>
-                                  <div style={{ fontSize: 10, fontWeight: 600, color: '#94A3B8', textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: 5 }}>
-                                    Active Roles
-                                  </div>
-                                  <div style={{ display: 'flex', flexDirection: 'column', gap: 3 }}>
-                                    {pt.activeRoles.slice(0, 6).map((r, ri) => (
-                                      <div key={ri} style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 12 }}>
-                                        <div style={{ width: 6, height: 6, borderRadius: '50%', background: CHART_COLORS[ri % CHART_COLORS.length], flexShrink: 0 }} />
-                                        <span style={{ color: '#1F2937' }}>{r}</span>
-                                      </div>
-                                    ))}
-                                    {pt.activeRoles.length > 6 && (
-                                      <div style={{ fontSize: 11, color: '#94A3B8' }}>+{pt.activeRoles.length - 6} more</div>
-                                    )}
-                                  </div>
-                                </div>
-                              )}
-                              {pt.Headcount === peakHcWeek.Headcount && (
-                                <div style={{ marginTop: 8, background: '#EFF6FF', borderRadius: 6, padding: '3px 8px', fontSize: 11, fontWeight: 700, color: '#3B82F6', textAlign: 'center' }}>
-                                  ★ Peak Headcount
-                                </div>
-                              )}
                             </div>
                           );
                         }}
