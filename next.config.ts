@@ -44,8 +44,7 @@ const nextConfig: NextConfig = {
   // reads NEXT_PUBLIC_BASE_PATH at runtime to build the correct URL.
   basePath: BASE_PATH,
 
-  // Expose the base path to client-side code so parser.ts can prefix its
-  // fetch('/api/parse-pdf') call correctly without hardcoding the string.
+  // Expose the base path to client-side code (fetch() calls in parser.ts etc.).
   env: {
     NEXT_PUBLIC_BASE_PATH: BASE_PATH,
   },
