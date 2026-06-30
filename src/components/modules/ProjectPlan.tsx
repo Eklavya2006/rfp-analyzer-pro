@@ -268,6 +268,78 @@ function AddPhaseForm({ onAdd, onCancel }: { onAdd: (p: Omit<ProjectPhase, 'id'>
   );
 }
 
+// ── MilestoneLineDatum — hoisted so MilestoneTooltip is a stable module-level component ──
+interface MilestoneLineDatum {
+  phase:      string;
+  fullName:   string;
+  count:      number;
+  weeks:      string;
+  color:      string;
+  milestones: string[];
+  status:     string;
+}
+
+// Stable module-level component — Recharts requires a stable reference on <Tooltip content={…} />
+// Defining it inside the IIFE causes a new function identity on every render, breaking Recharts caching.
+function MilestoneTooltip({ active, payload }: {
+  active?: boolean;
+  payload?: Array<{ payload: MilestoneLineDatum }>;
+}) {
+  if (!active || !payload?.length) return null;
+  const d = payload[0].payload;
+  return (
+    <div style={{
+      background: '#fff',
+      border: `1.5px solid ${d.color}`,
+      borderRadius: 8,
+      padding: '8px 12px',
+      boxShadow: '0 4px 14px rgba(0,0,0,0.11)',
+      minWidth: 170,
+      maxWidth: 230,
+    }}>
+      {/* Phase header */}
+      <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 5 }}>
+        <div style={{ width: 8, height: 8, borderRadius: '50%', background: d.color, flexShrink: 0 }} />
+        <span style={{ fontWeight: 700, fontSize: 11, color: '#0A1628', flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{d.fullName}</span>
+        <span style={{ fontSize: 10, color: d.color, fontWeight: 600, flexShrink: 0 }}>{d.weeks}</span>
+      </div>
+      {/* Summary row */}
+      <div style={{ display: 'flex', gap: 5, marginBottom: 6, paddingBottom: 5, borderBottom: '1px solid #E2E8F0' }}>
+        <span style={{ background: `${d.color}18`, color: d.color, borderRadius: 999, padding: '1px 7px', fontSize: 10, fontWeight: 700 }}>
+          {d.count} ms
+        </span>
+        <span style={{
+          background: d.status === 'completed' ? '#23863618' : d.status === 'in-progress' ? '#1f6feb18' : '#94A3B818',
+          color:      d.status === 'completed' ? '#238636'   : d.status === 'in-progress' ? '#1f6feb'   : '#94A3B8',
+          borderRadius: 999, padding: '1px 7px', fontSize: 10, fontWeight: 600,
+        }}>
+          {d.status === 'completed' ? '✓ Done' : d.status === 'in-progress' ? '⟳ Active' : '○ Pending'}
+        </span>
+      </div>
+      {/* Milestone list */}
+      {d.milestones.length === 0
+        ? <div style={{ fontSize: 11, color: '#94A3B8', fontStyle: 'italic' }}>No milestones</div>
+        : (
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 3 }}>
+            {d.milestones.map((m, i) => (
+              <div key={i} style={{ display: 'flex', alignItems: 'flex-start', gap: 5, fontSize: 11 }}>
+                <div style={{
+                  width: 12, height: 12, borderRadius: '50%',
+                  background: d.color, flexShrink: 0, marginTop: 1,
+                  display: 'flex', alignItems: 'center', justifyContent: 'center',
+                }}>
+                  <Check size={7} color="#fff" strokeWidth={3} />
+                </div>
+                <span style={{ color: '#0A1628', lineHeight: 1.35 }}>{m}</span>
+              </div>
+            ))}
+          </div>
+        )
+      }
+    </div>
+  );
+}
+
 // ── Main ──────────────────────────────────────────────────────
 export default function ProjectPlanModule() {
   // Subscribe only to project-plan related store slices so chart and table rerenders stay local to this module.
@@ -367,74 +439,6 @@ export default function ProjectPlanModule() {
         }));
 
         const yMax = Math.max(...lineData.map(d => d.count), 2);
-
-        // Custom tooltip — compact rich card showing each milestone name
-        const MilestoneTooltip = ({ active, payload }: {
-          active?: boolean;
-          payload?: Array<{ payload: MilestoneLineDatum }>;
-        }) => {
-          if (!active || !payload?.length) return null;
-          const d = payload[0].payload;
-          return (
-            <div style={{
-              background: '#fff',
-              border: `1.5px solid ${d.color}`,
-              borderRadius: 8,
-              padding: '8px 12px',
-              boxShadow: '0 4px 14px rgba(0,0,0,0.11)',
-              minWidth: 170,
-              maxWidth: 230,
-            }}>
-              {/* Phase header */}
-              <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 5 }}>
-                <div style={{ width: 8, height: 8, borderRadius: '50%', background: d.color, flexShrink: 0 }} />
-                <span style={{ fontWeight: 700, fontSize: 11, color: PC.text, flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{d.fullName}</span>
-                <span style={{ fontSize: 10, color: d.color, fontWeight: 600, flexShrink: 0 }}>{d.weeks}</span>
-              </div>
-              {/* Summary row */}
-              <div style={{
-                display: 'flex', gap: 5, marginBottom: 6,
-                paddingBottom: 5, borderBottom: `1px solid ${PC.border}`,
-              }}>
-                <span style={{
-                  background: `${d.color}18`, color: d.color,
-                  borderRadius: 999, padding: '1px 7px', fontSize: 10, fontWeight: 700,
-                }}>
-                  {d.count}ms
-                </span>
-                <span style={{
-                  background: d.status === 'completed' ? `${PC.completed}18`
-                    : d.status === 'in-progress' ? `${PC.inprog}18` : `${PC.notstart}18`,
-                  color: d.status === 'completed' ? PC.completed
-                    : d.status === 'in-progress' ? PC.inprog : PC.notstart,
-                  borderRadius: 999, padding: '1px 7px', fontSize: 10, fontWeight: 600,
-                }}>
-                  {d.status === 'completed' ? '✓ Done' : d.status === 'in-progress' ? '⟳ Active' : '○ Pending'}
-                </span>
-              </div>
-              {/* Milestone list */}
-              {d.milestones.length === 0
-                ? <div style={{ fontSize: 11, color: PC.muted, fontStyle: 'italic' }}>No milestones</div>
-                : (
-                  <div style={{ display: 'flex', flexDirection: 'column', gap: 3 }}>
-                    {d.milestones.map((m, i) => (
-                      <div key={i} style={{ display: 'flex', alignItems: 'flex-start', gap: 5, fontSize: 11 }}>
-                        <div style={{
-                          width: 12, height: 12, borderRadius: '50%',
-                          background: d.color, flexShrink: 0, marginTop: 1,
-                          display: 'flex', alignItems: 'center', justifyContent: 'center',
-                        }}>
-                          <Check size={7} color="#fff" strokeWidth={3} />
-                        </div>
-                        <span style={{ color: PC.text, lineHeight: 1.35 }}>{m}</span>
-                      </div>
-                    ))}
-                  </div>
-                )
-              }
-            </div>
-          );
-        };
 
         return (
           <div className="bg-white rounded-2xl border p-5" style={{ borderColor: PC.border }}>
