@@ -14,8 +14,15 @@ import type {
   ProjectPhase,
   StaffingPlan,
   ProjectPlan,
+  HistoricalInsightsBundle,
+  CurrentEngagementDescriptor,
+  HistoricalEngagement,
 } from '@/types';
 import { DEFAULT_COST_ASSUMPTIONS } from '@/types';
+import {
+  HistoricalEngagementService,
+  buildDescriptorFromAnalysis,
+} from '@/lib/engines/historicalEngagementEngine';
 
 interface RFPStore {
   documents: RFPDocument[];
@@ -30,6 +37,10 @@ interface RFPStore {
   pendingNotification: ChangeNotification | null;
   docScrollTarget: { section: string; page: string; scopeItemId: string } | null;
   activeScopeItemId: string | null;
+  /** Historical insights bundles keyed by documentId. */
+  historicalInsights: Record<string, HistoricalInsightsBundle>;
+  /** Whether historical insights are currently being computed. */
+  isComputingInsights: boolean;
   addDocument: (doc: RFPDocument) => void;
   updateDocument: (id: string, updates: Partial<RFPDocument>) => void;
   setActiveDocument: (id: string | null) => void;
@@ -57,8 +68,18 @@ interface RFPStore {
   removeTestCriterion: (docId: string, sectionId: string, type: 'entry' | 'exit', index: number) => void;
   updateProjectPhase: (docId: string, phaseId: string, updates: Partial<ProjectPhase>) => void;
   addProjectPhase: (docId: string, phase: ProjectPhase) => void;
+  insertProjectPhase: (docId: string, phase: ProjectPhase, afterIndex: number) => void;
   removeProjectPhase: (docId: string, phaseId: string) => void;
   updateTestHours: (docId: string, sectionId: string, hours: number) => void;
+  /**
+   * Compute and store the HistoricalInsightsBundle for the given document.
+   * Fetches live Salesforce engagements from /api/engagements; falls back
+   * to the built-in seed dataset when the API is unavailable or unconfigured.
+   * Async — sets isComputingInsights while in flight.
+   */
+  computeHistoricalInsights: (docId: string) => Promise<void>;
+  /** Set a pre-computed insights bundle directly (e.g. for tests). */
+  setHistoricalInsights: (docId: string, bundle: HistoricalInsightsBundle) => void;
 }
 
 const initialState = {
@@ -74,6 +95,8 @@ const initialState = {
   pendingNotification: null,
   docScrollTarget: null as { section: string; page: string; scopeItemId: string } | null,
   activeScopeItemId: null as string | null,
+  historicalInsights: {} as Record<string, HistoricalInsightsBundle>,
+  isComputingInsights: false,
 };
 
 export function applyAssumptions(
@@ -185,8 +208,57 @@ export const useRFPStore = create<RFPStore>()((set, get) => ({
   removeTestCriterion: (docId, sectionId, type, index) => set((s) => updateAnalysisEntry(s, docId, (existing) => ({ ...existing, testingStrategy: { ...existing.testingStrategy!, sections: existing.testingStrategy!.sections.map((sec) => sec.id !== sectionId ? sec : type === 'entry' ? { ...sec, entryCriteria: sec.entryCriteria.filter((_, i) => i !== index) } : { ...sec, exitCriteria: sec.exitCriteria.filter((_, i) => i !== index) }) } }))),
   updateProjectPhase: (docId, phaseId, updates) => set((s) => updateAnalysisEntry(s, docId, (existing) => ({ ...existing, projectPlan: recalcProjectPlan({ ...existing.projectPlan!, phases: existing.projectPlan!.phases.map((p) => p.id !== phaseId ? p : { ...p, ...updates, endWeek: (updates.startWeek ?? p.startWeek) + (updates.durationWeeks ?? p.durationWeeks) - 1 }) }) }))),
   addProjectPhase: (docId, phase) => set((s) => updateAnalysisEntry(s, docId, (existing) => ({ ...existing, projectPlan: recalcProjectPlan({ ...existing.projectPlan!, phases: [...existing.projectPlan!.phases, phase] }) }))),
+  insertProjectPhase: (docId, phase, afterIndex) => set((s) => updateAnalysisEntry(s, docId, (existing) => {
+    const phases = [...existing.projectPlan!.phases];
+    phases.splice(afterIndex + 1, 0, phase);
+    return { ...existing, projectPlan: recalcProjectPlan({ ...existing.projectPlan!, phases }) };
+  })),
   removeProjectPhase: (docId, phaseId) => set((s) => updateAnalysisEntry(s, docId, (existing) => ({ ...existing, projectPlan: recalcProjectPlan({ ...existing.projectPlan!, phases: existing.projectPlan!.phases.filter((p) => p.id !== phaseId) }) }))),
   updateTestHours: (docId, sectionId, hours) => set((s) => updateAnalysisEntry(s, docId, (existing) => updateTestingHours(existing, s.costAssumptions[docId] ?? { ...DEFAULT_COST_ASSUMPTIONS }, sectionId, hours))),
+  computeHistoricalInsights: async (docId) => {
+    const state = get();
+    const result = state.analysisResults[docId];
+    if (!result) return;
+    set({ isComputingInsights: true });
+
+    // ── 1. Attempt live Salesforce fetch ─────────────────────
+    let liveDataset: HistoricalEngagement[] = [];
+    try {
+      const res = await fetch('/api/engagements', {
+        signal: AbortSignal.timeout(12_000), // 12 s timeout
+      });
+      if (res.ok) {
+        const json: HistoricalEngagement[] = await res.json();
+        if (Array.isArray(json) && json.length > 0) {
+          liveDataset = json;
+        }
+      }
+    } catch {
+      // Network error, timeout, or no credentials configured.
+      // liveDataset stays [] → engine uses seed data.
+    }
+
+    // ── 2. Build descriptor from available analysis data ─────
+    const descriptor: CurrentEngagementDescriptor = buildDescriptorFromAnalysis({
+      rfpText:             state.documents.find((d) => d.id === docId)?.rawText ?? '',
+      technologies:        result.offerings?.flatMap((o) => o.tags) ?? result.staffingPlan?.roles.map((r) => r.roleName) ?? [],
+      projectDurationWeeks: result.projectPlan?.totalDurationWeeks,
+      estimatedBudgetUSD:  result.estimation?.adjustedTotalCost,
+    });
+
+    // ── 3. Run similarity engine (live data if available, else seed) ──
+    const bundle = HistoricalEngagementService.computeFullBundle(descriptor, {
+      topN:    5,
+      dataset: liveDataset.length > 0 ? liveDataset : undefined,
+    });
+
+    set((s) => ({
+      historicalInsights:  { ...s.historicalInsights, [docId]: bundle },
+      isComputingInsights: false,
+    }));
+  },
+  setHistoricalInsights: (docId, bundle) =>
+    set((s) => ({ historicalInsights: { ...s.historicalInsights, [docId]: bundle } })),
 }));
 
 function updateAnalysisEntry(state: RFPStore, docId: string, updater: (existing: AnalysisResult) => AnalysisResult) {

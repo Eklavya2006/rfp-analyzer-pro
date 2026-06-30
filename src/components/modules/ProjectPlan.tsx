@@ -236,33 +236,92 @@ function GanttBar({ phase, totalWeeks, color, onUpdate }: {
 }
 
 // ── Add Phase form ────────────────────────────────────────────
-function AddPhaseForm({ onAdd, onCancel }: { onAdd: (p: Omit<ProjectPhase, 'id'>) => void; onCancel: () => void }) {
+const inputStyle = {
+  borderColor: PC.border,
+  color: PC.text,
+  background: '#fff',
+} as const;
+
+function AddPhaseForm({
+  phaseNames,
+  onAdd,
+  onCancel,
+}: {
+  phaseNames: string[];
+  onAdd: (p: Omit<ProjectPhase, 'id'>, afterIndex: number) => void;
+  onCancel: () => void;
+}) {
   const [name, setName]         = useState('New Phase');
   const [duration, setDuration] = useState(4);
   const [owner, setOwner]       = useState('');
+  // -1 = append at end (default); otherwise index of the phase to insert after
+  const [afterIndex, setAfterIndex] = useState<number>(-1);
 
   const submit = () => {
     if (!name.trim()) return;
-    onAdd({ name: name.trim(), owner: owner || 'TBD', description: '', milestones: [],
-      startWeek: 1, durationWeeks: duration, endWeek: duration,
-      responsibleRoles: [], deliverables: [], status: 'not-started' });
+    onAdd(
+      { name: name.trim(), owner: owner || 'TBD', description: '', milestones: [],
+        startWeek: 1, durationWeeks: duration, endWeek: duration,
+        responsibleRoles: [], deliverables: [], status: 'not-started' },
+      afterIndex,
+    );
   };
 
   return (
     <div className="rounded-2xl border-2 p-4 space-y-3 bg-white" style={{ borderColor: T.gold }}>
       <div className="text-sm font-bold" style={{ color: PC.text }}>Add New Phase</div>
+
+      {/* Row 1 — name / duration / owner */}
       <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
-        <input placeholder="Phase name" value={name} onChange={(e) => setName(e.target.value)}
-          className="col-span-2 border rounded-lg px-3 py-1.5 text-sm outline-none" style={{ borderColor: PC.border }} />
-        <input type="number" min={1} placeholder="Duration (wks)" value={duration}
+        <input
+          placeholder="Phase name"
+          value={name}
+          onChange={(e) => setName(e.target.value)}
+          className="col-span-2 border rounded-lg px-3 py-1.5 text-sm outline-none"
+          style={inputStyle}
+        />
+        <input
+          type="number" min={1} placeholder="Duration (wks)" value={duration}
           onChange={(e) => setDuration(Math.max(1, Number(e.target.value)))}
-          className="border rounded-lg px-3 py-1.5 text-sm outline-none" style={{ borderColor: PC.border }} />
-        <input placeholder="Owner (optional)" value={owner} onChange={(e) => setOwner(e.target.value)}
-          className="border rounded-lg px-3 py-1.5 text-sm outline-none" style={{ borderColor: PC.border }} />
+          className="border rounded-lg px-3 py-1.5 text-sm outline-none"
+          style={inputStyle}
+        />
+        <input
+          placeholder="Owner (optional)" value={owner}
+          onChange={(e) => setOwner(e.target.value)}
+          className="border rounded-lg px-3 py-1.5 text-sm outline-none"
+          style={inputStyle}
+        />
       </div>
+
+      {/* Row 2 — position selector */}
+      <div className="flex items-center gap-2">
+        <span className="text-xs font-semibold shrink-0" style={{ color: PC.muted }}>Insert after:</span>
+        <select
+          value={afterIndex}
+          onChange={(e) => setAfterIndex(Number(e.target.value))}
+          className="flex-1 border rounded-lg px-3 py-1.5 text-sm outline-none"
+          style={{ ...inputStyle, maxWidth: 280 }}
+        >
+          <option value={-1} style={{ color: PC.text }}>— End of list —</option>
+          {phaseNames.map((phaseName, i) => (
+            <option key={i} value={i} style={{ color: PC.text }}>
+              After: {phaseName}
+            </option>
+          ))}
+        </select>
+      </div>
+
       <div className="flex justify-end gap-2">
-        <button onClick={onCancel} className="px-3 py-1.5 text-sm border rounded-lg" style={{ borderColor: PC.border, color: PC.muted }}>Cancel</button>
-        <button onClick={submit} className="px-4 py-1.5 text-sm font-semibold text-white rounded-lg" style={{ background: PC.inprog }}>Add Phase</button>
+        <button onClick={onCancel} className="px-3 py-1.5 text-sm border rounded-lg"
+          style={{ borderColor: PC.border, color: PC.muted }}>
+          Cancel
+        </button>
+        <button onClick={submit}
+          className="px-4 py-1.5 text-sm font-semibold text-white rounded-lg"
+          style={{ background: PC.inprog }}>
+          Add Phase
+        </button>
       </div>
     </div>
   );
@@ -346,8 +405,9 @@ export default function ProjectPlanModule() {
   const activeDocumentId = useRFPStore((state) => state.activeDocumentId);
   const analysisResults  = useRFPStore((state) => state.analysisResults);
   const updateProjectPhase = useRFPStore((state) => state.updateProjectPhase);
-  const addProjectPhase    = useRFPStore((state) => state.addProjectPhase);
-  const removeProjectPhase = useRFPStore((state) => state.removeProjectPhase);
+  const addProjectPhase      = useRFPStore((state) => state.addProjectPhase);
+  const insertProjectPhase   = useRFPStore((state) => state.insertProjectPhase);
+  const removeProjectPhase   = useRFPStore((state) => state.removeProjectPhase);
   const result = activeDocumentId ? analysisResults[activeDocumentId] : null;
 
   const [editingPhaseId, setEditingPhaseId] = useState<string | null>(null);
@@ -358,11 +418,16 @@ export default function ProjectPlanModule() {
     if (activeDocumentId) updateProjectPhase(activeDocumentId, phaseId, updates);
   }, [activeDocumentId, updateProjectPhase]);
 
-  const handleAddPhase = useCallback((partial: Omit<ProjectPhase, 'id'>) => {
+  const handleAddPhase = useCallback((partial: Omit<ProjectPhase, 'id'>, afterIndex: number) => {
     if (!activeDocumentId) return;
-    addProjectPhase(activeDocumentId, { id: uuid(), ...partial });
+    const phase = { id: uuid(), ...partial };
+    if (afterIndex < 0) {
+      addProjectPhase(activeDocumentId, phase);
+    } else {
+      insertProjectPhase(activeDocumentId, phase, afterIndex);
+    }
     setShowAddForm(false);
-  }, [activeDocumentId, addProjectPhase]);
+  }, [activeDocumentId, addProjectPhase, insertProjectPhase]);
 
   const handleRemovePhase = useCallback((phaseId: string) => {
     if (activeDocumentId) removeProjectPhase(activeDocumentId, phaseId);
@@ -622,7 +687,13 @@ export default function ProjectPlanModule() {
         </button>
       </div>
 
-      {showAddForm && <AddPhaseForm onAdd={handleAddPhase} onCancel={() => setShowAddForm(false)} />}
+      {showAddForm && (
+        <AddPhaseForm
+          phaseNames={(plan?.phases ?? []).map((p) => p.name)}
+          onAdd={handleAddPhase}
+          onCancel={() => setShowAddForm(false)}
+        />
+      )}
 
       {/* ── Gantt Timeline ─────────────────────────────── */}
       <div className="bg-white rounded-2xl border p-5 overflow-x-auto" style={{ borderColor: PC.border }}>

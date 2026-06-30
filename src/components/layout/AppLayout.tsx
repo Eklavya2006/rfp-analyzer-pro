@@ -13,7 +13,7 @@ import {
   Zap, Upload, LayoutDashboard, DollarSign,
   CalendarDays, Users, TestTubeDiagonal, Bot,
   CheckSquare, Circle,
-  FileText, Target, Cpu, ClipboardList,
+  FileText, Target, Cpu, ClipboardList, ShieldCheck,
 } from 'lucide-react';
 import ChangeNotificationModal from '@/components/ChangeNotificationModal';
 
@@ -47,16 +47,17 @@ interface NavItem {
 
 // ── Nav items — order: Document Analyzer → Scope → Dashboard → … ──
 const NAV_ITEMS: NavItem[] = [
-  { id: 'document-analyzer', label: 'Document',              description: 'Upload & analyze RFP' },
-  { id: 'scope',             label: 'Scope',                 description: 'Scope & requirements',        requiresDoc: true },
-  { id: 'dashboard',         label: 'Dashboard',             description: 'Overview & metrics',         requiresDoc: true },
-  { id: 'offerings',         label: 'Offerings',             description: 'IBM offerings & tech',        requiresDoc: true },
-  { id: 'project-plan',      label: 'Project Plan',          description: 'Phases & timeline',           requiresDoc: true },
-  { id: 'staffing',          label: 'Staffing',              description: 'Team composition',            requiresDoc: true },
-  { id: 'testing',           label: 'Testing',               description: 'QA strategy',                 requiresDoc: true },
-  { id: 'estimation',        label: 'Cost',                  description: 'Effort & cost breakdown',     requiresDoc: true },
-  { id: 'agentic-impact',    label: 'AI Impact',             description: 'AI vs traditional',           requiresDoc: true },
-  { id: 'proposal',          label: 'Proposal',              description: 'Generate client proposal',    requiresDoc: true },
+  { id: 'document-analyzer',   label: 'Document',      description: 'Upload & analyze RFP' },
+  { id: 'scope',                label: 'Scope',         description: 'Scope & requirements',        requiresDoc: true },
+  { id: 'dashboard',            label: 'Dashboard',     description: 'Overview & metrics',          requiresDoc: true },
+  { id: 'offerings',            label: 'Offerings',     description: 'IBM offerings & tech',         requiresDoc: true },
+  { id: 'project-plan',         label: 'Project Plan',  description: 'Phases & timeline',            requiresDoc: true },
+  { id: 'staffing',             label: 'Staffing',      description: 'Team composition',             requiresDoc: true },
+  { id: 'testing',              label: 'Testing',       description: 'QA strategy',                  requiresDoc: true },
+  { id: 'estimation',           label: 'Cost',          description: 'Effort & cost breakdown',      requiresDoc: true },
+  { id: 'agentic-impact',       label: 'AI Impact',     description: 'AI vs traditional',            requiresDoc: true },
+  { id: 'proposal',             label: 'Proposal',      description: 'Generate client proposal',     requiresDoc: true },
+  { id: 'confidence-insights',  label: 'Confidence',    description: 'Historical win/loss insights', requiresDoc: true },
 ];
 
 // ── Lucide icon resolver ──────────────────────────────────────
@@ -71,9 +72,10 @@ function NavIcon({ id, className }: { id: TabId; className?: string }) {
     case 'staffing':          return <Users {...props} />;
     case 'testing':           return <TestTubeDiagonal {...props} />;
     case 'estimation':        return <DollarSign {...props} />;
-    case 'agentic-impact':    return <Bot {...props} />;
-    case 'proposal':          return <ClipboardList {...props} />;
-    default:                  return <FileText {...props} />;
+    case 'agentic-impact':         return <Bot {...props} />;
+    case 'proposal':               return <ClipboardList {...props} />;
+    case 'confidence-insights':    return <ShieldCheck {...props} />;
+    default:                       return <FileText {...props} />;
   }
 }
 

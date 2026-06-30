@@ -592,7 +592,7 @@ export default function CreateProposalModule() {
                 <input value={websiteUrl} onChange={(e) => setWebsiteUrl(e.target.value)}
                   placeholder="https://client.com"
                   className="flex-1 border rounded-xl px-3 py-2 text-sm outline-none focus:border-teal-400"
-                  style={{ borderColor: '#E2E8F0' }} />
+                  style={{ borderColor: '#E2E8F0', color: '#1A202C', background: '#fff' }} />
                 <button onClick={handleFetchLogo} disabled={fetchingLogo || !websiteUrl}
                   className="px-4 py-2 text-xs font-semibold rounded-xl transition-colors"
                   style={{

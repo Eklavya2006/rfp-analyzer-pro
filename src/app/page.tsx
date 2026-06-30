@@ -16,6 +16,7 @@ const TestingModule = dynamic(() => import('@/components/modules/Testing'), { ss
 const EstimationModule = dynamic(() => import('@/components/modules/Estimation'), { ssr: false });
 const AgenticImpactModule = dynamic(() => import('@/components/modules/AIImpact'), { ssr: false });
 const CreateProposalModule = dynamic(() => import('@/components/modules/CreateProposal'), { ssr: false });
+const ConfidenceInsightsModule = dynamic(() => import('@/components/modules/ConfidenceInsights'), { ssr: false });
 
 const moduleFallback = (
   <div className="p-6 text-sm text-slate-500">Loading module…</div>
@@ -45,6 +46,8 @@ const ActiveModule = React.memo(function ActiveModule() {
       return <AgenticImpactModule />;
     case 'proposal':
       return <CreateProposalModule />;
+    case 'confidence-insights':
+      return <ConfidenceInsightsModule />;
     default:
       return <DocumentAnalyzer />;
   }
