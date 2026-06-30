@@ -59,129 +59,20 @@ function classifyPDFError(err: unknown): { code: string; message: string } {
   return { code: 'PARSE_GENERIC',    message: PDF_ERRORS.PARSE_GENERIC };
 }
 
-export async function POST(req: NextRequest) {
-  const startTime = Date.now();
-
-  // ── 1. Parse multipart form data ──────────────────────────────
-  let file: File | null = null;
-  try {
-    const formData = await req.formData();
-    file = formData.get('file') as File | null;
-  } catch (err) {
-    console.error('[parse-pdf] FormData parse error:', err);
-    return NextResponse.json({
-      success: false, error: 'FORM_PARSE_ERROR',
-      message: 'Failed to parse multipart form data.',
-      details: String(err),
-      stack: err instanceof Error ? err.stack : undefined,
-      timeTaken: `${Date.now() - startTime}ms`,
-    }, { status: 400 });
-  }
-
-  // ── 2. Validate file presence ─────────────────────────────────
-  if (!file) {
-    return NextResponse.json({
-      success: false, error: 'NO_FILE',
-      message: PDF_ERRORS.NO_FILE,
-      timeTaken: `${Date.now() - startTime}ms`,
-    }, { status: 400 });
-  }
-
-  // ── 3. Validate MIME / extension ─────────────────────────────
-  const isPDF = file.type === 'application/pdf' || file.name.toLowerCase().endsWith('.pdf');
-  if (!isPDF) {
-    return NextResponse.json({
-      success: false, error: 'WRONG_TYPE',
-      message: PDF_ERRORS.WRONG_TYPE,
-      fileName: file.name, fileMime: file.type,
-      timeTaken: `${Date.now() - startTime}ms`,
-    }, { status: 422 });
-  }
-
-  // ── 4. Validate file size ─────────────────────────────────────
-  if (file.size === 0) {
-    return NextResponse.json({
-      success: false, error: 'EMPTY_FILE',
-      message: PDF_ERRORS.EMPTY_FILE,
-      fileName: file.name, fileSize: '0 bytes',
-      timeTaken: `${Date.now() - startTime}ms`,
-    }, { status: 422 });
-  }
-
-  console.log(`[parse-pdf] Request received — file: "${file.name}", size: ${file.size} bytes, mime: "${file.type}"`);
-
-  // ── 5. Read buffer ────────────────────────────────────────────
-  let buffer: Buffer;
-  try {
-    const arrayBuffer = await file.arrayBuffer();
-    if (!arrayBuffer || arrayBuffer.byteLength === 0) throw new Error('arrayBuffer is empty after read');
-    buffer = Buffer.from(arrayBuffer);
-  } catch (err) {
-    console.error('[parse-pdf] Buffer read error:', err);
-    return NextResponse.json({
-      success: false, error: 'BUFFER_READ',
-      message: PDF_ERRORS.BUFFER_READ,
-      fileName: file.name, fileSize: `${file.size} bytes`,
-      details: String(err),
-      stack: err instanceof Error ? err.stack : undefined,
-      timeTaken: `${Date.now() - startTime}ms`,
-    }, { status: 500 });
-  }
-
-  // ── 6. Confirm PDF magic bytes ────────────────────────────────
-  const magic = buffer.slice(0, 5).toString('ascii');
-  if (!magic.startsWith('%PDF')) {
-    console.warn(`[parse-pdf] Bad magic bytes: "${magic}" — file: "${file.name}"`);
-    return NextResponse.json({
-      success: false, error: 'PDF_CORRUPTED',
-      message: `${PDF_ERRORS.PDF_CORRUPTED} (Magic bytes: "${magic}")`,
-      fileName: file.name, fileSize: `${file.size} bytes`,
-      parser: 'pdf-parse@1.1.1',
-      timeTaken: `${Date.now() - startTime}ms`,
-    }, { status: 422 });
-  }
-
-  // ── 7. Parse PDF ──────────────────────────────────────────────
-  try {
-    // TASK 4 FIX: Require the inner lib directly to avoid the index.js debug block
-    // that crashes when module.parent is undefined (Next.js ESM/CJS interop).
-    // eslint-disable-next-line @typescript-eslint/no-require-imports
-    const pdfParse = require('pdf-parse/lib/pdf-parse.js') as (
-      buf: Buffer,
-      opts?: object,
-    ) => Promise<{ text: string; numpages: number; info?: Record<string, unknown> }>;
-
-    console.log(`[parse-pdf] Parsing with pdf-parse/lib/pdf-parse.js — ${buffer.length} bytes`);
-    const parsed    = await pdfParse(buffer, { max: 0 });
-    const text      = parsed.text?.trim() ?? '';
-    const pageCount = parsed.numpages > 0
-      ? parsed.numpages
-      : Math.max(1, Math.round(text.split(/\s+/).length / 300));
-
-    const timeTaken = `${Date.now() - startTime}ms`;
-    console.log(`[parse-pdf] Success — pages: ${pageCount}, chars: ${text.length}, time: ${timeTaken}`);
-
-    return NextResponse.json({ success: true, text, pageCount, timeTaken });
-
-  } catch (err) {
-    const { code, message } = classifyPDFError(err);
-    const timeTaken = `${Date.now() - startTime}ms`;
-    console.error(`[parse-pdf] Parse error (${code}):`, err);
-    return NextResponse.json({
-      success: false, error: code, message,
-      details: String(err),
-      stack: err instanceof Error ? err.stack : undefined,
-      fileName: file.name,
-      fileSize: `${file.size} bytes`,
-      parser: 'pdf-parse@1.1.1',
-      timeTaken,
-      suggestions: [
-        'Check whether the PDF is corrupted.',
-        'Remove password protection if present.',
-        'Try saving as PDF/A format.',
-        'Ensure the upload completed without interruption.',
-        'Try uploading as DOCX or TXT instead.',
-      ],
-    }, { status: 500 });
-  }
+// ── This route is DEPRECATED — PDF parsing is now done client-side via pdfjs-dist.
+// Any remaining call here is from a stale browser cache. Return a small JSON payload
+// (NOT a 413) so old bundles fail gracefully instead of triggering the platform cap.
+// eslint-disable-next-line @typescript-eslint/no-unused-vars
+export async function POST(_req: NextRequest) {
+  return NextResponse.json(
+    {
+      success: false,
+      error: 'DEPRECATED',
+      message: 'PDF parsing is now handled client-side. Please hard-refresh the page (Ctrl+Shift+R) to load the latest version.',
+    },
+    {
+      status: 410, // 410 Gone — route intentionally retired
+      headers: { 'Cache-Control': 'no-store' },
+    },
+  );
 }
