@@ -90,68 +90,46 @@ export async function extractFromFile(
 
   onProgress?.('uploading', 10);
 
-  // ── PDF — extracted CLIENT-SIDE via pdfjs-dist ───────────────
-  // Vercel Hobby plan hard-caps Serverless Function request bodies at 4.5 MB.
-  // POSTing a raw PDF binary (often 5–30 MB) triggers HTTP 413 at the platform
-  // layer — no Next.js config can override that cap.
-  //
-  // Fix: use pdfjs-dist (Mozilla's PDF.js) which runs entirely in the browser.
-  // We read the file into an ArrayBuffer locally, extract all page text, and
-  // never send the binary to the server — only the extracted text (~KB) flows
-  // through the analysis pipeline. This eliminates the 413 entirely.
+  // ── PDF — v3: extracted ENTIRELY CLIENT-SIDE via pdfjs-dist ──
+  // NEVER calls /api/parse-pdf. Binary is read locally; only text (~KB) flows
+  // through the analysis pipeline. Eliminates Vercel 4.5 MB platform 413 cap.
+  // v3 marker forces new JS chunk hash so CDN serves fresh bundle.
   if (type === 'application/pdf' || name.endsWith('.pdf')) {
     onProgress?.('parsing', 20);
     try {
       const arrayBuffer = await file.arrayBuffer();
-      onProgress?.('extracting', 40);
+      onProgress?.('extracting', 35);
 
-      // Dynamic import keeps pdfjs-dist out of the initial bundle (it is large).
       const pdfjsLib = await import('pdfjs-dist');
-
-      // pdfjs-dist requires a worker. In Next.js we point it at the bundled
-      // worker that ships with pdfjs-dist itself via a CDN URL so no webpack
-      // config is needed. The version string must match the installed package.
-      const PDFJS_VERSION = (pdfjsLib as { version?: string }).version ?? '4.0.379';
+      const PDFJS_VERSION = (pdfjsLib as { version?: string }).version ?? '4.10.38';
       pdfjsLib.GlobalWorkerOptions.workerSrc =
         `https://cdnjs.cloudflare.com/ajax/libs/pdf.js/${PDFJS_VERSION}/pdf.worker.min.mjs`;
 
-      const loadingTask = pdfjsLib.getDocument({ data: arrayBuffer });
-      const pdf = await loadingTask.promise;
+      const pdf = await (pdfjsLib.getDocument({ data: arrayBuffer })).promise;
       const pageCount = pdf.numPages;
-
       const pageTexts: string[] = [];
-      const step = 40 / Math.max(pageCount, 1); // spread 40–80% across pages
+
       for (let p = 1; p <= pageCount; p++) {
         const page = await pdf.getPage(p);
         const content = await page.getTextContent();
-        const pageStr = content.items
-          // eslint-disable-next-line @typescript-eslint/no-explicit-any
-          .map((item: any) => item.str ?? '')
-          .join(' ');
-        pageTexts.push(pageStr);
-        onProgress?.('extracting', Math.round(40 + p * step));
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        pageTexts.push(content.items.map((i: any) => i.str ?? '').join(' '));
+        onProgress?.('extracting', Math.round(35 + (p / pageCount) * 45));
       }
 
       onProgress?.('rendering', 85);
-      const rawText = pageTexts.join('\n\n');
-      const text = sanitizeText(rawText);
-
+      const text = sanitizeText(pageTexts.join('\n\n'));
       onProgress?.('done', 100);
-      if (text.length > 20 && !isBinaryJunk(text)) {
-        return { text, pageCount };
-      }
-      return {
-        text: '[PDF text extraction yielded no readable content — the PDF may be image-only or encrypted]',
-        pageCount,
-      };
+
+      return text.length > 20 && !isBinaryJunk(text)
+        ? { text, pageCount }
+        : { text: '[PDF text extraction yielded no readable content — the PDF may be image-only or encrypted]', pageCount };
+
     } catch (err) {
-      console.warn('[parser] pdfjs-dist extraction failed:', err);
+      console.warn('[parser] pdfjs-dist v3 extraction failed:', err);
     }
     onProgress?.('done', 100);
-    return {
-      text: '[PDF could not be parsed — try uploading as DOCX or TXT]',
-      pageCount: 1,
-    };
+    return { text: '[PDF could not be parsed — try uploading as DOCX or TXT]', pageCount: 1 };
   }
 
   // ── DOCX / DOC ───────────────────────────────────────────────
