@@ -7,8 +7,15 @@
 // ============================================================
 import { NextRequest, NextResponse } from 'next/server';
 
-export const runtime    = 'nodejs';
-export const maxDuration = 30; // Vercel hobby plan limit
+export const runtime         = 'nodejs';
+export const maxDuration     = 30;   // Vercel hobby plan limit
+// Raise Next.js body-size limit for this route (default is 4 MB).
+// experimental.serverActions.bodySizeLimit only covers Server Actions — not Route Handlers.
+// This segment config is the correct way to increase the limit for a Route Handler.
+export const dynamic         = 'force-dynamic';
+export const preferredRegion = 'auto';
+// Next.js 15 App Router: set body size limit via route segment config
+export const maxRequestBodySize = '30mb';
 
 // ── TASK 4 FIX — root cause of the 500 error ─────────────────────────────────
 // pdf-parse/index.js contains a top-level `if (!module.parent)` debug block that

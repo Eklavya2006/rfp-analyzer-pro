@@ -55,10 +55,11 @@ const nextConfig: NextConfig = {
     root: path.resolve(__dirname),
   },
 
-  // Allow larger file uploads through Next.js body parser
+  // Allow larger file uploads — applies to both Server Actions and is referenced
+  // by the framework-level body parser for all routes.
   experimental: {
     serverActions: {
-      bodySizeLimit: "26mb",
+      bodySizeLimit: "30mb",
     },
   },
 

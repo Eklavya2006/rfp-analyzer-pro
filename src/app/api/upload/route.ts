@@ -3,6 +3,12 @@ import { generateId } from '@/lib/utils';
 import { extractTextFromFile, generateSummary, extractSections } from '@/lib/parser';
 import type { RFPDocument } from '@/types';
 
+// Raise Next.js body-size limit — default 4 MB is too small for real-world PDFs/DOCX.
+// This segment config is the correct approach for App Router Route Handlers.
+export const runtime             = 'nodejs';
+export const dynamic             = 'force-dynamic';
+export const maxRequestBodySize  = '30mb';
+
 // Accepted file types
 const ACCEPTED_TYPES = new Set([
   'application/pdf',
