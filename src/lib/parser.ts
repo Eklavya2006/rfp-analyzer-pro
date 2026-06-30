@@ -100,22 +100,14 @@ export async function extractFromFile(
       onProgress?.('extracting', 35);
 
       const pdfjsLib = await import('pdfjs-dist');
-      // Use the worker that ships inside pdfjs-dist itself.
-      // Importing the worker as a URL is the recommended approach for bundlers
-      // — it works with any deployment, no public/ file copy needed.
-      // We import pdfjs-dist/build/pdf.worker.min.mjs as a module URL via
-      // a dynamic string so Turbopack/webpack emits it as a separate chunk.
-      // Fallback: run without worker (fake-worker mode, slower but functional).
-      try {
-        const workerUrl = new URL(
-          'pdfjs-dist/build/pdf.worker.min.mjs',
-          import.meta.url,
-        );
-        pdfjsLib.GlobalWorkerOptions.workerSrc = workerUrl.toString();
-      } catch {
-        // If URL construction fails (SSR/edge), leave workerSrc empty —
-        // pdfjs will use its inline fake-worker which is slower but works.
-      }
+
+      // Set the worker source. Strategy (in order of preference):
+      // 1. unpkg CDN — has every npm version including v6.x, served as ESM
+      // 2. jsdelivr CDN — fallback mirror
+      // 3. No workerSrc — pdfjs fake-worker (slow but functional)
+      const ver = (pdfjsLib as unknown as { version: string }).version;
+      pdfjsLib.GlobalWorkerOptions.workerSrc =
+        `https://unpkg.com/pdfjs-dist@${ver}/build/pdf.worker.min.mjs`;
 
       const pdf = await (pdfjsLib.getDocument({ data: arrayBuffer })).promise;
       const pageCount = pdf.numPages;
