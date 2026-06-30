@@ -49,6 +49,10 @@ export default function NewsPulseWidget({ keywords = ['IBM', 'enterprise AI', 'd
   // Fire once when keyString changes (stable — sorted join)
   useEffect(() => { load(); }, [load]);
 
+  // Derive icon/dot colours from current state
+  const iconColor = error ? '#F43F5E' : loading ? '#F59E0B' : source === 'live' ? '#10B981' : '#6366F1';
+  const dotColor  = error ? '#F43F5E' : loading ? '#F59E0B' : source === 'live' ? '#10B981' : '#6366F1';
+
   return (
     <div style={{
       background: '#FFFFFF', border: '1px solid #E2E8F0',
@@ -56,16 +60,30 @@ export default function NewsPulseWidget({ keywords = ['IBM', 'enterprise AI', 'd
     }}>
       {/* Header */}
       <div className="flex items-center gap-2 mb-3">
-        <Newspaper size={14} className="text-indigo-400" />
+        {/* State-reactive activity dot */}
+        <div style={{
+          width: 8, height: 8, borderRadius: '50%', flexShrink: 0,
+          background: dotColor,
+          animation: loading ? 'pulse 1.4s ease-in-out infinite' : 'none',
+          boxShadow: source === 'live' && !loading ? `0 0 0 3px rgba(16,185,129,0.2)` : 'none',
+          transition: 'background 0.3s',
+        }} />
+        {/* Icon colour reacts to state */}
+        <Newspaper size={14} style={{ color: iconColor, transition: 'color 0.3s' }} />
         <span style={{ fontSize: 13, fontWeight: 600, color: '#0F172A' }}>Industry Pulse</span>
-        {source === 'live' && (
+        {source === 'live' && !loading && (
           <span style={{ fontSize: 10, fontWeight: 600, background: '#D1FAE5', color: '#065F46', borderRadius: 999, padding: '1px 7px' }}>
             LIVE
           </span>
         )}
-        {source === 'fallback' && (
+        {source === 'fallback' && !loading && (
           <span style={{ fontSize: 10, fontWeight: 600, background: '#FEF3C7', color: '#92400E', borderRadius: 999, padding: '1px 7px' }}>
             CURATED
+          </span>
+        )}
+        {loading && (
+          <span style={{ fontSize: 10, fontWeight: 600, background: '#FEF9EE', color: '#B45309', borderRadius: 999, padding: '1px 7px' }}>
+            LOADING…
           </span>
         )}
         <button
@@ -137,8 +155,11 @@ export default function NewsPulseWidget({ keywords = ['IBM', 'enterprise AI', 'd
         </div>
       ))}
 
-      {/* Spin keyframe — inline since no CSS file */}
-      <style>{`@keyframes spin { from { transform: rotate(0deg); } to { transform: rotate(360deg); } }`}</style>
+      {/* Keyframes — inline since no CSS file */}
+      <style>{`
+        @keyframes spin  { from { transform: rotate(0deg); } to { transform: rotate(360deg); } }
+        @keyframes pulse { 0%, 100% { opacity: 1; transform: scale(1); } 50% { opacity: 0.5; transform: scale(0.85); } }
+      `}</style>
     </div>
   );
 }

@@ -617,9 +617,24 @@ export default function AgenticImpactModule() {
                 <th className="px-4 py-3 text-left">Band</th>
                 <th className="px-4 py-3 text-center">Trad. FTE</th>
                 <th className="px-4 py-3 text-center">AI FTE</th>
-                <th className="px-4 py-3 text-center">Productivity %</th>
-                <th className="px-4 py-3 text-center">Automation %</th>
-                <th className="px-4 py-3 text-center">Rework Red. %</th>
+                <th className="px-4 py-3 text-center">
+                  <div className="inline-flex items-center gap-1 justify-center">
+                    Productivity %
+                    <ChartTooltip text="Percentage reduction in effort due to AI assistance. A 40% productivity gain means the task takes 40% less time with AI augmentation compared to traditional delivery." />
+                  </div>
+                </th>
+                <th className="px-4 py-3 text-center">
+                  <div className="inline-flex items-center gap-1 justify-center">
+                    <span style={{ color: '#0f62fe' }}>Automation %</span>
+                    <ChartTooltip text="Percentage of this role's repetitive tasks that can be fully automated by AI agents — requiring zero manual intervention. Higher automation coverage directly reduces headcount and per-deliverable cost." />
+                  </div>
+                </th>
+                <th className="px-4 py-3 text-center">
+                  <div className="inline-flex items-center gap-1 justify-center">
+                    <span style={{ color: '#ee5396' }}>Rework Red. %</span>
+                    <ChartTooltip text="Percentage reduction in rework cycles achieved through AI-assisted quality checks, automated testing, and real-time validation. Reducing rework improves schedule adherence and lowers total delivery cost." />
+                  </div>
+                </th>
                 <th className="px-4 py-3 text-center">Accel.</th>
                 <th className="px-4 py-3 text-left">Tool</th>
                 <th className="px-4 py-3 text-center">Edit</th>
@@ -628,6 +643,10 @@ export default function AgenticImpactModule() {
             <tbody>
               {ai.roleRows.map((row, idx) => {
                 const isEditing = editingRoleId === row.id;
+                // Colour-code automation % by tier: ≥70 green, ≥40 amber, <40 red
+                const autoColor = row.automationCoveragePct >= 70 ? '#42be65' : row.automationCoveragePct >= 40 ? '#f59e0b' : '#da1e28';
+                // Colour-code rework reduction: ≥30 green, ≥15 amber, <15 red
+                const reworkColor = row.reworkReductionPct >= 30 ? '#ee5396' : row.reworkReductionPct >= 15 ? '#f59e0b' : '#94A3B8';
                 return (
                   <tr key={row.id} className={`border-t border-gray-100 ${idx % 2 === 0 ? '' : 'bg-gray-50/40'}`}>
                     <td className="px-4 py-3 font-semibold text-gray-800">{row.role}</td>
@@ -648,14 +667,24 @@ export default function AgenticImpactModule() {
                         <input type="number" min={0} max={100} value={editValues.automationCoveragePct ?? row.automationCoveragePct}
                           onChange={(e) => setEditValues({ ...editValues, automationCoveragePct: Number(e.target.value) })}
                           className="w-16 text-center border border-teal-400 rounded-lg px-1 py-0.5 text-sm outline-none" />
-                      ) : <span>{row.automationCoveragePct}%</span>}
+                      ) : (
+                        <span className="inline-flex items-center justify-center gap-1 font-semibold text-xs px-2 py-0.5 rounded-full"
+                          style={{ background: `${autoColor}18`, color: autoColor, border: `1px solid ${autoColor}40` }}>
+                          {row.automationCoveragePct}%
+                        </span>
+                      )}
                     </td>
                     <td className="px-4 py-3 text-center">
                       {isEditing ? (
                         <input type="number" min={0} max={100} value={editValues.reworkReductionPct ?? row.reworkReductionPct}
                           onChange={(e) => setEditValues({ ...editValues, reworkReductionPct: Number(e.target.value) })}
                           className="w-16 text-center border border-teal-400 rounded-lg px-1 py-0.5 text-sm outline-none" />
-                      ) : <span>{row.reworkReductionPct}%</span>}
+                      ) : (
+                        <span className="inline-flex items-center justify-center gap-1 font-semibold text-xs px-2 py-0.5 rounded-full"
+                          style={{ background: `${reworkColor}18`, color: reworkColor, border: `1px solid ${reworkColor}40` }}>
+                          {row.reworkReductionPct}%
+                        </span>
+                      )}
                     </td>
                     <td className="px-4 py-3 text-center text-gray-600">{row.accelerationFactor}×</td>
                     <td className="px-4 py-3 text-xs text-gray-500">{row.toolUsed}</td>

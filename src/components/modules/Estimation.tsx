@@ -9,7 +9,7 @@ import {
   BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip,
   ResponsiveContainer, PieChart, Pie, Cell, Legend,
 } from 'recharts';
-import { ChevronDown, ChevronUp, Globe } from 'lucide-react';
+import { ChevronDown, ChevronUp, Globe, Clock, DollarSign } from 'lucide-react';
 import { useRFPStore } from '@/lib/store';
 
 // ── Palette ───────────────────────────────────────────────────
@@ -261,10 +261,27 @@ const CURRENCY_SYMBOLS: Record<string, string> = {
   USD: '$', EUR: '€', GBP: '£', INR: '₹', AUD: 'A$', CAD: 'C$', SGD: 'S$', AED: 'د.إ',
 };
 
+// ── Rate Card T&M data ────────────────────────────────────────
+const TM_BANDS: Array<{ band: string; role: string; rateUSD: number; hoursPerMonth: number }> = [
+  { band: '6A', role: 'Junior Developer / BA',           rateUSD:  95, hoursPerMonth: 160 },
+  { band: '6B', role: 'Developer / QA Engineer',         rateUSD: 115, hoursPerMonth: 160 },
+  { band: '6G', role: 'Senior Developer / BA',           rateUSD: 135, hoursPerMonth: 160 },
+  { band: '7A', role: 'Tech Lead / Senior QA',           rateUSD: 160, hoursPerMonth: 160 },
+  { band: '7B', role: 'Solution Architect / PM',         rateUSD: 185, hoursPerMonth: 160 },
+  { band: '8',  role: 'Principal Architect / Sr PM',     rateUSD: 220, hoursPerMonth: 140 },
+  { band: '9',  role: 'Partner / Practice Lead',         rateUSD: 275, hoursPerMonth: 120 },
+  { band: '10', role: 'Executive / Engagement Exec',     rateUSD: 340, hoursPerMonth: 100 },
+];
+
+type PricingModel = 'fixed' | 'tm';
+
 export default function EstimationModule() {
   const activeDocumentId = useRFPStore((state) => state.activeDocumentId);
   const analysisResults = useRFPStore((state) => state.analysisResults);
   const hasDoc = !!(activeDocumentId && analysisResults[activeDocumentId]);
+
+  // ── Pricing model toggle ──────────────────────────────────
+  const [pricingModel, setPricingModel] = useState<PricingModel>('fixed');
 
   // ── FX state ──────────────────────────────────────────────
   const [currency,   setCurrency]   = useState('USD');
@@ -392,18 +409,47 @@ export default function EstimationModule() {
             Detailed cost breakdown by phase, role, and category
           </p>
         </div>
-        <button
-          onClick={() => setPanelOpen((o) => !o)}
-          className="flex items-center gap-1.5 text-sm font-semibold px-4 py-2 rounded-xl border transition-colors"
-          style={{
-            borderColor: panelOpen ? INDIGO : '#E2E8F0',
-            color:       panelOpen ? INDIGO : '#475569',
-            background:  panelOpen ? 'rgba(99,102,241,0.06)' : '#FFFFFF',
-          }}
-        >
-          {panelOpen ? <ChevronUp size={14} /> : <ChevronDown size={14} />}
-          {panelOpen ? 'Hide Assumptions' : 'Edit Assumptions'}
-        </button>
+        <div className="flex items-center gap-2 flex-wrap">
+          {/* ── Pricing model toggle ── */}
+          <div className="flex items-center gap-1 rounded-xl border border-slate-200 p-1 bg-slate-50">
+            <button
+              onClick={() => setPricingModel('fixed')}
+              className="flex items-center gap-1.5 text-xs font-semibold px-3 py-1.5 rounded-lg transition-all"
+              style={{
+                background: pricingModel === 'fixed' ? INDIGO : 'transparent',
+                color:      pricingModel === 'fixed' ? '#FFFFFF' : '#64748B',
+              }}
+            >
+              <DollarSign size={12} />
+              Fixed Price
+            </button>
+            <button
+              onClick={() => setPricingModel('tm')}
+              className="flex items-center gap-1.5 text-xs font-semibold px-3 py-1.5 rounded-lg transition-all"
+              style={{
+                background: pricingModel === 'tm' ? '#0D7377' : 'transparent',
+                color:      pricingModel === 'tm' ? '#FFFFFF' : '#64748B',
+              }}
+            >
+              <Clock size={12} />
+              Rate Card / T&amp;M
+            </button>
+          </div>
+          {pricingModel === 'fixed' && (
+            <button
+              onClick={() => setPanelOpen((o) => !o)}
+              className="flex items-center gap-1.5 text-sm font-semibold px-4 py-2 rounded-xl border transition-colors"
+              style={{
+                borderColor: panelOpen ? INDIGO : '#E2E8F0',
+                color:       panelOpen ? INDIGO : '#475569',
+                background:  panelOpen ? 'rgba(99,102,241,0.06)' : '#FFFFFF',
+              }}
+            >
+              {panelOpen ? <ChevronUp size={14} /> : <ChevronDown size={14} />}
+              {panelOpen ? 'Hide Assumptions' : 'Edit Assumptions'}
+            </button>
+          )}
+        </div>
       </div>
 
       {/* ── Currency Selector (FX Toggle) ── */}
@@ -429,6 +475,140 @@ export default function EstimationModule() {
         {fxSource === 'live' && <span className="text-[10px] font-semibold bg-green-100 text-green-700 rounded-full px-2 py-0.5">Live rates</span>}
         {fxSource === 'fallback' && <span className="text-[10px] font-semibold bg-amber-100 text-amber-700 rounded-full px-2 py-0.5">Approx. rates</span>}
       </div>
+
+      {/* ── T&M Rate Card View ── */}
+      {pricingModel === 'tm' && (
+        <div className="space-y-5">
+          {/* T&M info banner */}
+          <div className="rounded-xl border border-teal-200 bg-teal-50 px-5 py-4 flex items-start gap-3">
+            <Clock size={16} className="text-teal-600 shrink-0 mt-0.5" />
+            <div>
+              <div className="text-xs font-bold text-teal-800 mb-0.5">Time &amp; Materials (T&amp;M) Pricing</div>
+              <p className="text-xs text-teal-700 leading-relaxed">
+                Client is billed at agreed IBM band rates for actual hours worked each month. The ceiling below represents
+                maximum exposure based on projected hours — actual billing will reflect true delivery effort.
+                Rate Card rates are indicative IBM standard rates (USD); final rates are subject to commercial negotiation.
+              </p>
+            </div>
+          </div>
+
+          {/* T&M summary cards */}
+          <div className="flex gap-3 flex-wrap">
+            <SummaryCard label={`Ceiling Cost (${currency})`} value={fmtFX(calc.laborCost)} accent />
+            <SummaryCard label="Total Hours"                  value={`${Object.values(ROLE_HOURS).reduce((a, b) => a + b, 0).toLocaleString()} hrs`} />
+            <SummaryCard label="Duration"                     value={`${assump.projectDurationWeeks}w`} />
+            <SummaryCard label="Avg. Rate"                    value={`${fxSym}${Math.round((calc.laborCost / Object.values(ROLE_HOURS).reduce((a, b) => a + b, 0)) * fxRate)}/hr`} />
+          </div>
+
+          {/* Rate Card table */}
+          <div className="rounded-xl border border-slate-200 bg-white overflow-hidden" style={{ boxShadow: '0 1px 3px rgba(0,0,0,0.06)' }}>
+            <div className="px-5 py-3.5 border-b border-slate-100 flex items-center justify-between">
+              <div>
+                <span className="text-xs font-bold text-slate-700">IBM Band Rate Card</span>
+                <span className="text-[10px] text-slate-400 ml-2">Indicative rates — subject to commercial agreement</span>
+              </div>
+              {fxSource === 'live'     && <span className="text-[10px] font-semibold bg-green-100 text-green-700 rounded-full px-2 py-0.5">Live rates</span>}
+              {fxSource === 'fallback' && <span className="text-[10px] font-semibold bg-amber-100 text-amber-700 rounded-full px-2 py-0.5">Approx. rates</span>}
+            </div>
+            <div className="overflow-x-auto">
+              <table className="w-full text-xs">
+                <thead>
+                  <tr className="border-b border-slate-100 bg-slate-50">
+                    <th className="text-left px-5 py-2.5 font-semibold text-slate-500 uppercase tracking-wider text-[10px]">IBM Band</th>
+                    <th className="text-left px-4 py-2.5 font-semibold text-slate-500 uppercase tracking-wider text-[10px]">Typical Role</th>
+                    <th className="text-center px-4 py-2.5 font-semibold text-slate-500 uppercase tracking-wider text-[10px]">Rate / Hour ({currency})</th>
+                    <th className="text-center px-4 py-2.5 font-semibold text-slate-500 uppercase tracking-wider text-[10px]">Std Hrs / Month</th>
+                    <th className="text-center px-4 py-2.5 font-semibold text-slate-500 uppercase tracking-wider text-[10px]">Monthly Ceiling ({currency})</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {TM_BANDS.map((b, i) => {
+                    const hrRate      = b.rateUSD * fxRate;
+                    const monthlyCeil = hrRate * b.hoursPerMonth;
+                    return (
+                      <tr key={b.band} className="border-b border-slate-50 hover:bg-slate-50 transition-colors"
+                        style={{ background: i % 2 === 0 ? '#FFFFFF' : '#FAFAFA' }}>
+                        <td className="px-5 py-3">
+                          <span className="text-xs font-bold px-2 py-0.5 rounded-full text-white"
+                            style={{ background: '#0D7377' }}>{b.band}</span>
+                        </td>
+                        <td className="px-4 py-3 font-medium text-slate-700">{b.role}</td>
+                        <td className="px-4 py-3 text-center font-bold tabular-nums" style={{ color: '#0D7377' }}>
+                          {fxSym}{hrRate >= 100 ? Math.round(hrRate) : hrRate.toFixed(0)}/hr
+                        </td>
+                        <td className="px-4 py-3 text-center text-slate-600 tabular-nums">{b.hoursPerMonth} hrs</td>
+                        <td className="px-4 py-3 text-center font-semibold text-slate-800 tabular-nums">
+                          {fxSym}{Math.round(monthlyCeil).toLocaleString()}
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
+          </div>
+
+          {/* T&M Role Hours × Rate breakdown */}
+          <div className="rounded-xl border border-slate-200 bg-white overflow-hidden" style={{ boxShadow: '0 1px 3px rgba(0,0,0,0.06)' }}>
+            <div className="px-5 py-3.5 border-b border-slate-100">
+              <span className="text-xs font-bold text-slate-700">Projected Billing by Role</span>
+              <span className="text-[10px] text-slate-400 ml-2">Hours × agreed rate = indicative ceiling per role</span>
+            </div>
+            <div className="overflow-x-auto">
+              <table className="w-full text-xs">
+                <thead>
+                  <tr className="border-b border-slate-100 bg-slate-50">
+                    <th className="text-left px-5 py-2.5 font-semibold text-slate-500 uppercase tracking-wider text-[10px]">Role</th>
+                    <th className="text-center px-4 py-2.5 font-semibold text-slate-500 uppercase tracking-wider text-[10px]">Projected Hours</th>
+                    <th className="text-center px-4 py-2.5 font-semibold text-slate-500 uppercase tracking-wider text-[10px]">Rate / Hour ({currency})</th>
+                    <th className="text-center px-4 py-2.5 font-semibold text-slate-500 uppercase tracking-wider text-[10px]">Billing Ceiling ({currency})</th>
+                    <th className="text-center px-4 py-2.5 font-semibold text-slate-500 uppercase tracking-wider text-[10px]">% of Total</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {calc.roleCosts.map((r, i) => {
+                    const billingCeil = r.cost * fxRate;
+                    const pct = calc.laborCost > 0 ? (r.cost / calc.laborCost) * 100 : 0;
+                    return (
+                      <tr key={r.role} className="border-b border-slate-50 hover:bg-slate-50 transition-colors"
+                        style={{ background: i % 2 === 0 ? '#FFFFFF' : '#FAFAFA' }}>
+                        <td className="px-5 py-3 font-medium text-slate-800">{r.role}</td>
+                        <td className="px-4 py-3 text-center text-slate-600 tabular-nums">{r.hours.toLocaleString()}</td>
+                        <td className="px-4 py-3 text-center font-semibold tabular-nums" style={{ color: '#0D7377' }}>
+                          {fxSym}{Math.round((rates[r.role] ?? 0) * fxRate)}/hr
+                        </td>
+                        <td className="px-4 py-3 text-center font-bold text-slate-900 tabular-nums">
+                          {fxSym}{Math.round(billingCeil).toLocaleString()}
+                        </td>
+                        <td className="px-4 py-3 text-center">
+                          <div className="flex items-center justify-center gap-2">
+                            <div className="h-1.5 rounded-full bg-slate-100 overflow-hidden" style={{ minWidth: 60, maxWidth: 100 }}>
+                              <div className="h-full rounded-full" style={{ width: `${pct}%`, background: '#0D7377' }} />
+                            </div>
+                            <span className="text-slate-500 tabular-nums w-8">{pct.toFixed(1)}%</span>
+                          </div>
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
+          </div>
+
+          {/* T&M footer */}
+          <div className="pb-2">
+            <p className="text-[11px] text-slate-400 leading-relaxed">
+              <span className="font-semibold text-slate-500">T&amp;M Note: </span>
+              Billing ceiling is based on projected hours × IBM standard band rates. Actual billings will be based on hours worked,
+              evidenced by timesheets. No contingency or overhead uplifts are applied in T&amp;M mode — those are absorbed by IBM delivery margin.
+            </p>
+          </div>
+        </div>
+      )}
+
+      {/* ── Fixed Price view ── */}
+      {pricingModel === 'fixed' && <>
 
       {/* ── 6 Summary Cards ── */}
       <div className="flex gap-3 flex-wrap">
@@ -712,6 +892,8 @@ export default function EstimationModule() {
           Actual costs may vary based on team location, contract type, and final scope definition.
         </p>
       </div>
+
+      </>} {/* end Fixed Price view */}
 
     </div>
   );
