@@ -90,10 +90,9 @@ export async function extractFromFile(
 
   onProgress?.('uploading', 10);
 
-  // ── PDF — v3: extracted ENTIRELY CLIENT-SIDE via pdfjs-dist ──
-  // NEVER calls /api/parse-pdf. Binary is read locally; only text (~KB) flows
-  // through the analysis pipeline. Eliminates Vercel 4.5 MB platform 413 cap.
-  // v3 marker forces new JS chunk hash so CDN serves fresh bundle.
+  // ── PDF — v4: extracted ENTIRELY CLIENT-SIDE via pdfjs-dist ──
+  // Worker served from /public/pdf.worker.min.mjs (copied from node_modules at
+  // build time) — no CDN, no version mismatch, works offline, no 413 possible.
   if (type === 'application/pdf' || name.endsWith('.pdf')) {
     onProgress?.('parsing', 20);
     try {
@@ -101,9 +100,11 @@ export async function extractFromFile(
       onProgress?.('extracting', 35);
 
       const pdfjsLib = await import('pdfjs-dist');
-      const PDFJS_VERSION = (pdfjsLib as { version?: string }).version ?? '4.10.38';
-      pdfjsLib.GlobalWorkerOptions.workerSrc =
-        `https://cdnjs.cloudflare.com/ajax/libs/pdf.js/${PDFJS_VERSION}/pdf.worker.min.mjs`;
+      // Use the worker bundled with the app under /public — served by Next.js
+      // static file handling. basePath prefix required because the app is mounted
+      // at /praddeeplambba-sih-connect on Vercel.
+      const basePath = process.env.NEXT_PUBLIC_BASE_PATH ?? '';
+      pdfjsLib.GlobalWorkerOptions.workerSrc = `${basePath}/pdf.worker.min.mjs`;
 
       const pdf = await (pdfjsLib.getDocument({ data: arrayBuffer })).promise;
       const pageCount = pdf.numPages;
