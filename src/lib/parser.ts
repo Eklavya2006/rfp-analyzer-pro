@@ -90,47 +90,62 @@ export async function extractFromFile(
 
   onProgress?.('uploading', 10);
 
-  // ── PDF — parsed server-side via /api/parse-pdf ──────────────
-  // pdf-parse uses Node.js fs internally and crashes in the browser.
-  // We POST the file to our Next.js API route which runs in Node.js.
+  // ── PDF — extracted CLIENT-SIDE via pdfjs-dist ───────────────
+  // Vercel Hobby plan hard-caps Serverless Function request bodies at 4.5 MB.
+  // POSTing a raw PDF binary (often 5–30 MB) triggers HTTP 413 at the platform
+  // layer — no Next.js config can override that cap.
   //
-  // basePath note: Next.js does NOT automatically prefix relative fetch() URLs
-  // in client-side code. We read NEXT_PUBLIC_BASE_PATH (injected at build time
-  // by next.config.ts) so the request goes to the correct mounted path
-  // (e.g. /praddeeplambba-sih-connect/api/parse-pdf on Vercel).
-  // Fallback to '' keeps local `next dev` working with no basePath set.
+  // Fix: use pdfjs-dist (Mozilla's PDF.js) which runs entirely in the browser.
+  // We read the file into an ArrayBuffer locally, extract all page text, and
+  // never send the binary to the server — only the extracted text (~KB) flows
+  // through the analysis pipeline. This eliminates the 413 entirely.
   if (type === 'application/pdf' || name.endsWith('.pdf')) {
-    onProgress?.('parsing', 25);
+    onProgress?.('parsing', 20);
     try {
-      const formData = new FormData();
-      formData.append('file', file);
-      onProgress?.('extracting', 50);
-      const basePath = process.env.NEXT_PUBLIC_BASE_PATH ?? '';
-      const res = await fetch(`${basePath}/api/parse-pdf`, { method: 'POST', body: formData });
-      if (!res.ok) {
-        const errBody = await res.json().catch(() => ({}));
-        // Use the structured error fields if available
-        const msg = errBody.message ?? errBody.error ?? `HTTP ${res.status}`;
-        const detail = errBody.details ? `\n${errBody.details}` : '';
-        throw new Error(`${msg}${detail}`);
+      const arrayBuffer = await file.arrayBuffer();
+      onProgress?.('extracting', 40);
+
+      // Dynamic import keeps pdfjs-dist out of the initial bundle (it is large).
+      const pdfjsLib = await import('pdfjs-dist');
+
+      // pdfjs-dist requires a worker. In Next.js we point it at the bundled
+      // worker that ships with pdfjs-dist itself via a CDN URL so no webpack
+      // config is needed. The version string must match the installed package.
+      const PDFJS_VERSION = (pdfjsLib as { version?: string }).version ?? '4.0.379';
+      pdfjsLib.GlobalWorkerOptions.workerSrc =
+        `https://cdnjs.cloudflare.com/ajax/libs/pdf.js/${PDFJS_VERSION}/pdf.worker.min.mjs`;
+
+      const loadingTask = pdfjsLib.getDocument({ data: arrayBuffer });
+      const pdf = await loadingTask.promise;
+      const pageCount = pdf.numPages;
+
+      const pageTexts: string[] = [];
+      const step = 40 / Math.max(pageCount, 1); // spread 40–80% across pages
+      for (let p = 1; p <= pageCount; p++) {
+        const page = await pdf.getPage(p);
+        const content = await page.getTextContent();
+        const pageStr = content.items
+          // eslint-disable-next-line @typescript-eslint/no-explicit-any
+          .map((item: any) => item.str ?? '')
+          .join(' ');
+        pageTexts.push(pageStr);
+        onProgress?.('extracting', Math.round(40 + p * step));
       }
-      // Route now returns { success, text, pageCount, timeTaken }
-      const body = await res.json() as { success?: boolean; text: string; pageCount: number; timeTaken?: string };
-      const { text: rawText, pageCount: pc } = body;
-      onProgress?.('rendering', 80);
-      const text = sanitizeText(rawText ?? '');
-      const pageCount = pc > 0 ? pc : estimatePageCount(text);
-      if (text.length > 20 && !isBinaryJunk(text) && !isRawPDFContent(text)) {
-        onProgress?.('done', 100);
+
+      onProgress?.('rendering', 85);
+      const rawText = pageTexts.join('\n\n');
+      const text = sanitizeText(rawText);
+
+      onProgress?.('done', 100);
+      if (text.length > 20 && !isBinaryJunk(text)) {
         return { text, pageCount };
       }
-      onProgress?.('done', 100);
       return {
-        text: text.length > 20 ? text : '[PDF text extraction yielded no readable content — the PDF may be image-only or encrypted]',
+        text: '[PDF text extraction yielded no readable content — the PDF may be image-only or encrypted]',
         pageCount,
       };
     } catch (err) {
-      console.warn('[parser] /api/parse-pdf failed:', err);
+      console.warn('[parser] pdfjs-dist extraction failed:', err);
     }
     onProgress?.('done', 100);
     return {
