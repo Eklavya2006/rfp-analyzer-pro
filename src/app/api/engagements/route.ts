@@ -4,14 +4,24 @@
 // Salesforce org (ibmsc) via the REST API and maps them to the
 // HistoricalEngagement type consumed by the similarity engine.
 //
-// Authentication: OAuth 2.0 Client Credentials flow
-//   SF_INSTANCE_URL  — https://ibmsc.my.salesforce.com
-//   SF_CLIENT_ID     — Connected App Consumer Key
-//   SF_CLIENT_SECRET — Connected App Consumer Secret
+// ── Mode selection (checked in order) ───────────────────────
+// 1. SF_MOCK_MODE=true  → calls internal /api/sf-mock/* routes
+//    (demo data, no credentials required — works immediately)
 //
-// When credentials are absent or the request fails the route
-// returns an empty array (200) so the UI falls back to the
-// built-in seed dataset — no user-visible error.
+// 2. SF_INSTANCE_URL + SF_CLIENT_ID + SF_CLIENT_SECRET set →
+//    calls real ibmsc Salesforce REST API (production)
+//
+// 3. None of the above → returns [] (200); UI falls back to
+//    the built-in 20-record seed dataset automatically.
+//
+// ── Environment variables ────────────────────────────────────
+// SF_MOCK_MODE       "true" to enable demo mode
+// SF_INSTANCE_URL    https://ibmsc.my.salesforce.com
+// SF_CLIENT_ID       Connected App Consumer Key
+// SF_CLIENT_SECRET   Connected App Consumer Secret
+// NEXT_PUBLIC_BASE_URL  Used by mock to resolve self-calls
+//                       (auto-set by Vercel; set to
+//                        http://localhost:3000 for local dev)
 // ============================================================
 
 import { NextResponse } from 'next/server';
@@ -27,25 +37,15 @@ interface SFOpportunity {
   StageName: string;
   Amount: number | null;
   CloseDate: string;
-  /** Custom field — IBM Sales Cloud industry vertical */
   Industry__c: string | null;
-  /** Custom field — IBM service line / practice */
   ServiceType__c: string | null;
-  /** Custom field — client geography region */
   Geography__c: string | null;
-  /** Custom field — onshore / offshore / hybrid */
   DeliveryModel__c: string | null;
-  /** Custom field — engagement duration in calendar weeks */
   DurationWeeks__c: number | null;
-  /** Custom field — semicolon-separated technology names */
   Technologies__c: string | null;
-  /** Custom field — semicolon-separated keyword tokens */
   Keywords__c: string | null;
-  /** Custom field — semicolon-separated winning attributes (WON only) */
   WinningAttributes__c: string | null;
-  /** Custom field — semicolon-separated loss reasons (LOST only) */
   LossReasons__c: string | null;
-  /** Custom field — free-text lessons learned */
   LessonsLearned__c: string | null;
   Account: { Name: string } | null;
 }
@@ -81,13 +81,13 @@ const SOQL = `
 
 // ── Token acquisition (Client Credentials flow) ──────────────
 
-/**
- * Exchange client credentials for a Salesforce access token.
- * Throws if the response is not OK or token is missing.
- */
-async function getAccessToken(instanceUrl: string, clientId: string, clientSecret: string): Promise<string> {
+async function getAccessToken(
+  instanceUrl: string,
+  clientId: string,
+  clientSecret: string
+): Promise<string> {
   const res = await fetch(`${instanceUrl}/services/oauth2/token`, {
-    method: 'POST',
+    method:  'POST',
     headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
     body: new URLSearchParams({
       grant_type:    'client_credentials',
@@ -95,63 +95,49 @@ async function getAccessToken(instanceUrl: string, clientId: string, clientSecre
       client_secret: clientSecret,
     }),
   });
-
   const json: SFTokenResponse = await res.json();
-
   if (!res.ok || !json.access_token) {
     throw new Error(
       `Salesforce auth failed: ${json.error ?? res.status} — ${json.error_description ?? ''}`
     );
   }
-
   return json.access_token;
 }
 
 // ── Field helpers ─────────────────────────────────────────────
 
-/** Split a semicolon-delimited SF multi-select picklist string. */
 function splitSF(val: string | null, toLower = false): string[] {
   if (!val) return [];
   const parts = val.split(';').map((s) => s.trim()).filter(Boolean);
   return toLower ? parts.map((s) => s.toLowerCase()) : parts;
 }
 
-/**
- * Parse LossReasons__c into structured LossReason objects.
- * Expected format: "Category: reason text" per semicolon-delimited segment.
- * Falls back to a single generic entry when the format is free-form.
- */
 function parseLossReasons(raw: string | null): LossReason[] {
   if (!raw) return [];
   return raw.split(';').map((segment) => {
-    const trimmed = segment.trim();
+    const trimmed  = segment.trim();
     const colonIdx = trimmed.indexOf(':');
     if (colonIdx > 0) {
       return {
         category: trimmed.slice(0, colonIdx).trim(),
         reason:   trimmed.slice(colonIdx + 1).trim(),
         mitigationForCurrentProposal:
-          'Review this pattern and address it explicitly in your proposal.',
+          'Review this loss pattern and address it explicitly in your proposal strategy.',
       };
     }
     return {
       category: 'General',
       reason:   trimmed,
       mitigationForCurrentProposal:
-        'Review this pattern and address it explicitly in your proposal.',
+        'Review this loss pattern and address it explicitly in your proposal strategy.',
     };
   }).filter((lr) => lr.reason.length > 0);
 }
 
 // ── Mapping ───────────────────────────────────────────────────
 
-/**
- * Map a Salesforce Opportunity record to the HistoricalEngagement
- * interface expected by the similarity engine.
- */
-function mapOpportunity(opp: SFOpportunity): HistoricalEngagement {
+function mapOpportunity(opp: SFOpportunity, sourceTag: string): HistoricalEngagement {
   const isWon = opp.StageName === 'Closed Won';
-
   return {
     id:               opp.Id,
     clientName:       opp.Account?.Name ?? 'Unknown Client',
@@ -169,56 +155,106 @@ function mapOpportunity(opp: SFOpportunity): HistoricalEngagement {
     lossReasons:      isWon ? [] : parseLossReasons(opp.LossReasons__c),
     lessonsLearned:   opp.LessonsLearned__c ?? '',
     confidenceContrib: isWon ? 0.8 : 0,
-    sourceTag:        'Salesforce CRM',
+    sourceTag,
   };
+}
+
+// ── Mock mode fetcher ─────────────────────────────────────────
+
+/**
+ * Fetch engagements from the internal mock Salesforce endpoints.
+ * Calls /api/sf-mock/token then /api/sf-mock/query — no external
+ * network traffic, no credentials required.
+ */
+async function fetchMockEngagements(baseUrl: string): Promise<HistoricalEngagement[]> {
+  // 1. Get mock token
+  const tokenRes = await fetch(`${baseUrl}/api/sf-mock/token`, {
+    method:  'POST',
+    headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+    body:    new URLSearchParams({ grant_type: 'client_credentials', client_id: 'mock', client_secret: 'mock' }),
+  });
+  const { access_token } = await tokenRes.json() as SFTokenResponse;
+
+  // 2. Query mock data
+  const queryRes = await fetch(
+    `${baseUrl}/api/sf-mock/query?q=${encodeURIComponent(SOQL)}`,
+    { headers: { Authorization: `Bearer ${access_token}` } }
+  );
+  const data: SFQueryResponse = await queryRes.json();
+  return data.records.map((opp) => mapOpportunity(opp, 'Salesforce CRM'));
+}
+
+// ── Real Salesforce fetcher ───────────────────────────────────
+
+async function fetchLiveEngagements(
+  instanceUrl: string,
+  clientId: string,
+  clientSecret: string
+): Promise<HistoricalEngagement[]> {
+  const token    = await getAccessToken(instanceUrl, clientId, clientSecret);
+  const queryUrl = `${instanceUrl}/services/data/v59.0/query?q=${encodeURIComponent(SOQL)}`;
+  const queryRes = await fetch(queryUrl, {
+    headers: { Authorization: `Bearer ${token}`, Accept: 'application/json' },
+    signal:  AbortSignal.timeout(10_000),
+  });
+  if (!queryRes.ok) {
+    const err = await queryRes.text();
+    throw new Error(`Salesforce query failed ${queryRes.status}: ${err.slice(0, 200)}`);
+  }
+  const data: SFQueryResponse = await queryRes.json();
+  return data.records.map((opp) => mapOpportunity(opp, 'Salesforce CRM'));
 }
 
 // ── Route handler ─────────────────────────────────────────────
 
 export async function GET() {
-  // ── Guard: skip entirely if credentials are not configured ──
+  const mockMode   = process.env.SF_MOCK_MODE === 'true';
   const instanceUrl  = process.env.SF_INSTANCE_URL;
   const clientId     = process.env.SF_CLIENT_ID;
   const clientSecret = process.env.SF_CLIENT_SECRET;
 
+  // ── Mock mode: use internal demo endpoints ─────────────────
+  if (mockMode) {
+    try {
+      // Resolve base URL for self-calling internal Next.js routes.
+      // Priority: explicit env var → Vercel auto URL → local dev default.
+      const baseUrl =
+        process.env.NEXT_PUBLIC_BASE_URL ??
+        (process.env.VERCEL_URL
+          ? `https://${process.env.VERCEL_URL}`
+          : 'http://localhost:3000');
+
+      const engagements = await fetchMockEngagements(baseUrl);
+      return NextResponse.json(engagements, {
+        status: 200,
+        headers: {
+          'Cache-Control': 'public, s-maxage=3600, stale-while-revalidate=86400',
+          'X-Data-Source': 'mock',
+        },
+      });
+    } catch (err) {
+      console.error('[api/engagements] Mock fetch error:', err instanceof Error ? err.message : err);
+      return NextResponse.json([] as HistoricalEngagement[], { status: 200 });
+    }
+  }
+
+  // ── Production mode: real Salesforce ─────────────────────
   if (!instanceUrl || !clientId || !clientSecret) {
-    // No credentials → return empty; UI falls back to seed data
+    // No credentials — UI falls back to built-in seed data
     return NextResponse.json([] as HistoricalEngagement[], { status: 200 });
   }
 
   try {
-    // 1. Authenticate
-    const token = await getAccessToken(instanceUrl, clientId, clientSecret);
-
-    // 2. Query
-    const queryUrl = `${instanceUrl}/services/data/v59.0/query?q=${encodeURIComponent(SOQL)}`;
-    const queryRes = await fetch(queryUrl, {
-      headers: { Authorization: `Bearer ${token}`, Accept: 'application/json' },
-      // 10-second timeout via AbortController
-      signal: AbortSignal.timeout(10_000),
-    });
-
-    if (!queryRes.ok) {
-      const err = await queryRes.text();
-      throw new Error(`Salesforce query failed ${queryRes.status}: ${err.slice(0, 200)}`);
-    }
-
-    const data: SFQueryResponse = await queryRes.json();
-    const engagements: HistoricalEngagement[] = data.records.map(mapOpportunity);
-
+    const engagements = await fetchLiveEngagements(instanceUrl, clientId, clientSecret);
     return NextResponse.json(engagements, {
       status: 200,
       headers: {
-        // CDN-level cache: fresh for 1 h, serve stale up to 24 h while revalidating
         'Cache-Control': 'public, s-maxage=3600, stale-while-revalidate=86400',
+        'X-Data-Source': 'salesforce-live',
       },
     });
-
   } catch (err) {
-    // Log server-side only — never leak credentials or SF details to client
     console.error('[api/engagements] Salesforce fetch error:', err instanceof Error ? err.message : err);
-
-    // Return empty array — UI gracefully falls back to seed dataset
     return NextResponse.json([] as HistoricalEngagement[], { status: 200 });
   }
 }
