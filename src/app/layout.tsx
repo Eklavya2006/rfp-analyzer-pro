@@ -1,3 +1,10 @@
+// Force dynamic rendering — prevents Vercel CDN from caching the HTML page.
+// Without this, Vercel pre-renders the page as static and serves it from
+// the edge CDN for up to 300s (X-Nextjs-Stale-Time), meaning old JS chunk
+// URLs persist even after a new deployment is aliased.
+export const dynamic = 'force-dynamic';
+export const revalidate = 0;
+
 import type { Metadata, Viewport } from "next";
 import { IBM_Plex_Sans, IBM_Plex_Mono } from "next/font/google";
 import "./globals.css";
