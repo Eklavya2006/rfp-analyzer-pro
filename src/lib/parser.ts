@@ -100,11 +100,22 @@ export async function extractFromFile(
       onProgress?.('extracting', 35);
 
       const pdfjsLib = await import('pdfjs-dist');
-      // Use the worker bundled with the app under /public — served by Next.js
-      // static file handling. basePath prefix required because the app is mounted
-      // at /praddeeplambba-sih-connect on Vercel.
-      const basePath = process.env.NEXT_PUBLIC_BASE_PATH ?? '';
-      pdfjsLib.GlobalWorkerOptions.workerSrc = `${basePath}/pdf.worker.min.mjs`;
+      // Use the worker that ships inside pdfjs-dist itself.
+      // Importing the worker as a URL is the recommended approach for bundlers
+      // — it works with any deployment, no public/ file copy needed.
+      // We import pdfjs-dist/build/pdf.worker.min.mjs as a module URL via
+      // a dynamic string so Turbopack/webpack emits it as a separate chunk.
+      // Fallback: run without worker (fake-worker mode, slower but functional).
+      try {
+        const workerUrl = new URL(
+          'pdfjs-dist/build/pdf.worker.min.mjs',
+          import.meta.url,
+        );
+        pdfjsLib.GlobalWorkerOptions.workerSrc = workerUrl.toString();
+      } catch {
+        // If URL construction fails (SSR/edge), leave workerSrc empty —
+        // pdfjs will use its inline fake-worker which is slower but works.
+      }
 
       const pdf = await (pdfjsLib.getDocument({ data: arrayBuffer })).promise;
       const pageCount = pdf.numPages;
