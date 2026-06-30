@@ -116,19 +116,20 @@ function HoverTooltip({ text, children }: { text: string; children: React.ReactN
         <div
           style={{
             position: 'fixed',
-            left: pos.x,
-            top: pos.y - 8,
+            left: Math.min(pos.x, window.innerWidth - 210),
+            top: pos.y - 6,
             transform: 'translate(-50%, -100%)',
             background: '#1E2436',
             color: '#F1F5F9',
-            fontSize: 12,
-            padding: '8px 12px',
-            borderRadius: 8,
+            fontSize: 11,
+            padding: '6px 10px',
+            borderRadius: 7,
             zIndex: 2147483647,
-            width: 300,
-            boxShadow: '0 8px 32px rgba(0,0,0,0.85)',
-            border: '1px solid rgba(99,102,241,0.4)',
-            lineHeight: 1.5,
+            maxWidth: 200,
+            width: 'max-content',
+            boxShadow: '0 4px 16px rgba(0,0,0,0.55)',
+            border: '1px solid rgba(99,102,241,0.35)',
+            lineHeight: 1.45,
             pointerEvents: 'none',
             whiteSpace: 'normal',
             textAlign: 'left',
@@ -136,10 +137,10 @@ function HoverTooltip({ text, children }: { text: string; children: React.ReactN
         >
           {text}
           <span style={{
-            position: 'absolute', bottom: -6, left: '50%', transform: 'translateX(-50%)',
+            position: 'absolute', bottom: -5, left: '50%', transform: 'translateX(-50%)',
             width: 0, height: 0,
-            borderLeft: '6px solid transparent', borderRight: '6px solid transparent',
-            borderTop: '6px solid #1E2436',
+            borderLeft: '5px solid transparent', borderRight: '5px solid transparent',
+            borderTop: '5px solid #1E2436',
           }} />
         </div>,
         document.body,
@@ -367,7 +368,7 @@ export default function ProjectPlanModule() {
 
         const yMax = Math.max(...lineData.map(d => d.count), 2);
 
-        // Custom tooltip — rich card showing each milestone name (unchanged)
+        // Custom tooltip — compact rich card showing each milestone name
         const MilestoneTooltip = ({ active, payload }: {
           active?: boolean;
           payload?: Array<{ payload: MilestoneLineDatum }>;
@@ -377,55 +378,55 @@ export default function ProjectPlanModule() {
           return (
             <div style={{
               background: '#fff',
-              border: `2px solid ${d.color}`,
-              borderRadius: 10,
-              padding: '12px 16px',
-              boxShadow: '0 6px 24px rgba(0,0,0,0.13)',
-              minWidth: 220,
-              maxWidth: 300,
+              border: `1.5px solid ${d.color}`,
+              borderRadius: 8,
+              padding: '8px 12px',
+              boxShadow: '0 4px 14px rgba(0,0,0,0.11)',
+              minWidth: 170,
+              maxWidth: 230,
             }}>
               {/* Phase header */}
-              <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 8 }}>
-                <div style={{ width: 10, height: 10, borderRadius: '50%', background: d.color, flexShrink: 0 }} />
-                <span style={{ fontWeight: 700, fontSize: 13, color: PC.text }}>{d.fullName}</span>
-                <span style={{ marginLeft: 'auto', fontSize: 11, color: d.color, fontWeight: 600 }}>{d.weeks}</span>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 5 }}>
+                <div style={{ width: 8, height: 8, borderRadius: '50%', background: d.color, flexShrink: 0 }} />
+                <span style={{ fontWeight: 700, fontSize: 11, color: PC.text, flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{d.fullName}</span>
+                <span style={{ fontSize: 10, color: d.color, fontWeight: 600, flexShrink: 0 }}>{d.weeks}</span>
               </div>
               {/* Summary row */}
               <div style={{
-                display: 'flex', gap: 8, marginBottom: 10,
-                paddingBottom: 8, borderBottom: `1px solid ${PC.border}`,
+                display: 'flex', gap: 5, marginBottom: 6,
+                paddingBottom: 5, borderBottom: `1px solid ${PC.border}`,
               }}>
                 <span style={{
                   background: `${d.color}18`, color: d.color,
-                  borderRadius: 999, padding: '2px 10px', fontSize: 11, fontWeight: 700,
+                  borderRadius: 999, padding: '1px 7px', fontSize: 10, fontWeight: 700,
                 }}>
-                  {d.count} milestone{d.count !== 1 ? 's' : ''}
+                  {d.count}ms
                 </span>
                 <span style={{
                   background: d.status === 'completed' ? `${PC.completed}18`
                     : d.status === 'in-progress' ? `${PC.inprog}18` : `${PC.notstart}18`,
                   color: d.status === 'completed' ? PC.completed
                     : d.status === 'in-progress' ? PC.inprog : PC.notstart,
-                  borderRadius: 999, padding: '2px 10px', fontSize: 11, fontWeight: 600,
+                  borderRadius: 999, padding: '1px 7px', fontSize: 10, fontWeight: 600,
                 }}>
-                  {d.status === 'completed' ? 'Completed' : d.status === 'in-progress' ? 'In Progress' : 'Not Started'}
+                  {d.status === 'completed' ? '✓ Done' : d.status === 'in-progress' ? '⟳ Active' : '○ Pending'}
                 </span>
               </div>
               {/* Milestone list */}
               {d.milestones.length === 0
-                ? <div style={{ fontSize: 12, color: PC.muted, fontStyle: 'italic' }}>No milestones defined</div>
+                ? <div style={{ fontSize: 11, color: PC.muted, fontStyle: 'italic' }}>No milestones</div>
                 : (
-                  <div style={{ display: 'flex', flexDirection: 'column', gap: 5 }}>
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: 3 }}>
                     {d.milestones.map((m, i) => (
-                      <div key={i} style={{ display: 'flex', alignItems: 'flex-start', gap: 7, fontSize: 12 }}>
+                      <div key={i} style={{ display: 'flex', alignItems: 'flex-start', gap: 5, fontSize: 11 }}>
                         <div style={{
-                          width: 16, height: 16, borderRadius: '50%',
+                          width: 12, height: 12, borderRadius: '50%',
                           background: d.color, flexShrink: 0, marginTop: 1,
                           display: 'flex', alignItems: 'center', justifyContent: 'center',
                         }}>
-                          <Check size={9} color="#fff" strokeWidth={3} />
+                          <Check size={7} color="#fff" strokeWidth={3} />
                         </div>
-                        <span style={{ color: PC.text, lineHeight: 1.4 }}>{m}</span>
+                        <span style={{ color: PC.text, lineHeight: 1.35 }}>{m}</span>
                       </div>
                     ))}
                   </div>
@@ -504,25 +505,31 @@ export default function ProjectPlanModule() {
               </LineChart>
             </ResponsiveContainer>
 
-            {/* Phase chips with +/− add-remove controls */}
-            <div className="flex flex-wrap gap-2 mt-3 pt-3 border-t" style={{ borderColor: PC.border }}>
+            {/* Phase chips with +/− add-remove controls — compact, truncated names */}
+            <div className="flex flex-wrap gap-1.5 mt-3 pt-3 border-t" style={{ borderColor: PC.border }}>
               {lineData.map((d, idx) => {
                 const phase = plan!.phases[idx];
+                // Truncate phase name to 10 chars to keep chips compact
+                const shortName = d.fullName.length > 10 ? d.fullName.slice(0, 10) + '…' : d.fullName;
                 return (
-                  <div key={idx} className="flex items-center gap-1 text-[11px] font-medium"
+                  <div key={idx} className="flex items-center gap-1"
+                    title={d.fullName}
                     style={{
                       background: `${d.color}12`,
                       border: `1px solid ${d.color}30`,
                       borderRadius: 999,
-                      padding: '3px 4px 3px 10px',
+                      padding: '2px 4px 2px 7px',
                       color: PC.text,
+                      fontSize: 10,
+                      fontWeight: 500,
+                      maxWidth: 180,
                     }}>
                     {/* Colour dot */}
-                    <div style={{ width: 7, height: 7, borderRadius: '50%', background: d.color, flexShrink: 0 }} />
-                    {/* Phase name */}
-                    <span className="mx-1">{d.fullName}</span>
+                    <div style={{ width: 6, height: 6, borderRadius: '50%', background: d.color, flexShrink: 0 }} />
+                    {/* Phase name — truncated */}
+                    <span style={{ marginLeft: 3, marginRight: 2, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', maxWidth: 80 }}>{shortName}</span>
                     {/* Count badge */}
-                    <span style={{ fontWeight: 700, color: d.color }}>{d.count}</span>
+                    <span style={{ fontWeight: 700, color: d.color, flexShrink: 0 }}>{d.count}</span>
                     {/* Remove last milestone */}
                     <button
                       title="Remove last milestone"
@@ -532,8 +539,8 @@ export default function ProjectPlanModule() {
                         update(phase.id, { milestones: updated });
                       }}
                       style={{
-                        marginLeft: 4,
-                        width: 18, height: 18, borderRadius: '50%',
+                        marginLeft: 3,
+                        width: 16, height: 16, borderRadius: '50%',
                         background: d.count === 0 ? '#F1F5F9' : `${d.color}20`,
                         color: d.count === 0 ? PC.notstart : d.color,
                         border: `1px solid ${d.count === 0 ? PC.border : d.color}40`,
@@ -542,7 +549,7 @@ export default function ProjectPlanModule() {
                         flexShrink: 0,
                       }}
                     >
-                      <Minus size={9} strokeWidth={2.5} />
+                      <Minus size={8} strokeWidth={2.5} />
                     </button>
                     {/* Add new milestone */}
                     <button
@@ -552,8 +559,8 @@ export default function ProjectPlanModule() {
                         update(phase.id, { milestones: [...(phase.milestones ?? []), label] });
                       }}
                       style={{
-                        marginLeft: 2,
-                        width: 18, height: 18, borderRadius: '50%',
+                        marginLeft: 1,
+                        width: 16, height: 16, borderRadius: '50%',
                         background: `${d.color}20`,
                         color: d.color,
                         border: `1px solid ${d.color}40`,
@@ -562,7 +569,7 @@ export default function ProjectPlanModule() {
                         flexShrink: 0,
                       }}
                     >
-                      <Plus size={9} strokeWidth={2.5} />
+                      <Plus size={8} strokeWidth={2.5} />
                     </button>
                   </div>
                 );
