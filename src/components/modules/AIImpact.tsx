@@ -733,8 +733,18 @@ export default function AgenticImpactModule() {
                     <ChartTooltip text="Percentage reduction in rework cycles achieved through AI-assisted quality checks, automated testing, and real-time validation. Reducing rework improves schedule adherence and lowers total delivery cost." />
                   </div>
                 </th>
-                <th className="px-4 py-3 text-center">Accel.</th>
-                <th className="px-4 py-3 text-left">Tool</th>
+                <th className="px-4 py-3 text-center">
+                  <div className="inline-flex items-center gap-1 justify-center">
+                    Accel.
+                    <ChartTooltip text="Acceleration Factor — how many times faster this role delivers outputs with AI assistance compared to traditional methods. E.g. 1.5× means the role completes work 50% faster. Derived from Productivity % and automation coverage." />
+                  </div>
+                </th>
+                <th className="px-4 py-3 text-left">
+                  <div className="inline-flex items-center gap-1">
+                    Tool
+                    <ChartTooltip text="Primary IBM AI tool or watsonx capability assigned to this role. Determines the automation pattern — e.g. watsonx.ai for code generation, watsonx Assistant for Q&A, watsonx Orchestrate for workflow automation." />
+                  </div>
+                </th>
                 <th className="px-4 py-3 text-center">Edit</th>
               </tr>
             </thead>
