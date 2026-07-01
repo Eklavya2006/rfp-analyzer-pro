@@ -4,7 +4,8 @@
 // All formats include binary/junk sanitization pass
 // ============================================================
 
-import type { DocumentSummary, ExtractedSections } from '@/types';
+import type { DocumentSummary, ExtractedSections, TimelineEvent, SupportEvent, TimelineEventKind, SupportEventKind } from '@/types';
+import { v4 as uuid } from 'uuid';
 
 // ── Extraction result ─────────────────────────────────────────
 export interface ExtractionResult {
@@ -400,6 +401,222 @@ function extractConstraints(text: string): string[] {
   if (text.toLowerCase().includes('zero downtime')) constraints.push('Zero downtime migration required');
   if (constraints.length === 0) constraints.push('Go-live within 18 months', 'Budget not to exceed $4M');
   return constraints;
+}
+
+// ── Date / Timeline Extraction ────────────────────────────────
+
+/** Attempt to parse a variety of date formats into an ISO yyyy-MM-dd string.
+ *  Handles: DD/MM/YYYY, MM/DD/YYYY (guessed), DD-MM-YYYY, YYYY-MM-DD,
+ *           "1 June 2025", "June 2025", "Q2 2026", year-only "2027".
+ *  Returns '' if the string is not parseable.
+ */
+function normaliseDateStr(raw: string): string {
+  const s = raw.trim();
+
+  // ── yyyy-MM-dd (already ISO) ──────────────────────────────
+  if (/^\d{4}-\d{2}-\d{2}$/.test(s)) return s;
+
+  // ── DD/MM/YYYY or DD-MM-YYYY ──────────────────────────────
+  const dmy = s.match(/^(\d{1,2})[\/\-\.](\d{1,2})[\/\-\.](\d{4})$/);
+  if (dmy) {
+    const [, d, m, y] = dmy;
+    // If the second number > 12 it must be a day in MM/DD/YYYY position → swap
+    const day = Number(m) > 12 ? m.padStart(2, '0') : d.padStart(2, '0');
+    const mon = Number(m) > 12 ? d.padStart(2, '0') : m.padStart(2, '0');
+    return `${y}-${mon}-${day}`;
+  }
+
+  // ── "1 June 2025", "June 1, 2025", "1st June 2025" ───────
+  const MONTHS: Record<string, string> = {
+    january:'01',february:'02',march:'03',april:'04',may:'05',june:'06',
+    july:'07',august:'08',september:'09',october:'10',november:'11',december:'12',
+    jan:'01',feb:'02',mar:'03',apr:'04',jun:'06',jul:'07',aug:'08',
+    sep:'09',oct:'10',nov:'11',dec:'12',
+  };
+  const longDate = s.match(/(\d{1,2})(?:st|nd|rd|th)?\s+([A-Za-z]+)\s+(\d{4})/i)
+    || s.match(/([A-Za-z]+)\s+(\d{1,2})(?:st|nd|rd|th)?,?\s+(\d{4})/i);
+  if (longDate) {
+    // figure out which group is day vs month name
+    const g1Num = Number(longDate[1]);
+    if (!isNaN(g1Num)) {
+      const mon = MONTHS[longDate[2].toLowerCase()];
+      if (mon) return `${longDate[3]}-${mon}-${String(g1Num).padStart(2,'0')}`;
+    } else {
+      const mon = MONTHS[longDate[1].toLowerCase()];
+      if (mon) return `${longDate[3]}-${mon}-${String(Number(longDate[2])).padStart(2,'0')}`;
+    }
+  }
+
+  // ── "June 2025" / "Jun 2025" (month + year only) ─────────
+  const monthYear = s.match(/^([A-Za-z]+)\s+(\d{4})$/i);
+  if (monthYear) {
+    const mon = MONTHS[monthYear[1].toLowerCase()];
+    if (mon) return `${monthYear[2]}-${mon}-01`;
+  }
+
+  // ── "Q1 2026" style ───────────────────────────────────────
+  const quarter = s.match(/Q([1-4])\s+(\d{4})/i);
+  if (quarter) {
+    const qMon = ['01','04','07','10'][Number(quarter[1]) - 1];
+    return `${quarter[2]}-${qMon}-01`;
+  }
+
+  // ── Year only "2027" ─────────────────────────────────────
+  if (/^\d{4}$/.test(s)) return `${s}-01-01`;
+
+  return '';
+}
+
+// Keywords that indicate a timeline event kind
+const TIMELINE_KIND_PATTERNS: Array<{ kind: TimelineEventKind; patterns: RegExp[] }> = [
+  { kind: 'start',     patterns: [/\bstart\b/i, /\bkickoff\b/i, /\bbegin\b/i, /\bcommencement\b/i, /\bproject\s+start\b/i] },
+  { kind: 'go-live',   patterns: [/\bgo.?live\b/i, /\blive date\b/i, /\blaunch\b/i, /\bproduction\s+date\b/i] },
+  { kind: 'deadline',  patterns: [/\bdeadline\b/i, /\bdue\s+date\b/i, /\bsubmission\b/i, /\bdue\b/i] },
+  { kind: 'end',       patterns: [/\bend\s+date\b/i, /\bcompletion\b/i, /\bclosure\b/i, /\bfinal\s+delivery\b/i, /\bproject\s+end\b/i] },
+  { kind: 'milestone', patterns: [/\bmilestone\b/i, /\bphase\b/i, /\bsign.?off\b/i, /\buat\b/i, /\bdelivery\b/i] },
+];
+
+function classifyTimelineKind(ctx: string): TimelineEventKind {
+  for (const { kind, patterns } of TIMELINE_KIND_PATTERNS) {
+    if (patterns.some(re => re.test(ctx))) return kind;
+  }
+  return 'other';
+}
+
+const SUPPORT_KIND_PATTERNS: Array<{ kind: SupportEventKind; patterns: RegExp[] }> = [
+  { kind: 'hypercare', patterns: [/\bhypercare\b/i, /\bpost.?go.?live\s+support\b/i] },
+  { kind: 'warranty',  patterns: [/\bwarranty\b/i, /\bdefect\s+liability\b/i] },
+  { kind: 'sla',       patterns: [/\bsla\b/i, /\bservice\s+level\b/i] },
+  { kind: 'maintenance', patterns: [/\bmaintenance\b/i, /\bAMC\b/, /\bannual\s+maintenance\b/i] },
+  { kind: 'support',   patterns: [/\bsupport\b/i, /\bpost.?implementation\b/i, /\bpost.?deployment\b/i] },
+];
+
+function classifySupportKind(ctx: string): SupportEventKind {
+  for (const { kind, patterns } of SUPPORT_KIND_PATTERNS) {
+    if (patterns.some(re => re.test(ctx))) return kind;
+  }
+  return 'other';
+}
+
+/** Regex patterns for dates embedded in natural language sentences */
+const DATE_INLINE_PATTERNS: RegExp[] = [
+  /\b(\d{1,2})[\/\-\.](\d{1,2})[\/\-\.](\d{4})\b/g,          // DD/MM/YYYY or MM/DD/YYYY
+  /\b(\d{4})[\/\-\.](\d{1,2})[\/\-\.](\d{1,2})\b/g,          // YYYY-MM-DD
+  /\b(\d{1,2})(?:st|nd|rd|th)?\s+(January|February|March|April|May|June|July|August|September|October|November|December)\s+(\d{4})\b/gi,
+  /\b(January|February|March|April|May|June|July|August|September|October|November|December)\s+(\d{1,2})(?:st|nd|rd|th)?,?\s+(\d{4})\b/gi,
+  /\b(January|February|March|April|May|June|July|August|September|October|November|December)\s+(\d{4})\b/gi,
+  /\b(Jan|Feb|Mar|Apr|Jun|Jul|Aug|Sep|Oct|Nov|Dec)\.?\s+(\d{4})\b/gi,
+  /\bQ([1-4])\s+(\d{4})\b/gi,
+  /\b(20\d{2})\b/g,  // standalone year 2000–2099
+];
+
+/** Minimum and maximum "interesting" year range — filters out things like version numbers */
+const MIN_YEAR = 2020;
+const MAX_YEAR = 2040;
+
+function yearInRange(isoDate: string): boolean {
+  const y = Number(isoDate.split('-')[0]);
+  return y >= MIN_YEAR && y <= MAX_YEAR;
+}
+
+/** Build a short human label for a timeline event from its context sentence */
+function buildLabel(ctx: string, kind: TimelineEventKind | SupportEventKind): string {
+  // Try to grab a short action phrase before/after the date
+  const cleaned = ctx.replace(/\s+/g, ' ').trim();
+  if (cleaned.length <= 80) return cleaned.charAt(0).toUpperCase() + cleaned.slice(1);
+  // Trim to the closest sentence fragment
+  const idx = cleaned.search(/\d{4}/);
+  const start = Math.max(0, idx - 40);
+  const end   = Math.min(cleaned.length, idx + 40);
+  return (cleaned.slice(start, end).trim() || `${kind} event`).charAt(0).toUpperCase()
+    + (cleaned.slice(start, end).trim() || `${kind} event`).slice(1);
+}
+
+/** Duration keywords used near support sections */
+const DURATION_RE = /(\d+)\s*(day|week|month|year)s?/i;
+
+function extractDuration(ctx: string): string | undefined {
+  const m = ctx.match(DURATION_RE);
+  return m ? m[0] : undefined;
+}
+
+/**
+ * Main extraction: scan all lines of the document text for dates and classify
+ * them as either generic timeline events or support/hypercare events.
+ */
+export function extractTimelineAndSupportEvents(text: string): {
+  timelineEvents: TimelineEvent[];
+  supportEvents: SupportEvent[];
+} {
+  const timelineEvents: TimelineEvent[] = [];
+  const supportEvents: SupportEvent[] = [];
+
+  // Support / hypercare trigger keywords — any line containing these
+  // will classify matched dates as SupportEvents
+  const SUPPORT_TRIGGER = /\b(support|hypercare|warranty|maintenance|AMC|SLA|post.?go.?live|post.?implementation|post.?deployment|defect\s+liability|service\s+level)\b/i;
+
+  // We deduplicate by isoDate+kind to avoid multiple hits from the same sentence
+  const seenTimeline = new Set<string>();
+  const seenSupport  = new Set<string>();
+
+  const lines = text.split('\n');
+
+  for (const rawLine of lines) {
+    const line = rawLine.trim();
+    if (!line) continue;
+
+    // Collect all date-like tokens in this line
+    const dateMatches: string[] = [];
+    for (const pat of DATE_INLINE_PATTERNS) {
+      const regex = new RegExp(pat.source, pat.flags.includes('g') ? pat.flags : pat.flags + 'g');
+      let m: RegExpExecArray | null;
+      while ((m = regex.exec(line)) !== null) {
+        dateMatches.push(m[0]);
+      }
+    }
+
+    for (const rawDate of dateMatches) {
+      const isoDate = normaliseDateStr(rawDate);
+      if (!isoDate || !yearInRange(isoDate)) continue;
+
+      const isSupport = SUPPORT_TRIGGER.test(line);
+
+      if (isSupport) {
+        const kind = classifySupportKind(line);
+        const key = `${isoDate}:${kind}`;
+        if (seenSupport.has(key)) continue;
+        seenSupport.add(key);
+        supportEvents.push({
+          id:        uuid(),
+          label:     buildLabel(line, kind),
+          rawDate,
+          isoDate,
+          kind,
+          context:   line.slice(0, 200),
+          duration:  extractDuration(line),
+        });
+      } else {
+        const kind = classifyTimelineKind(line);
+        const key = `${isoDate}:${kind}`;
+        if (seenTimeline.has(key)) continue;
+        seenTimeline.add(key);
+        timelineEvents.push({
+          id:      uuid(),
+          label:   buildLabel(line, kind),
+          rawDate,
+          isoDate,
+          kind,
+          context: line.slice(0, 200),
+        });
+      }
+    }
+  }
+
+  // Sort both lists chronologically
+  timelineEvents.sort((a, b) => a.isoDate.localeCompare(b.isoDate));
+  supportEvents.sort((a, b) => a.isoDate.localeCompare(b.isoDate));
+
+  return { timelineEvents, supportEvents };
 }
 
 export function getSampleRFPText(filename?: string): string {

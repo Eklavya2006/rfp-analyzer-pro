@@ -7,8 +7,8 @@ import {
   XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Cell,
 } from 'recharts';
 import { useRFPStore } from '@/lib/store';
-import { DollarSign, Calendar, Users, CheckSquare, Zap, TrendingUp, Upload, CalendarDays, Bot } from 'lucide-react';
-import type { TabId } from '@/types';
+import { DollarSign, Calendar, Users, CheckSquare, Zap, TrendingUp, Upload, CalendarDays, Bot, Clock, Headphones } from 'lucide-react';
+import type { TabId, TimelineEvent, SupportEvent } from '@/types';
 
 // ── Light palette ──────────────────────────────────────────────
 const D = {
@@ -237,6 +237,222 @@ function WelcomeState() {
   );
 }
 
+// ── Helper: friendly date label ───────────────────────────────
+function fmtIso(isoDate: string): string {
+  if (!isoDate) return '';
+  const [y, m, d] = isoDate.split('-');
+  const MONTH_NAMES = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+  const mName = MONTH_NAMES[Number(m) - 1] ?? m;
+  if (d === '01' && isoDate.endsWith('-01-01')) return y;
+  if (d === '01') return `${mName} ${y}`;
+  return `${d}/${m}/${y}`;
+}
+
+// ── Timeline-Trend Card ────────────────────────────────────────
+const KIND_COLORS: Record<string, string> = {
+  'start':     '#10B981',
+  'go-live':   '#6366F1',
+  'deadline':  '#F43F5E',
+  'end':       '#8B5CF6',
+  'milestone': '#3B82F6',
+  'phase':     '#06B6D4',
+  'other':     '#94A3B8',
+};
+
+const KIND_LABEL: Record<string, string> = {
+  'start':     'Start',
+  'go-live':   'Go-Live',
+  'deadline':  'Deadline',
+  'end':       'End',
+  'milestone': 'Milestone',
+  'phase':     'Phase',
+  'other':     'Event',
+};
+
+function TimelineTrendCard({ events }: { events: TimelineEvent[] }) {
+  if (events.length === 0) return null;
+  // Build a compact chart dataset: each event becomes a bar at its position in time
+  // We sort events (already sorted) and assign a sequential x-index so overlapping
+  // iso-dates still render as separate ticks
+  const chartData = events.map((ev, i) => ({
+    name: fmtIso(ev.isoDate),
+    label: ev.label.length > 38 ? ev.label.slice(0, 38) + '…' : ev.label,
+    kind: ev.kind,
+    idx: i,
+    value: 1,
+    color: KIND_COLORS[ev.kind] ?? KIND_COLORS.other,
+  }));
+
+  return (
+    <Card>
+      <SectionHead title="Timeline Trend" />
+
+      {/* Legend row */}
+      <div style={{ display: 'flex', flexWrap: 'wrap', gap: '6px 12px', marginBottom: 14 }}>
+        {Array.from(new Set(events.map(e => e.kind))).map(kind => (
+          <span key={kind} style={{ display: 'inline-flex', alignItems: 'center', gap: 4, fontSize: 10, color: D.muted }}>
+            <span style={{ width: 8, height: 8, borderRadius: '50%', background: KIND_COLORS[kind] ?? KIND_COLORS.other, display: 'inline-block' }} />
+            {KIND_LABEL[kind] ?? kind}
+          </span>
+        ))}
+      </div>
+
+      {/* Horizontal scrollable timeline strip */}
+      <div style={{ overflowX: 'auto', paddingBottom: 4 }}>
+        <div style={{ display: 'flex', alignItems: 'flex-start', gap: 0, minWidth: Math.max(400, events.length * 110) }}>
+          {events.map((ev, i) => {
+            const color = KIND_COLORS[ev.kind] ?? KIND_COLORS.other;
+            const isLast = i === events.length - 1;
+            return (
+              <div key={ev.id} style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', flex: '1 0 0', minWidth: 90 }}>
+                {/* Connector line + dot */}
+                <div style={{ display: 'flex', alignItems: 'center', width: '100%', height: 20 }}>
+                  <div style={{ flex: 1, height: 2, background: i === 0 ? 'transparent' : D.border }} />
+                  <div style={{
+                    width: 12, height: 12, borderRadius: '50%',
+                    border: `2.5px solid ${color}`,
+                    background: '#fff', flexShrink: 0,
+                    boxShadow: `0 0 0 3px ${color}22`,
+                  }} />
+                  <div style={{ flex: 1, height: 2, background: isLast ? 'transparent' : D.border }} />
+                </div>
+                {/* Date */}
+                <div style={{ fontSize: 10, fontWeight: 600, color, marginTop: 4, textAlign: 'center' }}>
+                  {fmtIso(ev.isoDate)}
+                </div>
+                {/* Kind badge */}
+                <div style={{
+                  fontSize: 9, fontWeight: 600, color: '#fff',
+                  background: color, borderRadius: 4, padding: '1px 5px',
+                  marginTop: 3, textTransform: 'uppercase', letterSpacing: '0.05em',
+                }}>
+                  {KIND_LABEL[ev.kind] ?? ev.kind}
+                </div>
+                {/* Context snippet */}
+                <div style={{
+                  fontSize: 9, color: D.muted, marginTop: 4, textAlign: 'center',
+                  lineHeight: 1.3, maxWidth: 88, wordBreak: 'break-word',
+                }}>
+                  {ev.label.length > 50 ? ev.label.slice(0, 50) + '…' : ev.label}
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      </div>
+
+      {/* Recharts bar chart for visual density overview */}
+      {events.length > 2 && (
+        <div style={{ marginTop: 16 }}>
+          <ResponsiveContainer width="100%" height={80}>
+            <BarChart data={chartData} barSize={14} margin={{ left: -10, right: 8, top: 4 }}>
+              <CartesianGrid strokeDasharray="3 3" stroke="#F1F5F9" vertical={false} />
+              <XAxis dataKey="name" tick={{ fill: '#64748B', fontSize: 9 }} axisLine={false} tickLine={false}
+                interval={Math.max(0, Math.floor(chartData.length / 6) - 1)} />
+              <YAxis hide />
+              <Tooltip
+                content={({ active, payload }) => {
+                  if (!active || !payload?.length) return null;
+                  const d = payload[0].payload as typeof chartData[number];
+                  return (
+                    <div style={{ ...tooltipStyle, minWidth: 180 }}>
+                      <div style={{ fontWeight: 700, color: d.color, fontSize: 12, marginBottom: 3 }}>{d.name}</div>
+                      <div style={{ fontSize: 11, color: '#374151' }}>{d.label}</div>
+                    </div>
+                  );
+                }}
+                wrapperStyle={tooltipWrapperStyle}
+              />
+              <Bar dataKey="value" radius={[4, 4, 0, 0]}>
+                {chartData.map((entry, i) => (
+                  <Cell key={i} fill={entry.color} />
+                ))}
+              </Bar>
+            </BarChart>
+          </ResponsiveContainer>
+        </div>
+      )}
+    </Card>
+  );
+}
+
+// ── Support-Trend Card ─────────────────────────────────────────
+const SUPPORT_KIND_COLORS: Record<string, string> = {
+  'hypercare':   '#8B5CF6',
+  'support':     '#3B82F6',
+  'warranty':    '#10B981',
+  'maintenance': '#F59E0B',
+  'sla':         '#06B6D4',
+  'other':       '#94A3B8',
+};
+
+const SUPPORT_KIND_LABELS: Record<string, string> = {
+  'hypercare':   'Hypercare',
+  'support':     'Support',
+  'warranty':    'Warranty',
+  'maintenance': 'Maintenance',
+  'sla':         'SLA',
+  'other':       'Other',
+};
+
+function SupportTrendCard({ events }: { events: SupportEvent[] }) {
+  if (events.length === 0) return null;
+
+  return (
+    <Card>
+      <SectionHead title="Support &amp; Hypercare Trend" />
+
+      {/* Legend */}
+      <div style={{ display: 'flex', flexWrap: 'wrap', gap: '6px 12px', marginBottom: 14 }}>
+        {Array.from(new Set(events.map(e => e.kind))).map(kind => (
+          <span key={kind} style={{ display: 'inline-flex', alignItems: 'center', gap: 4, fontSize: 10, color: D.muted }}>
+            <span style={{ width: 8, height: 8, borderRadius: 2, background: SUPPORT_KIND_COLORS[kind] ?? SUPPORT_KIND_COLORS.other, display: 'inline-block' }} />
+            {SUPPORT_KIND_LABELS[kind] ?? kind}
+          </span>
+        ))}
+      </div>
+
+      {/* Table-style list */}
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+        {events.map((ev) => {
+          const color = SUPPORT_KIND_COLORS[ev.kind] ?? SUPPORT_KIND_COLORS.other;
+          return (
+            <div key={ev.id} style={{
+              display: 'grid', gridTemplateColumns: '90px 1fr auto',
+              alignItems: 'center', gap: 10,
+              background: `${color}0D`, border: `1px solid ${color}30`,
+              borderRadius: 8, padding: '8px 12px',
+            }}>
+              {/* Date */}
+              <div>
+                <div style={{ fontSize: 12, fontWeight: 700, color }}>{fmtIso(ev.isoDate)}</div>
+                {ev.duration && (
+                  <div style={{ fontSize: 9, color: D.muted, marginTop: 2 }}>{ev.duration}</div>
+                )}
+              </div>
+              {/* Label + context */}
+              <div>
+                <div style={{ fontSize: 12, fontWeight: 600, color: D.text, lineHeight: 1.3 }}>
+                  {ev.label.length > 90 ? ev.label.slice(0, 90) + '…' : ev.label}
+                </div>
+              </div>
+              {/* Kind badge */}
+              <div style={{
+                fontSize: 9, fontWeight: 700, color: '#fff',
+                background: color, borderRadius: 4,
+                padding: '2px 6px', whiteSpace: 'nowrap',
+                textTransform: 'uppercase', letterSpacing: '0.05em',
+              }}>
+                {SUPPORT_KIND_LABELS[ev.kind] ?? ev.kind}
+              </div>
+            </div>
+          );
+        })}
+      </div>
+    </Card>
+  );
+}
+
 // ── Custom XAxis tick for Cost-by-Phase bar chart ─────────────
 function PhaseTickDash({
   x, y, payload, activeIdx, colors,
@@ -277,25 +493,29 @@ export default function Dashboard() {
 
   const navigate = React.useCallback((tab: TabId) => setActiveTab(tab), [setActiveTab]);
 
-  if (!result) return <WelcomeState />;
-
-  const staffing   = result.staffingPlan;
-  const estimation = result.estimation;
-  const testing    = result.testingStrategy;
-  const aiImpact   = result.aiImpact;
-  const plan       = result.projectPlan;
+  // ── All hooks must be called unconditionally (before early return) ──
   const doc = useMemo(
     () => documents.find((document) => document.id === activeDocumentId),
     [documents, activeDocumentId]
   );
 
-  const totalCost  = estimation?.adjustedTotalCost ?? estimation?.totalCost ?? 0;
+  // ── Timeline & Support events extracted from the real document ──
+  const timelineEvents = useMemo(
+    () => result?.timelineEvents ?? [],
+    [result?.timelineEvents]
+  );
+  const supportEvents = useMemo(
+    () => result?.supportEvents ?? [],
+    [result?.supportEvents]
+  );
+
+  const estimation = result?.estimation;
+  const plan       = result?.projectPlan;
+  const staffing   = result?.staffingPlan;
+  const testing    = result?.testingStrategy;
+  const aiImpact   = result?.aiImpact;
+  const peakHC     = staffing?.peakHeadcount ?? staffing?.totalHeadcount ?? 0;
   const totalWeeks = plan?.totalDurationWeeks ?? 0;
-  const teamSize   = staffing?.totalHeadcount ?? 0;
-  const qaHours    = testing?.totalQAHours ?? 0;
-  const aiSavings  = aiImpact?.totalHoursSaved ?? 0;
-  const aiGainPct  = aiImpact?.overallProductivityGain ?? 0;
-  const peakHC     = staffing?.peakHeadcount ?? teamSize;
 
   const phaseData = useMemo(
     () => (estimation?.phaseSubtotals ?? []).map((phase) => ({
@@ -331,6 +551,22 @@ export default function Dashboard() {
   );
   const maxDist = useMemo(() => distItems.reduce((m, d) => Math.max(m, d.val), 1), [distItems]);
 
+  // Stable keyword list for NewsPulseWidget — must not be rebuilt on every render
+  const pulseKeywords = useMemo(
+    () => (result?.offerings ?? []).slice(0, 4).map(o => o.name).concat(['IBM', 'enterprise AI']).slice(0, 6),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [result?.offerings?.map(o => o.id).join(',')]
+  );
+
+  // ── Early return after ALL hooks ──────────────────────────────
+  if (!result) return <WelcomeState />;
+
+  const totalCost  = estimation?.adjustedTotalCost ?? estimation?.totalCost ?? 0;
+  const teamSize   = staffing?.totalHeadcount ?? 0;
+  const qaHours    = testing?.totalQAHours ?? 0;
+  const aiSavings  = aiImpact?.totalHoursSaved ?? 0;
+  const aiGainPct  = aiImpact?.overallProductivityGain ?? 0;
+
   const trad  = aiImpact?.totalTraditionalHours ?? 1;
   const saved = aiImpact?.totalHoursSaved       ?? 0;
   const aiRows = [
@@ -339,13 +575,6 @@ export default function Dashboard() {
     { label: 'Timeline Compression', subLabel: `${aiGainPct * 0.1 | 0}%`,                 pct: Math.min(99, Math.round(aiGainPct * 0.35)),        value: `${Math.round(aiGainPct * 0.35)}%`,        color: D.aiColor[2] },
     { label: 'Quality Score Uplift', subLabel: `${aiGainPct | 0}pts`,                      pct: Math.min(99, Math.round(aiGainPct * 1.1)),         value: `${Math.round(aiGainPct * 1.1)}%`,         color: D.aiColor[3] },
   ];
-
-  // Stable keyword list for NewsPulseWidget — must not be rebuilt on every render
-  const pulseKeywords = useMemo(
-    () => (result?.offerings ?? []).slice(0, 4).map(o => o.name).concat(['IBM', 'enterprise AI']).slice(0, 6),
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-    [result?.offerings?.map(o => o.id).join(',')]
-  );
 
   const fmtCost = (n: number) => n >= 1_000_000 ? `$${(n / 1_000_000).toFixed(1)}M` : `$${Math.round(n / 1000)}K`;
 
@@ -495,6 +724,48 @@ export default function Dashboard() {
           </div>
         </Card>
       </div>
+
+      {/* ── Timeline-Trend & Support-Trend row ── */}
+      {(timelineEvents.length > 0 || supportEvents.length > 0) && (
+        <div style={{ marginTop: 14 }}>
+          {/* Section label */}
+          <div style={{ fontSize: 11, fontWeight: 600, color: D.muted, textTransform: 'uppercase', letterSpacing: '0.07em', marginBottom: 10, display: 'flex', alignItems: 'center', gap: 6 }}>
+            <Clock size={12} style={{ color: D.muted }} />
+            Dates &amp; Timelines Extracted from Document
+          </div>
+
+          {/* Timeline card — full width if no support events, else split */}
+          {timelineEvents.length > 0 && supportEvents.length > 0 ? (
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 14 }}>
+              <TimelineTrendCard events={timelineEvents} />
+              <SupportTrendCard events={supportEvents} />
+            </div>
+          ) : timelineEvents.length > 0 ? (
+            <TimelineTrendCard events={timelineEvents} />
+          ) : (
+            <SupportTrendCard events={supportEvents} />
+          )}
+        </div>
+      )}
+
+      {/* Empty-state hint when document has no extractable dates */}
+      {timelineEvents.length === 0 && supportEvents.length === 0 && (
+        <div style={{ marginTop: 14 }}>
+          <Card style={{ padding: '16px 20px' }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+              <Clock size={18} style={{ color: D.muted, flexShrink: 0 }} />
+              <div>
+                <div style={{ fontSize: 13, fontWeight: 600, color: D.text }}>No explicit dates found in document</div>
+                <div style={{ fontSize: 11, color: D.muted, marginTop: 2 }}>
+                  The Timeline-Trend and Support-Trend cards will populate automatically once the document contains
+                  dates in DD/MM/YYYY, Month YYYY, or Q1/Q2 YYYY format alongside timeline or support keywords.
+                </div>
+              </div>
+              <Headphones size={18} style={{ color: D.muted, flexShrink: 0, marginLeft: 'auto' }} />
+            </div>
+          </Card>
+        </div>
+      )}
 
     </div>
   );

@@ -9,6 +9,7 @@ import type {
 } from '@/types';
 import { DEFAULT_COST_ASSUMPTIONS } from '@/types';
 import { applyAssumptions } from '@/lib/store';
+import { extractTimelineAndSupportEvents } from '@/lib/parser';
 
 function extractMilestoneWeeks(text: string, fallbackTotalWeeks: number): number[] {
   const milestoneMatch = text.match(/key milestones? at weeks?\s+([^.!?\n]+)/i);
@@ -387,11 +388,16 @@ export function runFullAnalysis(docId: string, text: string): AnalysisResult {
     lastUpdated: new Date().toISOString(),
   };
 
+  // ── Timeline & Support Events — extracted from real document text ──
+  const { timelineEvents, supportEvents } = extractTimelineAndSupportEvents(text);
+
   return {
     documentId: docId,
     scopeItems, deliverableItems, offerings,
     projectPlan, staffingPlan, testingStrategy,
     estimation, aiImpact,
+    timelineEvents,
+    supportEvents,
     generatedAt: new Date().toISOString(),
   };
 }

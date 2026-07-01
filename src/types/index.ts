@@ -554,6 +554,41 @@ export interface AIImpact {
   lastUpdated: string;
 }
 
+// ── Timeline / Support Events ─────────────────────────────────
+export type TimelineEventKind =
+  | 'start'
+  | 'milestone'
+  | 'phase'
+  | 'deadline'
+  | 'go-live'
+  | 'end'
+  | 'other';
+
+export interface TimelineEvent {
+  id: string;
+  label: string;
+  /** Raw date string as found in the document (e.g. "01/06/2025") */
+  rawDate: string;
+  /** Normalised ISO date string yyyy-MM-dd for sorting */
+  isoDate: string;
+  kind: TimelineEventKind;
+  /** Original sentence / snippet the date was extracted from */
+  context: string;
+}
+
+export type SupportEventKind = 'hypercare' | 'support' | 'warranty' | 'maintenance' | 'sla' | 'other';
+
+export interface SupportEvent {
+  id: string;
+  label: string;
+  rawDate: string;
+  isoDate: string;
+  kind: SupportEventKind;
+  context: string;
+  /** Duration string if found (e.g. "3 months", "90 days") */
+  duration?: string;
+}
+
 // ============================================================
 // Global Analysis Result
 // ============================================================
@@ -567,6 +602,10 @@ export interface AnalysisResult {
   testingStrategy?: TestingStrategy;
   estimation?: EstimationSummary;
   aiImpact?: AIImpact;
+  /** Real dates/milestones extracted from the uploaded document */
+  timelineEvents?: TimelineEvent[];
+  /** Support / hypercare / warranty dates extracted from the uploaded document */
+  supportEvents?: SupportEvent[];
   generatedAt: string;
 }
 
