@@ -280,6 +280,11 @@ export default function EstimationModule() {
   const analysisResults = useRFPStore((state) => state.analysisResults);
   const hasDoc = !!(activeDocumentId && analysisResults[activeDocumentId]);
 
+  // ── Seed duration from project plan so Cost page stays in sync ──
+  const planWeeks = activeDocumentId
+    ? (analysisResults[activeDocumentId]?.projectPlan?.totalDurationWeeks ?? DEFAULT_ASSUMPTIONS.projectDurationWeeks)
+    : DEFAULT_ASSUMPTIONS.projectDurationWeeks;
+
   // ── Pricing model toggle ──────────────────────────────────
   const [pricingModel, setPricingModel] = useState<PricingModel>('fixed');
 
@@ -305,8 +310,20 @@ export default function EstimationModule() {
     return `${fxSym}${Math.round(v)}`;
   }
 
-  // ── Assumptions state ─────────────────────────────────────
-  const [assump, setAssump] = useState(DEFAULT_ASSUMPTIONS);
+  // ── Assumptions state — seeded from live project plan weeks ──
+  const [assump, setAssump] = useState(() => ({
+    ...DEFAULT_ASSUMPTIONS,
+    projectDurationWeeks: planWeeks,
+  }));
+
+  // Keep duration in sync when the project plan changes (e.g. doc re-upload)
+  const prevPlanWeeks = React.useRef(planWeeks);
+  useEffect(() => {
+    if (planWeeks !== prevPlanWeeks.current) {
+      prevPlanWeeks.current = planWeeks;
+      setAssump((a) => ({ ...a, projectDurationWeeks: planWeeks }));
+    }
+  }, [planWeeks]);
   const [rates,  setRates]  = useState(DEFAULT_RATES);
   const [panelOpen,    setPanelOpen]    = useState(false);
   const [moreRatesOpen, setMoreRatesOpen] = useState(false);

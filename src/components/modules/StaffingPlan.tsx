@@ -85,12 +85,24 @@ const SENIORITY_STYLE: Record<string, { bg: string; text: string; border: string
   junior: { bg: '#F7FEE7', text: '#3F6212', border: '#BEF264' },
 };
 
-// ── Allocation pct from utilisation (rough: totalHours / available) ──
-function getAllocPct(role: StaffingRole, projectMonths: number): number {
+// ── Allocation % = actual phase hours ÷ available hours over active period ──
+// Uses the canonical phase-hours spread to determine how many months this role
+// is truly active, then compares role hours against IBM capacity for that period.
+function getAllocPct(role: StaffingRole, projectMonths: number, canonical?: CanonicalRole): number {
   if (!role.totalHours || !projectMonths) return 100;
-  const monthlyHrs = (role.deployCategory === 'Offshore CIC') ? 172.5 : 140;
-  const available  = monthlyHrs * projectMonths;
-  return Math.min(Math.round((role.totalHours / available) * 100), 100);
+  // IBM capacity constants — 'Offshore CIC' = 172.5 h/mo, all others = 140 h/mo
+  const monthlyHrs = role.deployCategory === 'Offshore CIC' ? 172.5 : 140;
+  // If we have canonical phase data, use only months where the role is active
+  if (canonical) {
+    const activePhases = Object.entries(canonical.phaseHours).filter(([, h]) => h > 0).length;
+    const totalIBMPhases = IBM_PHASES.length; // 7
+    const activeFraction = activePhases / totalIBMPhases;
+    const activeMonths = Math.max(1, Math.round(projectMonths * activeFraction));
+    const available = monthlyHrs * activeMonths;
+    return Math.min(100, Math.max(1, Math.round((role.totalHours / available) * 100)));
+  }
+  const available = monthlyHrs * projectMonths;
+  return Math.min(100, Math.max(1, Math.round((role.totalHours / available) * 100)));
 }
 
 // ── Allocation bar colour ─────────────────────────────────────
@@ -98,6 +110,49 @@ function allocColor(pct: number): string {
   if (pct >= 80) return '#6366F1';   // indigo — full
   if (pct >= 50) return '#06B6D4';   // cyan — moderate
   return '#F59E0B';                   // amber — low
+}
+
+// ── Small info tooltip for Role Details cards ─────────────────
+function InfoTip({ text }: { text: string }) {
+  const [show, setShow] = React.useState(false);
+  return (
+    <span className="relative inline-flex items-center" style={{ verticalAlign: 'middle' }}>
+      <button
+        type="button"
+        onMouseEnter={() => setShow(true)}
+        onMouseLeave={() => setShow(false)}
+        onFocus={() => setShow(true)}
+        onBlur={() => setShow(false)}
+        aria-label="More info"
+        style={{
+          width: 14, height: 14, borderRadius: '50%',
+          background: '#E2E8F0', color: '#475569',
+          fontSize: 9, fontWeight: 700,
+          border: 'none', cursor: 'pointer',
+          display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
+          flexShrink: 0, marginLeft: 3,
+        }}
+      >ⓘ</button>
+      {show && (
+        <span style={{
+          position: 'absolute', bottom: '120%', left: '50%', transform: 'translateX(-50%)',
+          background: '#1E2436', color: '#F1F5F9',
+          fontSize: 10, lineHeight: 1.55, whiteSpace: 'normal',
+          borderRadius: 8, padding: '7px 11px', width: 220,
+          boxShadow: '0 6px 20px rgba(0,0,0,0.3)',
+          zIndex: 9999, pointerEvents: 'none',
+        }}>
+          {text}
+          <span style={{
+            position: 'absolute', top: '100%', left: '50%', transform: 'translateX(-50%)',
+            width: 0, height: 0,
+            borderLeft: '5px solid transparent', borderRight: '5px solid transparent',
+            borderTop: '5px solid #1E2436',
+          }} />
+        </span>
+      )}
+    </span>
+  );
 }
 
 // ── Skills map per role-name ──────────────────────────────────
@@ -368,11 +423,18 @@ function RoleCard({ role, canonical, projectMonths, phases, benchmark, onRemove 
   const [showAll, setShowAll] = useState(false);
   const seniority = getSeniority(role.band);
   const senStyle  = SENIORITY_STYLE[seniority] ?? SENIORITY_STYLE.mid;
-  const allocPct  = getAllocPct(role, projectMonths);
+  const allocPct  = getAllocPct(role, projectMonths, canonical);
   const barColor  = allocColor(allocPct);
   const skills    = getSkills(role.roleName);
   const wr        = canonical ? resolveWeekRange(canonical, phases) : { start: 1, end: phases[phases.length - 1]?.endWeek ?? 72 };
   const totalWeeks = wr.end - wr.start + 1;
+  // Allocation tooltip text — explains how the % was computed
+  const monthlyHrs = role.deployCategory === 'Offshore CIC' ? 172.5 : 140;
+  const activePhases = canonical ? Object.entries(canonical.phaseHours).filter(([, h]) => h > 0).length : null;
+  const activeFraction = activePhases != null ? activePhases / IBM_PHASES.length : 1;
+  const activeMonths = Math.max(1, Math.round(projectMonths * activeFraction));
+  const allocTip = `${role.totalHours.toLocaleString()} hrs ÷ (${monthlyHrs} hrs/mo × ${activeMonths} active months) = ${allocPct}%` +
+    (activePhases != null ? `. Active in ${activePhases} of ${IBM_PHASES.length} IBM phases.` : '');
   const visibleSkills = showAll ? skills : skills.slice(0, 4);
   const hasMore = skills.length > 4;
 
@@ -410,7 +472,10 @@ function RoleCard({ role, canonical, projectMonths, phases, benchmark, onRemove 
       {/* ── Allocation bar ── */}
       <div className="mt-3 mb-2">
         <div className="flex items-center justify-between mb-1">
-          <span className="text-xs text-slate-500 font-medium">Allocation</span>
+          <span className="text-xs text-slate-500 font-medium">
+            Allocation
+            <InfoTip text={allocTip} />
+          </span>
           <span className="text-xs font-bold" style={{ color: barColor }}>{allocPct}%</span>
         </div>
         <div className="h-2 rounded-full bg-slate-100 overflow-hidden">
@@ -634,21 +699,57 @@ export default function StaffingPlanModule() {
           Hours: r.totalHours,
         })).sort((a, b) => b.Headcount - a.Headcount).slice(0, 10);
 
-        // Utilisation rate by role
+        // Utilisation rate by role — use canonical-aware getAllocPct
         const utilByRole = roles.map(r => {
-          const pct = getAllocPct(r, projectMonths);
+          const canon = CANONICAL_ROLES.find(c => c.roleName === r.roleName && c.band === r.band);
+          const pct = getAllocPct(r, projectMonths, canon);
           return {
             name: r.roleName.replace('Developer-', 'Dev-').replace('Consultant', 'Cons.'),
             Utilisation: pct,
+            Hours: r.totalHours,
+            Cost: fmtCost(r.totalCost),
             status: pct >= 80 ? 'full' : pct >= 50 ? 'moderate' : 'low',
           };
         }).sort((a, b) => b.Utilisation - a.Utilisation).slice(0, 10);
 
-        // Monthly burn curve (linear ramp over projectMonths)
-        const burnCurve = Array.from({ length: Math.min(projectMonths, 18) }, (_, i) => ({
-          month: `M${i + 1}`,
-          Burn: Math.round(avgMonthlyBurn * (i < 2 ? 0.6 + i * 0.2 : i >= projectMonths - 2 ? 0.9 - (i - (projectMonths - 3)) * 0.2 : 1)),
-        }));
+        // Monthly burn curve — phase-weighted spend
+        // Each project phase contributes its fraction of total hours to each month in its window.
+        // This produces realistic variation (ramp-up in Explore, peak in Realize, wind-down in Deploy).
+        const phases = result?.projectPlan?.phases ?? [];
+        const totalProjectWeeks = result?.projectPlan?.totalDurationWeeks ?? (projectMonths * 4);
+        const burnCurve: { month: string; Burn: number; phase: string }[] = Array.from(
+          { length: Math.min(projectMonths, 18) }, (_, mi) => {
+            const monthStart = (mi / projectMonths) * totalProjectWeeks + 1;
+            const monthEnd   = ((mi + 1) / projectMonths) * totalProjectWeeks;
+            // Find which phases overlap this month window; weight by overlap fraction
+            let burn = 0;
+            if (phases.length > 0) {
+              phases.forEach(ph => {
+                const overlapStart = Math.max(monthStart, ph.startWeek);
+                const overlapEnd   = Math.min(monthEnd,   ph.endWeek);
+                if (overlapEnd >= overlapStart) {
+                  const overlapFraction = (overlapEnd - overlapStart + 1) / Math.max(1, ph.durationWeeks);
+                  // Fraction of total labor cost this phase represents × overlap fraction
+                  const phaseFraction = ph.durationWeeks / totalProjectWeeks;
+                  burn += Math.round(totalLaborCost * phaseFraction * overlapFraction);
+                }
+              });
+            } else {
+              // Fallback: smooth trapezoid ramp when no phase data
+              const t = mi / Math.max(1, projectMonths - 1);
+              const shape = t < 0.15 ? 0.5 + t * (1.0 / 0.15) * 0.5
+                : t > 0.85 ? 1.0 - (t - 0.85) * (0.6 / 0.15)
+                : 1.0;
+              burn = Math.round(avgMonthlyBurn * Math.max(0.3, shape));
+            }
+            // Find dominant phase for this month (for tooltip)
+            const dominantPhase = phases.find(ph => {
+              const mid = (monthStart + monthEnd) / 2;
+              return mid >= ph.startWeek && mid <= ph.endWeek;
+            })?.name ?? '';
+            return { month: `M${mi + 1}`, Burn: Math.max(0, burn), phase: dominantPhase };
+          }
+        );
 
         // Seniority mix
         const senMap: Record<string, number> = {};
@@ -704,7 +805,7 @@ export default function StaffingPlanModule() {
 
         // ── Enhanced Headcount Over Time data ─────────────────────
         // Build per-week data with phase label and active-role breakdown for tooltip
-        const phases = result?.projectPlan?.phases ?? [];
+        // (phases already declared above for burn curve — reuse it)
         const totalWeeks = result?.projectPlan?.totalDurationWeeks ?? headcountOverTime.length;
         const hcOverTimeEnhanced = headcountOverTime.map((pt, wkIdx) => {
           const week = wkIdx + 1;
@@ -1137,6 +1238,7 @@ export default function StaffingPlanModule() {
                 <div className="flex items-center gap-2 mb-4">
                   <Activity size={14} className="text-emerald-400" />
                   <span style={{ fontSize: 13, fontWeight: 600, color: '#0F172A' }}>Utilisation Rate by Role</span>
+                  <InfoTip text="Allocation % = total role hours ÷ (IBM capacity hrs/month × active months). Offshore CIC = 172.5 hrs/mo; all other locations = 140 hrs/mo. Active months = project duration × fraction of IBM phases with non-zero hours for that role. Green ≥80% = fully allocated; amber 50–79% = moderate; red <50% = under-utilised." />
                   <span style={{ marginLeft: 'auto', fontSize: 11, color: '#64748B' }}>
                     <span style={{ color: '#10B981', fontWeight: 600 }}>■</span> ≥80%&nbsp;
                     <span style={{ color: '#F59E0B', fontWeight: 600 }}>■</span> 50–79%&nbsp;
@@ -1149,7 +1251,23 @@ export default function StaffingPlanModule() {
                     <XAxis type="number" domain={[0, 100]} tick={{ fontSize: 10, fill: '#94A3B8' }} axisLine={false} tickLine={false}
                       tickFormatter={v => `${v}%`} />
                     <YAxis type="category" dataKey="name" tick={{ fontSize: 10, fill: '#64748B' }} axisLine={false} tickLine={false} width={90} />
-                    <Tooltip content={<CustomTooltip />} cursor={{ fill: 'rgba(16,185,129,0.05)' }} />
+                    <Tooltip
+                      cursor={{ fill: 'rgba(16,185,129,0.05)' }}
+                      content={({ active, payload }) => {
+                        if (!active || !payload?.length) return null;
+                        const d = payload[0].payload as typeof utilByRole[0];
+                        const color = utilColor(d.Utilisation);
+                        const label = d.Utilisation >= 80 ? 'Fully allocated' : d.Utilisation >= 50 ? 'Moderately allocated' : 'Under-utilised';
+                        return (
+                          <div style={{ background: '#F8F9FA', border: `2px solid ${color}`, borderRadius: 8, padding: '9px 13px', fontSize: 12, minWidth: 160 }}>
+                            <div style={{ fontWeight: 700, color, marginBottom: 4 }}>{d.name}</div>
+                            <div style={{ color: '#1F2937' }}>Utilisation: <strong style={{ color }}>{d.Utilisation}%</strong></div>
+                            <div style={{ color: '#64748B', fontSize: 11, marginTop: 2 }}>{d.Hours.toLocaleString()} hrs · {d.Cost}</div>
+                            <div style={{ color: '#94A3B8', fontSize: 10, marginTop: 3, fontStyle: 'italic' }}>{label}</div>
+                          </div>
+                        );
+                      }}
+                    />
                     <Bar dataKey="Utilisation" radius={[0, 4, 4, 0]}>
                       {utilByRole.map((r, i) => (
                         <Cell key={i} fill={utilColor(r.Utilisation)} />
@@ -1166,6 +1284,7 @@ export default function StaffingPlanModule() {
                 <div className="flex items-center gap-2 mb-4">
                   <Flame size={14} className="text-amber-400" />
                   <span style={{ fontSize: 13, fontWeight: 600, color: '#0F172A' }}>Monthly Burn Curve</span>
+                  <InfoTip text="Phase-weighted monthly spend. Each bar = labour cost distributed across the weeks of each phase in that month. Development months peak highest; Discovery and Hypercare are lighter. Hover to see the dominant phase and exact spend." />
                   <span style={{ marginLeft: 'auto', fontSize: 11, color: '#64748B' }}>Projected over {projectMonths} months</span>
                 </div>
                 <ResponsiveContainer width="100%" height={180}>
@@ -1180,7 +1299,20 @@ export default function StaffingPlanModule() {
                     <XAxis dataKey="month" tick={{ fontSize: 10, fill: '#94A3B8' }} axisLine={false} tickLine={false} />
                     <YAxis tick={{ fontSize: 10, fill: '#94A3B8' }} axisLine={false} tickLine={false}
                       tickFormatter={v => v >= 1000 ? `$${Math.round(v / 1000)}K` : `$${v}`} />
-                    <Tooltip content={<CustomTooltip />} />
+                    <Tooltip
+                      content={({ active, payload }) => {
+                        if (!active || !payload?.length) return null;
+                        const d = payload[0].payload as { month: string; Burn: number; phase: string };
+                        const fmtBurn = d.Burn >= 1_000_000 ? `$${(d.Burn/1_000_000).toFixed(2)}M` : `$${Math.round(d.Burn/1000)}K`;
+                        return (
+                          <div style={{ background: '#F8F9FA', border: '2px solid #F59E0B', borderRadius: 8, padding: '9px 13px', fontSize: 12, minWidth: 150 }}>
+                            <div style={{ fontWeight: 700, color: '#B45309', marginBottom: 4 }}>{d.month}</div>
+                            <div style={{ color: '#1F2937' }}>Burn: <strong style={{ color: '#F59E0B' }}>{fmtBurn}</strong></div>
+                            {d.phase && <div style={{ color: '#64748B', fontSize: 11, marginTop: 2 }}>Phase: {d.phase}</div>}
+                          </div>
+                        );
+                      }}
+                    />
                     <Area type="monotone" dataKey="Burn" stroke="#F59E0B" strokeWidth={2.5}
                       fill="url(#burnGrad)" dot={false} activeDot={{ r: 5, fill: '#F59E0B' }} />
                   </AreaChart>

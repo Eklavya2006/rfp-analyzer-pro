@@ -66,17 +66,38 @@ function buildKeywordRegex(keywords: string[]): RegExp {
  *  - scope items  → light-green  (bg #DCFCE7, colour #166534)
  *  - T&C phrases  → light-red    (bg #FEE2E2, colour #991B1B)
  *  - Penalty phrases → orange-red (bg #FEF3C7, colour #92400E)
- *  - scrollHint section → amber pulse
+ *  - scrollHint section → colour from chip (default amber), pulsing outline
  *
  * Each scope item span gets data-scope-item-id so IntersectionObserver can
  * identify which scope item is currently visible and sync the Scope list.
  *
  * Returns an array of React nodes. Pure function — no hooks.
  */
+/** Convert any hex/rgb colour to a CSS rgba with the given alpha (0–1). */
+function colorWithAlpha(hex: string, alpha: number): string {
+  // Try to parse 3 or 6-digit hex
+  const m6 = hex.match(/^#([0-9a-f]{6})$/i);
+  if (m6) {
+    const r = parseInt(m6[1].slice(0, 2), 16);
+    const g = parseInt(m6[1].slice(2, 4), 16);
+    const b = parseInt(m6[1].slice(4, 6), 16);
+    return `rgba(${r},${g},${b},${alpha})`;
+  }
+  const m3 = hex.match(/^#([0-9a-f]{3})$/i);
+  if (m3) {
+    const r = parseInt(m3[1][0].repeat(2), 16);
+    const g = parseInt(m3[1][1].repeat(2), 16);
+    const b = parseInt(m3[1][2].repeat(2), 16);
+    return `rgba(${r},${g},${b},${alpha})`;
+  }
+  return hex; // pass through if not parseable
+}
+
 function buildAnnotatedContent(
   rawText: string,
   scrollHintSection: string | null,
   scopeDescriptions: Array<{ text: string; id: string }>,
+  hintColor?: string,
 ): React.ReactNode[] {
   const text = safePreviewText(rawText);
 
@@ -150,14 +171,19 @@ function buildAnnotatedContent(
   const nodes: React.ReactNode[] = [];
   let cursor = 0;
 
+  // Dynamic hint colour derived from the chip that triggered the deep-link
+  const hintBg      = hintColor ? colorWithAlpha(hintColor, 0.15) : 'rgba(245,158,11,0.18)';
+  const hintOutline = hintColor ? colorWithAlpha(hintColor, 0.55) : 'rgba(245,158,11,0.5)';
+  const hintText    = hintColor ?? '#78350F';
+
   const styleMap: Record<string, React.CSSProperties> = {
     scope:   { background: '#DCFCE7', color: '#166534', borderRadius: 3, padding: '0 2px', fontWeight: 600 },
     tc:      { background: '#FEE2E2', color: '#991B1B', borderRadius: 3, padding: '0 2px', fontWeight: 600 },
     penalty: { background: '#FEF3C7', color: '#92400E', borderRadius: 3, padding: '0 2px', fontWeight: 600 },
     hint:    {
-      background: 'rgba(245,158,11,0.18)', borderRadius: 4, padding: '2px 3px',
-      outline: '2px solid rgba(245,158,11,0.5)', outlineOffset: 1,
-      color: '#78350F', fontWeight: 600, display: 'inline',
+      background: hintBg, borderRadius: 4, padding: '2px 3px',
+      outline: `2px solid ${hintOutline}`, outlineOffset: 1,
+      color: hintText, fontWeight: 600, display: 'inline',
     },
   };
   const classMap: Record<string, string> = { hint: 'rfp-highlight' };
@@ -363,7 +389,7 @@ export default function DocumentAnalyzer() {
   );
 
   // ── Scroll-hint banner (legacy sessionStorage path — kept for compatibility) ──
-  const [scrollHint, setScrollHint] = useState<{ section: string; page: string } | null>(null);
+  const [scrollHint, setScrollHint] = useState<{ section: string; page: string; highlightColor?: string } | null>(null);
   const textPreviewRef = useRef<HTMLDivElement>(null);
 
   // ── Consume docScrollTarget from store (Scope → Document deep-link) ──────────
@@ -371,13 +397,13 @@ export default function DocumentAnalyzer() {
     if (!docScrollTarget) return;
     if (activeTab !== 'document-analyzer') return;
 
-    const { section, page, scopeItemId } = docScrollTarget;
+    const { section, page, scopeItemId, highlightColor } = docScrollTarget;
     // Clear the target immediately so it doesn't re-fire
     setDocScrollTarget(null);
     setNavError(null);
 
-    // Show the scroll-hint banner
-    setScrollHint({ section, page });
+    // Show the scroll-hint banner (carry the colour so annotations update)
+    setScrollHint({ section, page, highlightColor });
 
     // Allow the DOM to update (re-render with new scrollHint) then scroll
     const timer = setTimeout(() => {
@@ -918,6 +944,7 @@ Budget range: $2.5M to $4M including licensing, professional services, and infra
                 activeDoc.rawText ?? '',
                 scrollHint?.section ?? null,
                 scopeDescriptions,
+                scrollHint?.highlightColor,
               )}
             </div>
           )}

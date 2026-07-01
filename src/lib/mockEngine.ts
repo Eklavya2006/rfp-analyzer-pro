@@ -202,47 +202,66 @@ export function runFullAnalysis(docId: string, text: string): AnalysisResult {
     lastUpdated: new Date().toISOString(),
   };
 
-  // ── Project Plan ──────────────────────────────────────────
-  const phases = [
-    {
-      name: 'Discovery',
-      dur: 3,
-      roles: ['Project Manager', 'Business Analyst', 'Solution Architect'],
-      del: ['Solution Architecture Document', 'Project Charter'],
-    },
-    {
-      name: 'Design',
-      dur: 4,
-      roles: ['Solution Architect', 'Senior Developer', 'Data Engineer'],
-      del: ['Data Model', 'System Design', 'UI/UX Wireframes'],
-    },
-    {
-      name: 'Development',
-      dur: 10,
-      roles: ['Senior Developer', 'Developer', 'Junior Developer', 'Data Engineer'],
-      del: ['MVP Release', 'Sprint Deliverables', 'API Documentation'],
-    },
-    {
-      name: 'Testing',
-      dur: 4,
-      roles: ['QA Lead', 'QA Engineer', 'Developer'],
-      del: ['Test Cases', 'Test Reports', 'UAT Sign-off'],
-    },
-    {
-      name: 'Deployment',
-      dur: 2,
-      roles: ['Cloud Engineer', 'DevOps Engineer', 'Project Manager'],
-      del: ['Deployment Runbook', 'Go-Live Sign-off'],
-    },
-    {
-      name: 'Hypercare',
-      dur: 3,
-      roles: ['Project Manager', 'Developer', 'Business Analyst'],
-      del: ['Support Plan', 'Training Material', 'Handover Document'],
-    },
-  ];
+  // ── Timeline & Support Events — extracted FIRST so plan can use them ──
+  const { timelineEvents, supportEvents } = extractTimelineAndSupportEvents(text);
 
-  const totalProjectWeeks = phases.reduce((sum, phase) => sum + phase.dur, 0);
+  // ── Project Plan ──────────────────────────────────────────
+  // If the document contains an explicit project duration, scale the phases
+  // proportionally so that plan.totalDurationWeeks == docTimeline.weeks.
+  // This keeps Dashboard Timeline tile, Project Plan Gantt, Staffing headcount
+  // curve, Estimation person-months, and AI Impact all in sync.
+  // If the document only mentioned duration on a hypercare/support line (single duration),
+  // the parser can't split it — treat the largest support event as the project timeline
+  // when timelineEvents is empty and the support event is larger than typical HC (>8 weeks).
+  const resolvedTimelineEvents = timelineEvents.length > 0
+    ? timelineEvents
+    : supportEvents.length > 0 && (supportEvents[0]?.weeks ?? 0) > 8
+      ? [] // leave empty; we'll use plan default — don't misclassify a true HC value
+      : [];
+
+  const docTimelineWeeks = resolvedTimelineEvents[0]?.weeks ?? timelineEvents[0]?.weeks ?? 0;
+  const docHypercareWeeks = (() => {
+    const ev = supportEvents.find(e => e.kind === 'hypercare')
+            ?? supportEvents.find(e => e.kind === 'support')
+            ?? supportEvents[0];
+    // Never let hypercare weeks equal the full project timeline weeks
+    const w = ev?.weeks ?? 0;
+    return (docTimelineWeeks > 0 && w >= docTimelineWeeks) ? 0 : w;
+  })();
+
+  // Base phase proportions (must sum to 1.0)
+  const BASE_PHASES = [
+    { name: 'Discovery',   pct: 0.115, roles: ['Project Manager', 'Business Analyst', 'Solution Architect'], del: ['Solution Architecture Document', 'Project Charter'] },
+    { name: 'Design',      pct: 0.154, roles: ['Solution Architect', 'Senior Developer', 'Data Engineer'],   del: ['Data Model', 'System Design', 'UI/UX Wireframes'] },
+    { name: 'Development', pct: 0.385, roles: ['Senior Developer', 'Developer', 'Junior Developer', 'Data Engineer'], del: ['MVP Release', 'Sprint Deliverables', 'API Documentation'] },
+    { name: 'Testing',     pct: 0.154, roles: ['QA Lead', 'QA Engineer', 'Developer'],                        del: ['Test Cases', 'Test Reports', 'UAT Sign-off'] },
+    { name: 'Deployment',  pct: 0.077, roles: ['Cloud Engineer', 'DevOps Engineer', 'Project Manager'],       del: ['Deployment Runbook', 'Go-Live Sign-off'] },
+    { name: 'Hypercare',   pct: 0.115, roles: ['Project Manager', 'Developer', 'Business Analyst'],           del: ['Support Plan', 'Training Material', 'Handover Document'] },
+  ];
+  // Default total: 26 weeks (matches the percentages above: 3+4+10+4+2+3)
+  const DEFAULT_TOTAL_WEEKS = 26;
+
+  // Compute actual delivery weeks (exclude hypercare from the doc timeline since
+  // the doc reports them separately — only apply if both are available).
+  const deliveryWeeks = docTimelineWeeks > 0
+    ? (docHypercareWeeks > 0 && docTimelineWeeks > docHypercareWeeks
+        ? docTimelineWeeks - docHypercareWeeks  // delivery only
+        : docTimelineWeeks)                      // delivery incl. hypercare
+    : DEFAULT_TOTAL_WEEKS - (docHypercareWeeks > 0 ? 0 : 3);
+
+  const totalProjectWeeksNoHC = deliveryWeeks;
+  const hypercareWeeks        = docHypercareWeeks > 0 ? docHypercareWeeks : 3;
+
+  // Scale non-hypercare phases to fill deliveryWeeks; hypercare gets its own bucket.
+  const nonHCPctSum = BASE_PHASES.filter(p => p.name !== 'Hypercare').reduce((s, p) => s + p.pct, 0);
+  const phases = BASE_PHASES.map((p) => {
+    const dur = p.name === 'Hypercare'
+      ? hypercareWeeks
+      : Math.max(1, Math.round((p.pct / nonHCPctSum) * totalProjectWeeksNoHC));
+    return { ...p, dur };
+  });
+
+  const totalProjectWeeks = phases.reduce((sum, p) => sum + p.dur, 0);
   const extractedMilestoneWeeks = extractMilestoneWeeks(text, totalProjectWeeks);
 
   let cursor = 1;
@@ -268,10 +287,16 @@ export function runFullAnalysis(docId: string, text: string): AnalysisResult {
     return phase;
   });
 
+  // delivery weeks = all phases except Hypercare
+  const deliveryOnlyWeeks = phases
+    .filter(p => p.name !== 'Hypercare')
+    .reduce((s, p) => s + p.dur, 0);
+
   const projectPlan: ProjectPlan = {
     id: uuid(), documentId: docId,
     projectName: 'Enterprise Digital Transformation',
-    totalDurationWeeks: cursor - 1,
+    totalDurationWeeks: deliveryOnlyWeeks,   // delivery only — no Hypercare
+    hypercareWeeks: hypercareWeeks,           // stored separately
     phases: projectPhases,
     lastUpdated: new Date().toISOString(),
   };
@@ -387,9 +412,6 @@ export function runFullAnalysis(docId: string, text: string): AnalysisResult {
     overallProductivityGain: Math.round((1 - totalAI / totalTrad) * 100),
     lastUpdated: new Date().toISOString(),
   };
-
-  // ── Timeline & Support Events — extracted from real document text ──
-  const { timelineEvents, supportEvents } = extractTimelineAndSupportEvents(text);
 
   return {
     documentId: docId,

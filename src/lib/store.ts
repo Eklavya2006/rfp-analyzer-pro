@@ -35,7 +35,7 @@ interface RFPStore {
   error: string | null;
   sidebarOpen: boolean;
   pendingNotification: ChangeNotification | null;
-  docScrollTarget: { section: string; page: string; scopeItemId: string } | null;
+  docScrollTarget: { section: string; page: string; scopeItemId: string; highlightColor?: string } | null;
   activeScopeItemId: string | null;
   /** Historical insights bundles keyed by documentId. */
   historicalInsights: Record<string, HistoricalInsightsBundle>;
@@ -53,7 +53,7 @@ interface RFPStore {
   showNotification: (n: Omit<ChangeNotification, 'id'>) => void;
   confirmNotification: () => void;
   cancelNotification: () => void;
-  setDocScrollTarget: (target: { section: string; page: string; scopeItemId: string } | null) => void;
+  setDocScrollTarget: (target: { section: string; page: string; scopeItemId: string; highlightColor?: string } | null) => void;
   setActiveScopeItemId: (id: string | null) => void;
   updateCostAssumptions: (docId: string, assumptions: Partial<CostAssumptions>) => void;
   resetCostAssumptions: (docId: string) => void;
@@ -93,7 +93,7 @@ const initialState = {
   error: null,
   sidebarOpen: true,
   pendingNotification: null,
-  docScrollTarget: null as { section: string; page: string; scopeItemId: string } | null,
+  docScrollTarget: null as { section: string; page: string; scopeItemId: string; highlightColor?: string } | null,
   activeScopeItemId: null as string | null,
   historicalInsights: {} as Record<string, HistoricalInsightsBundle>,
   isComputingInsights: false,

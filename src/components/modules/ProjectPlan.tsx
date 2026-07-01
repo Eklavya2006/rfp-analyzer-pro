@@ -365,7 +365,7 @@ function MilestoneTooltip({ active, payload }: {
       {/* Summary row */}
       <div style={{ display: 'flex', gap: 5, marginBottom: 6, paddingBottom: 5, borderBottom: '1px solid #E2E8F0' }}>
         <span style={{ background: `${d.color}18`, color: d.color, borderRadius: 999, padding: '1px 7px', fontSize: 10, fontWeight: 700 }}>
-          {d.count} ms
+          {d.count} milestone{d.count !== 1 ? 's' : ''}
         </span>
         <span style={{
           background: d.status === 'completed' ? '#23863618' : d.status === 'in-progress' ? '#1f6feb18' : '#94A3B818',
@@ -433,8 +433,11 @@ export default function ProjectPlanModule() {
     if (activeDocumentId) removeProjectPhase(activeDocumentId, phaseId);
   }, [activeDocumentId, removeProjectPhase]);
 
-  const plan       = result?.projectPlan ?? null;
-  const totalWeeks = plan?.totalDurationWeeks ?? 0;
+  const plan           = result?.projectPlan ?? null;
+  const totalWeeks     = plan?.totalDurationWeeks ?? 0;          // delivery only
+  const hcWeeks        = plan?.hypercareWeeks ?? 0;              // hypercare separate
+  // Gantt needs the full span (delivery + hypercare) to size bars correctly
+  const ganttTotalWeeks = totalWeeks + hcWeeks;
 
   interface PhaseBarData { phase: string; roles: number; duration: number; status: string }
   const resData: PhaseBarData[] = useMemo(() => (plan?.phases ?? []).map((phase) => ({
@@ -467,8 +470,18 @@ export default function ProjectPlanModule() {
 
       {/* ── KPI Cards ──────────────────────────────────── */}
       <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
+        {/* Total Duration — delivery only, with optional Hypercare sub-line */}
+        <div className="bg-white rounded-2xl border p-5"
+          style={{ borderColor: PC.border, borderBottom: `3px solid ${PC.inprog}` }}>
+          <div className="text-[11px] font-semibold uppercase tracking-wider mb-2" style={{ color: PC.muted }}>Total Duration</div>
+          <div className="kpi-value" style={{ fontSize: 28, fontWeight: 700, color: PC.inprog }}>{totalWeeks}w</div>
+          {hcWeeks > 0 && (
+            <div style={{ fontSize: 11, color: PC.muted, marginTop: 4 }}>
+              +{hcWeeks}w Hypercare
+            </div>
+          )}
+        </div>
         {[
-          { label: 'Total Duration',   value: `${totalWeeks}w`,              color: PC.inprog },
           { label: 'Total Phases',     value: String(plan!.phases.length),   color: PC.completed },
           { label: 'Total Milestones', value: String(milestoneCount),        color: '#a56eff' },
           { label: 'Critical Phases',  value: String(criticalCount),         color: PC.delayed },
@@ -710,7 +723,7 @@ export default function ProjectPlanModule() {
           <div className="flex mb-3">
             <div className="w-48 shrink-0" />
             <div className="flex-1 flex">
-              {Array.from({ length: Math.ceil(totalWeeks / 4) + 1 }, (_, i) => (
+              {Array.from({ length: Math.ceil(ganttTotalWeeks / 4) + 1 }, (_, i) => (
                 <div key={i} className="flex-1 text-[10px] text-center border-l"
                   style={{ minWidth: 28, color: PC.muted, borderColor: PC.border }}>
                   W{i * 4 + 1}
@@ -733,7 +746,7 @@ export default function ProjectPlanModule() {
                     <Trash2 size={11} style={{ color: PC.delayed }} />
                   </button>
                 </div>
-                <GanttBar phase={phase} totalWeeks={totalWeeks} color={color}
+                <GanttBar phase={phase} totalWeeks={ganttTotalWeeks} color={color}
                   onUpdate={(u) => update(phase.id, u)} />
               </div>
             );
@@ -796,7 +809,7 @@ export default function ProjectPlanModule() {
                           </span>
                           {(phase.milestones?.length ?? 0) > 0 && (
                             <span className="text-[10px] px-1.5 py-0.5 rounded text-white ml-1" style={{ background: PC.inprog }}>
-                              {phase.milestones?.length}ms
+                              {phase.milestones?.length} {(phase.milestones?.length ?? 0) === 1 ? 'milestone' : 'milestones'}
                             </span>
                           )}
                         </div>

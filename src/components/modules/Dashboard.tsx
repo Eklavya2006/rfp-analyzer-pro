@@ -7,8 +7,8 @@ import {
   XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Cell,
 } from 'recharts';
 import { useRFPStore } from '@/lib/store';
-import { DollarSign, Calendar, Users, CheckSquare, Zap, TrendingUp, Upload, CalendarDays, Bot, Clock, Headphones } from 'lucide-react';
-import type { TabId, TimelineEvent, SupportEvent } from '@/types';
+import { DollarSign, Calendar, Users, CheckSquare, Zap, TrendingUp, Upload, CalendarDays, Bot, Shield } from 'lucide-react';
+import type { TabId } from '@/types';
 
 // ── Light palette ──────────────────────────────────────────────
 const D = {
@@ -237,186 +237,6 @@ function WelcomeState() {
   );
 }
 
-// ── Duration display helpers ──────────────────────────────────
-/** Format "18 months (78 weeks)" or "26 weeks (6 months)" etc. */
-function fmtDuration(ev: { value: number; unit: string; months: number; weeks: number }): string {
-  const primary   = `${ev.value} ${ev.unit}${ev.value !== 1 ? 's' : ''}`;
-  const secondary = ev.unit === 'week'
-    ? `${ev.months} month${ev.months !== 1 ? 's' : ''}`
-    : `${ev.weeks} week${ev.weeks !== 1 ? 's' : ''}`;
-  return `${primary}  ·  ${secondary}`;
-}
-
-// ── Timeline-Trend Card ────────────────────────────────────────
-const TL_COLORS = ['#6366F1', '#3B82F6', '#06B6D4', '#10B981', '#8B5CF6', '#F59E0B'];
-
-function TimelineTrendCard({ events }: { events: TimelineEvent[] }) {
-  if (events.length === 0) return null;
-  const maxWeeks = events[0]?.weeks ?? 1; // already sorted longest→shortest
-
-  return (
-    <Card>
-      <SectionHead title="Timeline Trend" />
-
-      {/* Sub-header */}
-      <div style={{ fontSize: 11, color: D.muted, marginBottom: 14 }}>
-        Project delivery duration extracted from document
-      </div>
-
-      {/* Duration bars */}
-      <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
-        {events.map((ev, i) => {
-          const color = TL_COLORS[i % TL_COLORS.length];
-          const pct   = Math.max(6, Math.round((ev.weeks / maxWeeks) * 100));
-          return (
-            <div key={ev.id}>
-              {/* Row: label + badge */}
-              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', marginBottom: 5 }}>
-                <div style={{ fontSize: 12, fontWeight: 600, color: D.text, maxWidth: '70%' }}>
-                  {ev.label.length > 70 ? ev.label.slice(0, 70) + '…' : ev.label}
-                </div>
-                <div style={{
-                  fontSize: 11, fontWeight: 700, color,
-                  background: `${color}15`, border: `1px solid ${color}40`,
-                  borderRadius: 6, padding: '2px 8px', whiteSpace: 'nowrap',
-                }}>
-                  {ev.months} mo · {ev.weeks} wk
-                </div>
-              </div>
-              {/* Progress bar */}
-              <div style={{ height: 8, borderRadius: 99, background: '#F1F5F9', overflow: 'hidden' }}>
-                <div style={{
-                  height: '100%', width: `${pct}%`, borderRadius: 99,
-                  background: color, transition: 'width 0.4s ease',
-                }} />
-              </div>
-              {/* Secondary label */}
-              <div style={{ fontSize: 10, color: D.muted, marginTop: 4 }}>
-                {fmtDuration(ev)}
-              </div>
-            </div>
-          );
-        })}
-      </div>
-
-      {/* Recharts horizontal bar overview (only when >1 entry) */}
-      {events.length > 1 && (
-        <div style={{ marginTop: 18 }}>
-          <ResponsiveContainer width="100%" height={events.length * 28 + 16}>
-            <BarChart
-              layout="vertical"
-              data={events.map((ev, i) => ({
-                name: `${ev.months}mo`,
-                weeks: ev.weeks,
-                color: TL_COLORS[i % TL_COLORS.length],
-                label: ev.label.length > 30 ? ev.label.slice(0, 30) + '…' : ev.label,
-              }))}
-              margin={{ left: 0, right: 40, top: 0, bottom: 0 }}
-              barSize={14}
-            >
-              <CartesianGrid strokeDasharray="3 3" stroke="#F1F5F9" horizontal={false} />
-              <XAxis type="number" hide />
-              <YAxis type="category" dataKey="name" tick={{ fill: '#64748B', fontSize: 10 }} axisLine={false} tickLine={false} width={40} />
-              <Tooltip
-                content={({ active, payload }) => {
-                  if (!active || !payload?.length) return null;
-                  const d = payload[0].payload as { name: string; weeks: number; label: string; color: string };
-                  return (
-                    <div style={{ ...tooltipStyle, minWidth: 200 }}>
-                      <div style={{ fontWeight: 700, color: d.color, fontSize: 12, marginBottom: 3 }}>{d.name} · {d.weeks} weeks</div>
-                      <div style={{ fontSize: 11, color: '#374151' }}>{d.label}</div>
-                    </div>
-                  );
-                }}
-                wrapperStyle={tooltipWrapperStyle}
-              />
-              <Bar dataKey="weeks" radius={[0, 4, 4, 0]}>
-                {events.map((_, i) => (
-                  <Cell key={i} fill={TL_COLORS[i % TL_COLORS.length]} />
-                ))}
-              </Bar>
-            </BarChart>
-          </ResponsiveContainer>
-        </div>
-      )}
-    </Card>
-  );
-}
-
-// ── Support-Trend Card ─────────────────────────────────────────
-const SUPPORT_KIND_COLORS: Record<string, string> = {
-  'hypercare':   '#8B5CF6',
-  'support':     '#3B82F6',
-  'warranty':    '#10B981',
-  'maintenance': '#F59E0B',
-  'other':       '#94A3B8',
-};
-const SUPPORT_KIND_LABELS: Record<string, string> = {
-  'hypercare':   'Hypercare',
-  'support':     'Support',
-  'warranty':    'Warranty',
-  'maintenance': 'Maintenance',
-  'other':       'Other',
-};
-
-function SupportTrendCard({ events }: { events: SupportEvent[] }) {
-  if (events.length === 0) return null;
-  const maxWeeks = events[0]?.weeks ?? 1;
-
-  return (
-    <Card>
-      <SectionHead title="Support &amp; Hypercare Trend" />
-
-      <div style={{ fontSize: 11, color: D.muted, marginBottom: 14 }}>
-        Post-production / post-deployment support duration from document
-      </div>
-
-      <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
-        {events.map((ev) => {
-          const color = SUPPORT_KIND_COLORS[ev.kind] ?? SUPPORT_KIND_COLORS.other;
-          const pct   = Math.max(6, Math.round((ev.weeks / maxWeeks) * 100));
-          return (
-            <div key={ev.id}>
-              {/* Row: label + kind badge */}
-              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 5 }}>
-                <div style={{ fontSize: 12, fontWeight: 600, color: D.text, maxWidth: '60%' }}>
-                  {ev.label.length > 60 ? ev.label.slice(0, 60) + '…' : ev.label}
-                </div>
-                <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-                  <span style={{
-                    fontSize: 11, fontWeight: 700, color,
-                    background: `${color}15`, border: `1px solid ${color}40`,
-                    borderRadius: 6, padding: '2px 8px', whiteSpace: 'nowrap',
-                  }}>
-                    {ev.months} mo · {ev.weeks} wk
-                  </span>
-                  <span style={{
-                    fontSize: 9, fontWeight: 700, color: '#fff',
-                    background: color, borderRadius: 4,
-                    padding: '2px 6px', whiteSpace: 'nowrap',
-                    textTransform: 'uppercase', letterSpacing: '0.05em',
-                  }}>
-                    {SUPPORT_KIND_LABELS[ev.kind] ?? ev.kind}
-                  </span>
-                </div>
-              </div>
-              {/* Progress bar */}
-              <div style={{ height: 8, borderRadius: 99, background: '#F1F5F9', overflow: 'hidden' }}>
-                <div style={{
-                  height: '100%', width: `${pct}%`, borderRadius: 99,
-                  background: color, transition: 'width 0.4s ease',
-                }} />
-              </div>
-              <div style={{ fontSize: 10, color: D.muted, marginTop: 4 }}>
-                {fmtDuration(ev)}
-              </div>
-            </div>
-          );
-        })}
-      </div>
-    </Card>
-  );
-}
 
 // ── Custom XAxis tick for Cost-by-Phase bar chart ─────────────
 function PhaseTickDash({
@@ -462,16 +282,6 @@ export default function Dashboard() {
   const doc = useMemo(
     () => documents.find((document) => document.id === activeDocumentId),
     [documents, activeDocumentId]
-  );
-
-  // ── Timeline & Support events extracted from the real document ──
-  const timelineEvents = useMemo(
-    () => result?.timelineEvents ?? [],
-    [result?.timelineEvents]
-  );
-  const supportEvents = useMemo(
-    () => result?.supportEvents ?? [],
-    [result?.supportEvents]
   );
 
   const estimation = result?.estimation;
@@ -543,16 +353,63 @@ export default function Dashboard() {
 
   const fmtCost = (n: number) => n >= 1_000_000 ? `$${(n / 1_000_000).toFixed(1)}M` : `$${Math.round(n / 1000)}K`;
 
+  // ── Document timeline / hypercare values (used in top KPI row) ──
+  const tlEv   = result.timelineEvents ?? [];
+  const supEv  = result.supportEvents  ?? [];
+  const tlFirst = tlEv[0];
+  const hcEvRaw = supEv.find(e => e.kind === 'hypercare') ?? supEv.find(e => e.kind === 'support') ?? supEv[0];
+  // Guard: if hypercare event has the same (or larger) weeks as the timeline event,
+  // it was not truly split — suppress it so both KPIs don't show the same number.
+  const hcEv = hcEvRaw && tlFirst && hcEvRaw.weeks >= tlFirst.weeks ? undefined : hcEvRaw;
+  const waEv   = supEv.find(e => e.kind === 'warranty');
+
+  /** Format a duration event to "Nm · Nw" */
+  const fmtDocDur = (ev: { months: number; weeks: number }) =>
+    `${ev.months}m · ${ev.weeks}w`;
+
+  // Timeline KPI value: prefer document extraction; fall back to plan weeks
+  const timelineKpiValue = tlFirst
+    ? fmtDocDur(tlFirst)
+    : totalWeeks >= 52
+      ? `${Math.round(totalWeeks / 4.33)} months`
+      : `${totalWeeks}w`;
+
+  // Timeline KPI sub-line
+  const timelineKpiSub = tlFirst
+    ? (plan ? `${plan.phases.length} phase${plan.phases.length !== 1 ? 's' : ''}` : 'from document')
+    : plan ? `${plan.phases.length} phases` : undefined;
+
+  // Hypercare KPI value & sub
+  const hcKpiValue = hcEv ? fmtDocDur(hcEv) : '—';
+  const hcKpiSub   = hcEv
+    ? (waEv ? `+${waEv.months}m warranty` : 'post-deployment')
+    : 'not in document';
+
   return (
     <div style={{ background: D.bg, minHeight: '100%', padding: '20px 24px 40px' }}>
 
-      {/* ── 6 KPI Tiles ── */}
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(6, 1fr)', gap: 12, marginBottom: 18 }}>
-        <KpiTile label="Total Cost"  value={fmtCost(totalCost)}   sub={`${estimation?.personMonths ?? 0} person-months`}        icon={<DollarSign  size={16} />} palette={D.kpi[0]} />
-        <KpiTile label="Timeline"    value={totalWeeks >= 52 ? `${Math.round(totalWeeks / 4.33)} months` : `${totalWeeks}w`}    sub={plan ? `${plan.phases.length} phases` : undefined}   icon={<Calendar    size={16} />} palette={D.kpi[1]} />
-        <KpiTile label="Team Size"   value={String(teamSize)}     sub={`peak ${peakHC}`}                                        icon={<Users       size={16} />} palette={D.kpi[2]} />
-        <KpiTile label="QA Hours"    value={qaHours.toLocaleString()} sub={`${testing?.automationCoverage ?? 0}% auto`}         icon={<CheckSquare size={16} />} palette={D.kpi[3]} />
-        <KpiTile label="AI Savings"  value={fmtCost(aiSavings * 120)} sub={`${aiGainPct}% gain`}                               icon={<Zap         size={16} />} palette={D.kpi[4]} />
+      {/* ── 7 KPI Tiles (Timeline & Hypercare from document) ── */}
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(7, 1fr)', gap: 12, marginBottom: 18 }}>
+        <KpiTile label="Total Cost"  value={fmtCost(totalCost)}        sub={`${estimation?.personMonths ?? 0} person-months`}   icon={<DollarSign  size={16} />} palette={D.kpi[0]} />
+        {/* Timeline — document-extracted; navigates to Project Plan (same as original tile) */}
+        <div
+          onClick={() => navigate('project-plan')}
+          style={{ cursor: 'pointer' }}
+          title="View Project Plan"
+        >
+          <KpiTile label="Timeline"  value={timelineKpiValue}          sub={timelineKpiSub}                                    icon={<Calendar    size={16} />} palette={D.kpi[1]} />
+        </div>
+        {/* Hypercare — document-extracted; navigates to Project Plan (Hypercare phase) */}
+        <div
+          onClick={() => navigate('project-plan')}
+          style={{ cursor: 'pointer' }}
+          title="View Hypercare phase in Project Plan"
+        >
+          <KpiTile label="Hypercare" value={hcKpiValue}                sub={hcKpiSub}                                          icon={<Shield      size={16} />} palette={D.kpi[5]} />
+        </div>
+        <KpiTile label="Team Size"   value={String(teamSize)}          sub={`peak ${peakHC}`}                                  icon={<Users       size={16} />} palette={D.kpi[2]} />
+        <KpiTile label="QA Hours"    value={qaHours.toLocaleString()}  sub={`${testing?.automationCoverage ?? 0}% auto`}       icon={<CheckSquare size={16} />} palette={D.kpi[3]} />
+        <KpiTile label="AI Savings"  value={fmtCost(aiSavings * 120)} sub={`${aiGainPct}% gain`}                              icon={<Zap         size={16} />} palette={D.kpi[4]} />
         <KpiTile label="Confidence"  value={`${doc?.summary?.confidenceScore ?? 0}%`} sub={`${(result.scopeItems ?? []).length} scope items`} icon={<TrendingUp size={16} />} palette={D.kpi[5]} />
       </div>
 
@@ -689,49 +546,6 @@ export default function Dashboard() {
           </div>
         </Card>
       </div>
-
-      {/* ── Timeline-Trend & Support-Trend row ── */}
-      {(timelineEvents.length > 0 || supportEvents.length > 0) && (
-        <div style={{ marginTop: 14 }}>
-          {/* Section label */}
-          <div style={{ fontSize: 11, fontWeight: 600, color: D.muted, textTransform: 'uppercase', letterSpacing: '0.07em', marginBottom: 10, display: 'flex', alignItems: 'center', gap: 6 }}>
-            <Clock size={12} style={{ color: D.muted }} />
-            Dates &amp; Timelines Extracted from Document
-          </div>
-
-          {/* Timeline card — full width if no support events, else split */}
-          {timelineEvents.length > 0 && supportEvents.length > 0 ? (
-            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 14 }}>
-              <TimelineTrendCard events={timelineEvents} />
-              <SupportTrendCard events={supportEvents} />
-            </div>
-          ) : timelineEvents.length > 0 ? (
-            <TimelineTrendCard events={timelineEvents} />
-          ) : (
-            <SupportTrendCard events={supportEvents} />
-          )}
-        </div>
-      )}
-
-      {/* Empty-state hint when document has no extractable dates */}
-      {timelineEvents.length === 0 && supportEvents.length === 0 && (
-        <div style={{ marginTop: 14 }}>
-          <Card style={{ padding: '16px 20px' }}>
-            <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-              <Clock size={18} style={{ color: D.muted, flexShrink: 0 }} />
-              <div>
-                <div style={{ fontSize: 13, fontWeight: 600, color: D.text }}>No project duration or support period found</div>
-                <div style={{ fontSize: 11, color: D.muted, marginTop: 2 }}>
-                  Timeline-Trend and Support-Trend cards populate automatically when the document mentions
-                  durations like <strong>&ldquo;18 months&rdquo;</strong>, <strong>&ldquo;26 weeks&rdquo;</strong> or date ranges like
-                  <strong>&ldquo;01/06/2025 to 31/12/2026&rdquo;</strong> in a project timeline or support/hypercare context.
-                </div>
-              </div>
-              <Headphones size={18} style={{ color: D.muted, flexShrink: 0, marginLeft: 'auto' }} />
-            </div>
-          </Card>
-        </div>
-      )}
 
     </div>
   );

@@ -5,10 +5,10 @@
 // Bidirectional sync: activeScopeItemId (set by DocumentAnalyzer IntersectionObserver) is read
 // here to highlight the row for the currently-visible document section.
 import React, { useMemo, useRef, useState, useCallback } from 'react';
-import { Plus, Trash2, Search, FileText, ExternalLink, AlertTriangle, Shield, Navigation } from 'lucide-react';
+import { Plus, Trash2, Search, FileText, ExternalLink, AlertTriangle, Shield, Navigation, Calendar, Clock } from 'lucide-react';
 import { useRFPStore } from '@/lib/store';
 import { v4 as uuid } from 'uuid';
-import type { ScopeItem } from '@/types';
+import type { ScopeItem, TimelineEvent, SupportEvent } from '@/types';
 
 // ── Category badge colours ─────────────────────────────────────
 const CAT_COLORS = {
@@ -35,7 +35,7 @@ function useDeepLink() {
   const setDocScrollTarget = useRFPStore((state) => state.setDocScrollTarget);
 
   return useCallback(
-    (section: string, page: string, scopeItemId: string): 'ok' | 'unresolvable' => {
+    (section: string, page: string, scopeItemId: string, highlightColor?: string): 'ok' | 'unresolvable' => {
       const PLACEHOLDER = /^(not found|n\/a|placeholder|tbd|–|—|-|\?|null|undefined|none|section tbd|page tbd)$/i;
       const secOk  = section.trim().length > 2 && !PLACEHOLDER.test(section.trim());
       const pageOk = page.trim().length > 0    && !PLACEHOLDER.test(page.trim());
@@ -43,7 +43,7 @@ function useDeepLink() {
       if (!secOk && !pageOk) return 'unresolvable';
 
       // Write scroll target to store — DocumentAnalyzer will consume it
-      setDocScrollTarget({ section: section.trim(), page: page.trim(), scopeItemId });
+      setDocScrollTarget({ section: section.trim(), page: page.trim(), scopeItemId, highlightColor });
       // Switch to Document tab — DocumentAnalyzer useEffect fires on next render
       setActiveTab('document-analyzer');
       return 'ok';
@@ -67,7 +67,8 @@ function RefLink({
   const navigate = useDeepLink();
 
   const handleClick = () => {
-    const result = navigate(section, page, scopeItemId);
+    // Pass the link colour so DocumentAnalyzer highlights the section in the same colour
+    const result = navigate(section, page, scopeItemId, color);
     if (result === 'unresolvable') {
       onError(
         `Cannot navigate to "${section}" — the reference section or page number is a placeholder. ` +
@@ -115,6 +116,14 @@ function RefLink({
   );
 }
 
+// Chip colours — must match DocumentAnalyzer highlight colours exactly
+const TC_CHIP_COLOR      = '#991B1B'; // same as DocumentAnalyzer tc style
+const TC_CHIP_BG         = '#FEE2E2';
+const TC_CHIP_BORDER     = '#FECACA';
+const PENALTY_CHIP_COLOR = '#92400E'; // same as DocumentAnalyzer penalty style
+const PENALTY_CHIP_BG    = '#FEF3C7';
+const PENALTY_CHIP_BORDER= '#FDE68A';
+
 // ── T&C clickable link chip ────────────────────────────────────
 function TCLink({
   text, page, section, scopeItemId, onError,
@@ -129,13 +138,14 @@ function TCLink({
     <button
       type="button"
       onClick={() => {
-        const result = navigate(text.slice(0, 40), page || section, scopeItemId);
+        // Pass TC_CHIP_COLOR → DocumentAnalyzer will highlight that section in red (#FEE2E2 / #991B1B)
+        const result = navigate(text.slice(0, 40), page || section, scopeItemId, TC_CHIP_COLOR);
         if (result === 'unresolvable') {
           onError(`Cannot navigate — no valid section reference for this T&C clause.`);
         }
       }}
       className="inline-flex items-center gap-1.5 text-xs font-medium px-2 py-0.5 rounded-lg border transition-all hover:opacity-80 cursor-pointer text-left mt-1"
-      style={{ background: '#FEF3C7', color: '#92400E', border: '1px solid #F59E0B' }}
+      style={{ background: TC_CHIP_BG, color: TC_CHIP_COLOR, border: `1px solid ${TC_CHIP_BORDER}` }}
       title={`View T&C in document: ${text}`}
     >
       <Shield size={10} />
@@ -159,13 +169,14 @@ function PenaltyLink({
     <button
       type="button"
       onClick={() => {
-        const result = navigate(text.slice(0, 40), page || section, scopeItemId);
+        // Pass PENALTY_CHIP_COLOR → DocumentAnalyzer will highlight that section in amber (#FEF3C7 / #92400E)
+        const result = navigate(text.slice(0, 40), page || section, scopeItemId, PENALTY_CHIP_COLOR);
         if (result === 'unresolvable') {
           onError(`Cannot navigate — no valid section reference for this penalty clause.`);
         }
       }}
       className="inline-flex items-center gap-1.5 text-xs font-medium px-2 py-0.5 rounded-lg border transition-all hover:opacity-80 cursor-pointer text-left mt-1"
-      style={{ background: '#D1FAE5', color: '#065F46', border: '1px solid #10B981' }}
+      style={{ background: PENALTY_CHIP_BG, color: PENALTY_CHIP_COLOR, border: `1px solid ${PENALTY_CHIP_BORDER}` }}
       title={`View penalty clause in document: ${text}`}
     >
       <AlertTriangle size={10} />
@@ -186,12 +197,11 @@ export default function ScopeDeliverables() {
   const [search, setSearch] = useState('');
   const [rowError, setRowError] = useState<{ id: string; msg: string } | null>(null);
   const rowErrorTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-
-  if (!result) return (
-    <div className="p-6 text-center mt-20 text-slate-400">
-      Upload a document to see scope items
-    </div>
-  );
+  // Deep-link function wired to the Dates & Timelines section — must be before early return
+  const deepLink = useDeepLink();
+  const deepLinkFn = useCallback((section: string, page: string, id: string, color?: string) => {
+    deepLink(section, page, id, color);
+  }, [deepLink]);
 
   const PLACEHOLDERS = /^(not found|n\/a|placeholder|tbd|–|—|-|\?|null|undefined|none)$/i;
   function cleanDesc(d: string): string {
@@ -203,7 +213,8 @@ export default function ScopeDeliverables() {
   }
 
   const scopeItems = useMemo(
-    () => (result.scopeItems ?? []).filter((item) => isValidDesc(item.description)),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    () => (result?.scopeItems ?? []).filter((item) => isValidDesc(item.description)),
     [result]
   );
 
@@ -216,6 +227,7 @@ export default function ScopeDeliverables() {
   }, [scopeItems, search]);
 
   const addScope = useCallback(() => {
+    if (!result) return;
     const newItem: ScopeItem = {
       id: uuid(),
       description: 'New scope item',
@@ -229,6 +241,7 @@ export default function ScopeDeliverables() {
   }, [activeDocumentId, result, scopeItems, setAnalysisResult]);
 
   const removeScope = useCallback((id: string) => {
+    if (!result) return;
     setAnalysisResult(activeDocumentId!, {
       ...result,
       scopeItems: scopeItems.filter((item) => item.id !== id),
@@ -236,6 +249,7 @@ export default function ScopeDeliverables() {
   }, [activeDocumentId, result, scopeItems, setAnalysisResult]);
 
   const updateScope = useCallback((id: string, field: keyof ScopeItem, value: string) => {
+    if (!result) return;
     setAnalysisResult(activeDocumentId!, {
       ...result,
       scopeItems: scopeItems.map((item) => (item.id === id ? { ...item, [field]: value } : item)),
@@ -261,6 +275,13 @@ export default function ScopeDeliverables() {
       rowErrorTimerRef.current = null;
     }, 6000);
   }, []);
+
+  // ── Early return — after ALL hooks ────────────────────────────
+  if (!result) return (
+    <div className="p-6 text-center mt-20 text-slate-400">
+      Upload a document to see scope items
+    </div>
+  );
 
   return (
     <div className="p-6 max-w-7xl mx-auto space-y-4">
@@ -508,6 +529,169 @@ export default function ScopeDeliverables() {
           Any link navigates directly to that section inside the Document tab
         </span>
       </div>
+
+      {/* ── Dates & Timelines Extracted from Document ── */}
+      <DatesTimelinesSection
+        timelineEvents={result.timelineEvents ?? []}
+        supportEvents={result.supportEvents ?? []}
+        onDeepLink={deepLinkFn}
+      />
+
+    </div>
+  );
+}
+
+// ── Dates & Timelines section (deep-linked to document) ────────
+const SUPPORT_KIND_COLORS: Record<string, string> = {
+  hypercare:   '#8B5CF6',
+  support:     '#3B82F6',
+  warranty:    '#10B981',
+  maintenance: '#F59E0B',
+  other:       '#94A3B8',
+};
+const SUPPORT_KIND_LABELS: Record<string, string> = {
+  hypercare:   'Hypercare',
+  support:     'Support',
+  warranty:    'Warranty',
+  maintenance: 'Maintenance',
+  other:       'Other',
+};
+const TL_COLORS = ['#3B82F6', '#6366F1', '#06B6D4', '#10B981', '#8B5CF6', '#F59E0B'];
+
+function fmtDur(ev: { value: number; unit: string; months: number; weeks: number }): string {
+  const primary   = `${ev.value} ${ev.unit}${ev.value !== 1 ? 's' : ''}`;
+  const secondary = ev.unit === 'week'
+    ? `${ev.months} month${ev.months !== 1 ? 's' : ''}`
+    : `${ev.weeks} week${ev.weeks !== 1 ? 's' : ''}`;
+  return `${primary} · ${secondary}`;
+}
+
+/** A clickable chip that deep-links into the document viewer at the relevant context snippet.
+ *  The `color` is both the chip foreground AND the highlight colour in DocumentAnalyzer. */
+function DocChip({ context, onDeepLink, color }: { context: string; onDeepLink: (section: string, page: string, id: string, color?: string) => void; color: string }) {
+  const snippet = context.length > 60 ? context.slice(0, 60) + '…' : context;
+  return (
+    <button
+      type="button"
+      onClick={() => onDeepLink(context.slice(0, 60), '', 'duration-event', color)}
+      title={`View in document: "${context}"`}
+      className="inline-flex items-center gap-1 text-[10px] font-medium px-2 py-0.5 rounded-lg border transition-all hover:opacity-80 cursor-pointer text-left mt-1 max-w-full"
+      style={{ background: `${color}12`, color, border: `1px solid ${color}40`, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}
+    >
+      <FileText size={9} style={{ flexShrink: 0 }} />
+      <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{snippet}</span>
+      <ExternalLink size={8} style={{ flexShrink: 0 }} />
+    </button>
+  );
+}
+
+function DatesTimelinesSection({
+  timelineEvents,
+  supportEvents,
+  onDeepLink,
+}: {
+  timelineEvents: TimelineEvent[];
+  supportEvents: SupportEvent[];
+  onDeepLink: (section: string, page: string, id: string, color?: string) => void;
+}) {
+  const hasAny = timelineEvents.length > 0 || supportEvents.length > 0;
+  const maxTlWeeks  = timelineEvents[0]?.weeks  ?? 1;
+  const maxSupWeeks = supportEvents[0]?.weeks   ?? 1;
+
+  return (
+    <div className="rounded-2xl bg-white border border-slate-200 shadow-sm p-5 mt-2">
+      {/* Header */}
+      <div className="flex items-center gap-2 mb-4">
+        <Clock size={14} className="text-slate-400" />
+        <span className="text-xs font-bold uppercase tracking-widest text-slate-500">
+          Dates &amp; Timelines Extracted from Document
+        </span>
+      </div>
+
+      {!hasAny && (
+        <p className="text-sm text-slate-400 text-center py-4">
+          No project duration or support period found in this document.
+          Durations like <strong>&ldquo;18 months&rdquo;</strong> or <strong>&ldquo;26 weeks&rdquo;</strong> near
+          timeline/support keywords will appear here with clickable links back to their source.
+        </p>
+      )}
+
+      {hasAny && (
+        <div className="grid grid-cols-1 gap-6" style={{ gridTemplateColumns: timelineEvents.length > 0 && supportEvents.length > 0 ? '1fr 1fr' : '1fr' }}>
+
+          {/* ── Timeline durations ── */}
+          {timelineEvents.length > 0 && (
+            <div>
+              <div className="flex items-center gap-1.5 mb-3">
+                <Calendar size={12} style={{ color: '#3B82F6' }} />
+                <span className="text-[11px] font-bold uppercase tracking-wider" style={{ color: '#3B82F6' }}>Timeline</span>
+              </div>
+              <div className="flex flex-col gap-3">
+                {timelineEvents.map((ev, i) => {
+                  const color = TL_COLORS[i % TL_COLORS.length];
+                  const pct   = Math.max(5, Math.round((ev.weeks / maxTlWeeks) * 100));
+                  return (
+                    <div key={ev.id}>
+                      <div className="flex justify-between items-baseline mb-1">
+                        <span className="text-xs font-semibold text-slate-700" style={{ maxWidth: '65%', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                          {ev.label.length > 55 ? ev.label.slice(0, 55) + '…' : ev.label}
+                        </span>
+                        <span className="text-[11px] font-bold" style={{ color, background: `${color}12`, border: `1px solid ${color}35`, borderRadius: 6, padding: '1px 7px', whiteSpace: 'nowrap' }}>
+                          {ev.months}m · {ev.weeks}w
+                        </span>
+                      </div>
+                      <div className="h-1.5 rounded-full bg-slate-100 overflow-hidden mb-1">
+                        <div style={{ width: `${pct}%`, height: '100%', background: color, borderRadius: 99, transition: 'width 0.4s ease' }} />
+                      </div>
+                      <div className="text-[10px] text-slate-400 mb-0.5">{fmtDur(ev)}</div>
+                      <DocChip context={ev.context} onDeepLink={onDeepLink} color={color} />
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+          )}
+
+          {/* ── Support / Hypercare / Warranty durations ── */}
+          {supportEvents.length > 0 && (
+            <div>
+              <div className="flex items-center gap-1.5 mb-3">
+                <Shield size={12} style={{ color: '#8B5CF6' }} />
+                <span className="text-[11px] font-bold uppercase tracking-wider" style={{ color: '#8B5CF6' }}>Support &amp; Hypercare</span>
+              </div>
+              <div className="flex flex-col gap-3">
+                {supportEvents.map((ev) => {
+                  const color = SUPPORT_KIND_COLORS[ev.kind] ?? SUPPORT_KIND_COLORS.other;
+                  const pct   = Math.max(5, Math.round((ev.weeks / maxSupWeeks) * 100));
+                  return (
+                    <div key={ev.id}>
+                      <div className="flex justify-between items-center mb-1">
+                        <span className="text-xs font-semibold text-slate-700" style={{ maxWidth: '55%', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                          {ev.label.length > 45 ? ev.label.slice(0, 45) + '…' : ev.label}
+                        </span>
+                        <div className="flex items-center gap-1.5">
+                          <span className="text-[11px] font-bold" style={{ color, background: `${color}12`, border: `1px solid ${color}35`, borderRadius: 6, padding: '1px 7px', whiteSpace: 'nowrap' }}>
+                            {ev.months}m · {ev.weeks}w
+                          </span>
+                          <span className="text-[9px] font-bold text-white rounded px-1.5 py-0.5 uppercase" style={{ background: color, letterSpacing: '0.05em' }}>
+                            {SUPPORT_KIND_LABELS[ev.kind] ?? ev.kind}
+                          </span>
+                        </div>
+                      </div>
+                      <div className="h-1.5 rounded-full bg-slate-100 overflow-hidden mb-1">
+                        <div style={{ width: `${pct}%`, height: '100%', background: color, borderRadius: 99, transition: 'width 0.4s ease' }} />
+                      </div>
+                      <div className="text-[10px] text-slate-400 mb-0.5">{fmtDur(ev)}</div>
+                      <DocChip context={ev.context} onDeepLink={onDeepLink} color={color} />
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+          )}
+
+        </div>
+      )}
     </div>
   );
 }

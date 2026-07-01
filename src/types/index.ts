@@ -426,7 +426,10 @@ export interface ProjectPlan {
   id: string;
   documentId: string;
   projectName: string;
+  /** Delivery weeks only — does NOT include Hypercare phase */
   totalDurationWeeks: number;
+  /** Hypercare phase weeks stored separately so UI can show them distinctly */
+  hypercareWeeks?: number;
   phases: ProjectPhase[];
   lastUpdated: string;
 }

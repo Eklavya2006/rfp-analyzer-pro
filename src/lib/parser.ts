@@ -542,23 +542,44 @@ export function extractTimelineAndSupportEvents(text: string): {
     if (!isSupport && !isTimeline) continue;
 
     // ── 1. Explicit duration expressions: "18 months", "26 weeks" ──
+    // Collect ALL durations on this line first so we can split them correctly
+    // when the line is a support line that contains MULTIPLE durations
+    // (e.g. "18 month project including 3 months hypercare").
+    // Rule: on a support line, the LONGEST duration is the overall project
+    // timeline; every shorter one is a support/hypercare duration.
     EXPLICIT_DUR_RE.lastIndex = 0;
+    const lineDurs: Array<{ value: number; unit: string; months: number; weeks: number }> = [];
     let dm: RegExpExecArray | null;
     while ((dm = EXPLICIT_DUR_RE.exec(line)) !== null) {
       const value = parseFloat(dm[1]);
       const unit  = dm[2].toLowerCase().replace(/s$/, '');
       if (!value || value <= 0) continue;
-      const { months, weeks } = toMonthsWeeks(value, unit);
-      if (weeks <= 0 || weeks > 520) continue; // sanity cap at ~10 yrs
+      const mw = toMonthsWeeks(value, unit);
+      if (mw.weeks <= 0 || mw.weeks > 520) continue;
+      lineDurs.push({ value, unit, ...mw });
+    }
 
-      const dedupeKey = `${months}:${weeks}`;
+    for (let di = 0; di < lineDurs.length; di++) {
+      const { value, unit, months, weeks } = lineDurs[di];
       const label = ctxLabel(ctx, `${value} ${unit}${value !== 1 ? 's' : ''}`);
 
-      if (isSupport) {
+      // On a support-trigger line with multiple durations: the longest goes to
+      // timeline (it's the total project scope), the rest go to support.
+      const isLongest = weeks === Math.max(...lineDurs.map(d => d.weeks));
+      const targetIsTimeline = isSupport && lineDurs.length > 1 && isLongest;
+
+      if (targetIsTimeline) {
+        const dedupeKey = `${months}:${weeks}`;
+        if (seenTimeline.has(dedupeKey)) continue;
+        seenTimeline.add(dedupeKey);
+        timelineEvents.push({ id: uuid(), label, value, unit, months, weeks, context: ctx.slice(0, 220) });
+      } else if (isSupport) {
+        const dedupeKey = `${months}:${weeks}`;
         if (seenSupport.has(dedupeKey)) continue;
         seenSupport.add(dedupeKey);
         supportEvents.push({ id: uuid(), label, value, unit, months, weeks, kind: classifySupportKind(ctx), context: ctx.slice(0, 220) });
       } else {
+        const dedupeKey = `${months}:${weeks}`;
         if (seenTimeline.has(dedupeKey)) continue;
         seenTimeline.add(dedupeKey);
         timelineEvents.push({ id: uuid(), label, value, unit, months, weeks, context: ctx.slice(0, 220) });
