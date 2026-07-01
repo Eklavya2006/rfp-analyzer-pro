@@ -1,5 +1,4 @@
 'use client';
-// + Slack/Teams + Email alert buttons (Feature 5 — feature/enriched)
 import React, { useState } from 'react';
 import { useRFPStore } from '@/lib/store';
 import { AlertTriangle, Send, Mail } from 'lucide-react';
@@ -14,25 +13,24 @@ export default function ChangeNotificationModal() {
   const [alertSent,    setAlertSent]    = useState(false);
   const [alertSending, setAlertSending] = useState(false);
   const [emailTo,      setEmailTo]      = useState('pradeep.lamba1@ibm.com');
-  const [emailSent,    setEmailSent]    = useState(false);
-  const [emailSending, setEmailSending] = useState(false);
-  const [emailError,   setEmailError]   = useState('');
+  const [emailOpened,  setEmailOpened]  = useState(false);
 
   if (!pendingNotification) return null;
 
+  // Capture as non-null local so closures below don't require re-narrowing
+  const n = pendingNotification;
   const docName = documents.find(d => d.id === activeDocumentId)?.name ?? 'Active RFP';
 
   async function sendSlackTeams() {
-    if (!pendingNotification) return;
     setAlertSending(true);
     try {
       await fetch('/api/notify', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          sourceModule:    pendingNotification.sourceModule,
-          affectedModules: pendingNotification.affectedModules,
-          message:         pendingNotification.message,
+          sourceModule:    n.sourceModule,
+          affectedModules: n.affectedModules,
+          message:         n.message,
           documentName:    docName,
         }),
       });
@@ -42,50 +40,39 @@ export default function ChangeNotificationModal() {
     }
   }
 
-  async function sendEmail() {
-    if (!pendingNotification || !emailTo.trim()) return;
-    setEmailSending(true);
-    setEmailError('');
-    try {
-      const subject = `[RFP Analyzer] ${pendingNotification.sourceModule} Updated — ${docName}`;
-      const body    = `${pendingNotification.message}\n\nAffected modules:\n${pendingNotification.affectedModules.map(m => `  • ${m}`).join('\n')}\n\nDocument: ${docName}`;
-      const res     = await fetch('/api/send-email', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ to: emailTo.trim(), subject, body }),
-      });
-      const data = await res.json();
-      if (data.method === 'mailto') {
-        // SMTP not configured — open default mail client
-        window.open(data.mailtoUrl, '_blank');
-      }
-      setEmailSent(true);
-    } catch {
-      setEmailError('Failed to send. Check SMTP settings.');
-    } finally {
-      setEmailSending(false);
-    }
+  function openOutlook() {
+    if (!emailTo.trim()) return;
+    const subject = encodeURIComponent(`[RFP Analyzer] ${n.sourceModule} Updated — ${docName}`);
+    const body    = encodeURIComponent(
+      `${n.message}\n\nAffected modules:\n` +
+      n.affectedModules.map(m => `  • ${m}`).join('\n') +
+      `\n\nDocument: ${docName}\n\nSent from RFP Analyzer Pro`
+    );
+    const to = encodeURIComponent(emailTo.trim());
+    window.open(`mailto:${to}?subject=${subject}&body=${body}`, '_blank');
+    setEmailOpened(true);
   }
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm">
       <div className="bg-white rounded-2xl shadow-2xl w-full max-w-md mx-4 overflow-hidden">
+
         {/* Header */}
         <div className="px-6 py-4 flex items-center gap-3" style={{ background: '#0F62FE' }}>
           <AlertTriangle size={20} className="text-white shrink-0" />
           <div>
             <div className="text-sm font-bold text-white">Cross-Module Update</div>
-            <div className="text-xs text-blue-200">Source: {pendingNotification.sourceModule}</div>
+            <div className="text-xs text-blue-200">Source: {n.sourceModule}</div>
           </div>
         </div>
 
         {/* Body */}
         <div className="px-6 py-5">
-          <p className="text-sm text-gray-700 mb-4">{pendingNotification.message}</p>
+          <p className="text-sm text-gray-700 mb-4">{n.message}</p>
           <div className="bg-blue-50 rounded-xl p-3 border border-blue-100">
             <div className="text-xs font-semibold text-blue-800 mb-2">Panels that will be updated:</div>
             <ul className="space-y-1">
-              {pendingNotification.affectedModules.map((m) => (
+              {n.affectedModules.map((m) => (
                 <li key={m} className="flex items-center gap-2 text-xs text-blue-700">
                   <div className="w-1.5 h-1.5 rounded-full shrink-0" style={{ background: '#0F62FE' }} />
                   {m}
@@ -94,7 +81,7 @@ export default function ChangeNotificationModal() {
             </ul>
           </div>
 
-          {/* Notify buttons row */}
+          {/* Notify section */}
           <div className="mt-3 pt-3 border-t border-slate-100 space-y-2">
             <div className="text-[10px] font-semibold text-slate-400 uppercase tracking-wider mb-1">Notify team</div>
 
@@ -115,36 +102,39 @@ export default function ChangeNotificationModal() {
               {!alertSent && <span className="ml-auto text-[9px] text-slate-300">needs webhook env var</span>}
             </button>
 
-            {/* Email — always visible, pre-filled */}
-            {!emailSent ? (
-              <div className="space-y-1.5">
-                <div className="flex gap-1.5">
-                  <input
-                    type="email"
-                    value={emailTo}
-                    onChange={e => setEmailTo(e.target.value)}
-                    placeholder="recipient@company.com"
-                    className="flex-1 text-xs px-2.5 py-1.5 rounded-lg border outline-none focus:border-blue-400"
-                    style={{ borderColor: '#E2E8F0', fontSize: 12 }}
-                    onKeyDown={e => e.key === 'Enter' && sendEmail()}
-                  />
-                  <button
-                    onClick={sendEmail}
-                    disabled={emailSending || !emailTo.trim()}
-                    className="flex items-center gap-1 text-xs font-semibold px-3 py-1.5 rounded-lg text-white"
-                    style={{ background: '#0F62FE', opacity: !emailTo.trim() ? 0.5 : 1 }}
-                  >
-                    <Mail size={10} />
-                    {emailSending ? '…' : 'Send'}
-                  </button>
-                </div>
-                {emailError && (
-                  <p className="text-[11px] text-red-500 px-1">{emailError}</p>
-                )}
+            {/* Email via Outlook — mailto: opens Outlook directly */}
+            {!emailOpened ? (
+              <div className="flex gap-1.5">
+                <input
+                  type="email"
+                  value={emailTo}
+                  onChange={e => setEmailTo(e.target.value)}
+                  placeholder="recipient@ibm.com"
+                  className="flex-1 text-xs px-2.5 py-1.5 rounded-lg border outline-none focus:border-blue-400"
+                  style={{ borderColor: '#E2E8F0', fontSize: 12 }}
+                  onKeyDown={e => e.key === 'Enter' && openOutlook()}
+                />
+                <button
+                  onClick={openOutlook}
+                  disabled={!emailTo.trim()}
+                  className="flex items-center gap-1 text-xs font-semibold px-3 py-1.5 rounded-lg text-white transition-opacity"
+                  style={{ background: '#0F62FE', opacity: !emailTo.trim() ? 0.5 : 1 }}
+                >
+                  <Mail size={10} />
+                  Open in Outlook
+                </button>
               </div>
             ) : (
-              <div className="flex items-center gap-2 text-xs font-semibold text-green-600 px-1">
-                <Mail size={11} /> Email sent to {emailTo} ✓
+              <div className="flex items-center justify-between text-xs font-semibold text-green-600 px-1">
+                <span className="flex items-center gap-1.5">
+                  <Mail size={11} /> Outlook opened — click Send in Outlook ✓
+                </span>
+                <button
+                  onClick={() => setEmailOpened(false)}
+                  className="text-[10px] text-slate-400 underline font-normal"
+                >
+                  resend
+                </button>
               </div>
             )}
           </div>

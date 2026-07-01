@@ -391,8 +391,7 @@ export default function AgenticImpactModule() {
   const [view, setView] = useState<AgenticView>('client');
   const [editingRoleId, setEditingRoleId] = useState<string | null>(null);
   const [editValues, setEditValues] = useState<Partial<AIRoleRow>>({});
-  const [emailSending, setEmailSending] = useState(false);
-  const [emailStatus, setEmailStatus] = useState<'idle' | 'sent' | 'error'>('idle');
+  const [emailOpened, setEmailOpened] = useState(false);
 
   if (!result?.aiImpact) return (
     <div className="p-6 text-gray-400 text-sm text-center mt-20">Upload a document to see agentic impact analysis</div>
@@ -401,49 +400,31 @@ export default function AgenticImpactModule() {
   const ai = result.aiImpact;
   const docName = documents.find(d => d.id === activeDocumentId)?.name ?? 'Active RFP';
 
-  async function emailReport() {
-    setEmailSending(true);
-    setEmailStatus('idle');
-    try {
-      const subject = `AI Impact Report — ${docName}`;
-      const body = [
-        `AI Impact Report — ${docName}`,
-        `Generated: ${new Date().toLocaleString()}`,
-        ``,
-        `━━━ SUMMARY ━━━`,
-        `Active Agents:          ${ai.roleRows.length}`,
-        `Total AI Hours:         ${ai.totalAIHours.toLocaleString()}h`,
-        `Hours Saved:            ${ai.totalHoursSaved.toLocaleString()}h`,
-        `Overall Productivity:   ${ai.overallProductivityGain}%`,
-        ``,
-        `━━━ ROLE BREAKDOWN ━━━`,
-        ...ai.roleRows.map(r =>
-          `• ${r.role} (${r.band}) — Trad: ${r.traditionalFTE} FTE → AI: ${r.aiAugmentedFTE} FTE | Productivity: ${r.productivityPct}% | Automation: ${r.automationCoveragePct}% | Tool: ${r.toolUsed}`
-        ),
-        ``,
-        `━━━ PHASE BREAKDOWN ━━━`,
-        ...ai.phaseRows.map(p =>
-          `• ${p.phase}: Traditional ${p.traditionalHours}h → AI ${p.aiAssistedHours}h (saved ${p.hoursSaved}h)`
-        ),
-      ].join('\n');
-
-      const res = await fetch('/api/send-email', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ to: 'pradeep.lamba1@ibm.com', subject, body }),
-      });
-      const data = await res.json();
-      if (data.method === 'mailto') {
-        window.open(data.mailtoUrl, '_blank');
-      }
-      setEmailStatus('sent');
-      setTimeout(() => setEmailStatus('idle'), 4000);
-    } catch {
-      setEmailStatus('error');
-      setTimeout(() => setEmailStatus('idle'), 4000);
-    } finally {
-      setEmailSending(false);
-    }
+  function emailReport() {
+    const subject = encodeURIComponent(`AI Impact Report — ${docName}`);
+    const body = encodeURIComponent([
+      `AI Impact Report — ${docName}`,
+      `Generated: ${new Date().toLocaleString()}`,
+      ``,
+      `SUMMARY`,
+      `Active Agents:        ${ai.roleRows.length}`,
+      `Total AI Hours:       ${ai.totalAIHours.toLocaleString()}h`,
+      `Hours Saved:          ${ai.totalHoursSaved.toLocaleString()}h`,
+      `Overall Productivity: ${ai.overallProductivityGain}%`,
+      ``,
+      `ROLE BREAKDOWN`,
+      ...ai.roleRows.map(r =>
+        `• ${r.role} (${r.band}) — Trad: ${r.traditionalFTE} FTE -> AI: ${r.aiAugmentedFTE} FTE | Productivity: ${r.productivityPct}% | Automation: ${r.automationCoveragePct}% | Tool: ${r.toolUsed}`
+      ),
+      ``,
+      `PHASE BREAKDOWN`,
+      ...ai.phaseRows.map(p =>
+        `• ${p.phase}: Traditional ${p.traditionalHours}h -> AI ${p.aiAssistedHours}h (saved ${p.hoursSaved}h)`
+      ),
+    ].join('\n'));
+    window.open(`mailto:pradeep.lamba1@ibm.com?subject=${subject}&body=${body}`, '_blank');
+    setEmailOpened(true);
+    setTimeout(() => setEmailOpened(false), 5000);
   }
 
   const startEdit = useCallback((row: AIRoleRow) => {
@@ -531,17 +512,15 @@ export default function AgenticImpactModule() {
           {/* Email report button */}
           <button
             onClick={emailReport}
-            disabled={emailSending}
             className="flex items-center gap-1.5 text-xs font-semibold px-3 py-1.5 rounded-lg border transition-all"
             style={{
-              borderColor: emailStatus === 'sent' ? '#42be65' : emailStatus === 'error' ? '#da1e28' : '#0f62fe',
-              color:       emailStatus === 'sent' ? '#42be65' : emailStatus === 'error' ? '#da1e28' : '#0f62fe',
-              background:  emailStatus === 'sent' ? '#d1fae5' : emailStatus === 'error' ? '#fee2e2' : '#eff6ff',
-              cursor: emailSending ? 'wait' : 'pointer',
+              borderColor: emailOpened ? '#42be65' : '#0f62fe',
+              color:       emailOpened ? '#42be65' : '#0f62fe',
+              background:  emailOpened ? '#d1fae5' : '#eff6ff',
             }}
           >
             <Mail size={13} />
-            {emailSending ? 'Sending…' : emailStatus === 'sent' ? 'Sent ✓' : emailStatus === 'error' ? 'Failed — retry' : 'Email Report'}
+            {emailOpened ? 'Outlook opened ✓' : 'Email Report'}
           </button>
 
           {/* 3-way view toggle */}
