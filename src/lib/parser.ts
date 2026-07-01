@@ -4,7 +4,7 @@
 // All formats include binary/junk sanitization pass
 // ============================================================
 
-import type { DocumentSummary, ExtractedSections, TimelineEvent, SupportEvent, TimelineEventKind, SupportEventKind } from '@/types';
+import type { DocumentSummary, ExtractedSections, TimelineEvent, SupportEvent, SupportEventKind } from '@/types';
 import { v4 as uuid } from 'uuid';
 
 // ── Extraction result ─────────────────────────────────────────
@@ -403,218 +403,196 @@ function extractConstraints(text: string): string[] {
   return constraints;
 }
 
-// ── Date / Timeline Extraction ────────────────────────────────
+// ── Timeline & Support Duration Extraction ────────────────────
+//
+// Extracts project-delivery and post-production-support durations from text.
+// Handles:
+//   • "N months" / "N weeks" / "N days" / "N years"  — direct duration
+//   • Date-range pairs like "01/06/2025 to 31/12/2026" — calculates difference
+//     and converts to months + weeks
+//
+// Calendar dates standing alone (no range partner, no duration context) are
+// intentionally NOT captured — we only care about duration/effort quantities.
 
-/** Attempt to parse a variety of date formats into an ISO yyyy-MM-dd string.
- *  Handles: DD/MM/YYYY, MM/DD/YYYY (guessed), DD-MM-YYYY, YYYY-MM-DD,
- *           "1 June 2025", "June 2025", "Q2 2026", year-only "2027".
- *  Returns '' if the string is not parseable.
- */
-function normaliseDateStr(raw: string): string {
+// ── Helpers ───────────────────────────────────────────────────
+
+/** Parse DD/MM/YYYY, DD-MM-YYYY, YYYY-MM-DD into a JS Date. Returns null on failure. */
+function parseDate(raw: string): Date | null {
   const s = raw.trim();
-
-  // ── yyyy-MM-dd (already ISO) ──────────────────────────────
-  if (/^\d{4}-\d{2}-\d{2}$/.test(s)) return s;
-
-  // ── DD/MM/YYYY or DD-MM-YYYY ──────────────────────────────
-  const dmy = s.match(/^(\d{1,2})[\/\-\.](\d{1,2})[\/\-\.](\d{4})$/);
-  if (dmy) {
-    const [, d, m, y] = dmy;
-    // If the second number > 12 it must be a day in MM/DD/YYYY position → swap
-    const day = Number(m) > 12 ? m.padStart(2, '0') : d.padStart(2, '0');
-    const mon = Number(m) > 12 ? d.padStart(2, '0') : m.padStart(2, '0');
-    return `${y}-${mon}-${day}`;
-  }
-
-  // ── "1 June 2025", "June 1, 2025", "1st June 2025" ───────
-  const MONTHS: Record<string, string> = {
-    january:'01',february:'02',march:'03',april:'04',may:'05',june:'06',
-    july:'07',august:'08',september:'09',october:'10',november:'11',december:'12',
-    jan:'01',feb:'02',mar:'03',apr:'04',jun:'06',jul:'07',aug:'08',
-    sep:'09',oct:'10',nov:'11',dec:'12',
+  // YYYY-MM-DD
+  let m = s.match(/^(\d{4})[\/\-\.](\d{1,2})[\/\-\.](\d{1,2})$/);
+  if (m) return new Date(+m[1], +m[2] - 1, +m[3]);
+  // DD/MM/YYYY  (treat first number as day when ≤12 ambiguous — document convention)
+  m = s.match(/^(\d{1,2})[\/\-\.](\d{1,2})[\/\-\.](\d{4})$/);
+  if (m) return new Date(+m[3], +m[2] - 1, +m[1]);
+  // "1 June 2025" / "June 2025" / "Jun 2025"
+  const MONTHS: Record<string,number> = {
+    january:0,february:1,march:2,april:3,may:4,june:5,
+    july:6,august:7,september:8,october:9,november:10,december:11,
+    jan:0,feb:1,mar:2,apr:3,jun:5,jul:6,aug:7,sep:8,oct:9,nov:10,dec:11,
   };
-  const longDate = s.match(/(\d{1,2})(?:st|nd|rd|th)?\s+([A-Za-z]+)\s+(\d{4})/i)
-    || s.match(/([A-Za-z]+)\s+(\d{1,2})(?:st|nd|rd|th)?,?\s+(\d{4})/i);
-  if (longDate) {
-    // figure out which group is day vs month name
-    const g1Num = Number(longDate[1]);
-    if (!isNaN(g1Num)) {
-      const mon = MONTHS[longDate[2].toLowerCase()];
-      if (mon) return `${longDate[3]}-${mon}-${String(g1Num).padStart(2,'0')}`;
-    } else {
-      const mon = MONTHS[longDate[1].toLowerCase()];
-      if (mon) return `${longDate[3]}-${mon}-${String(Number(longDate[2])).padStart(2,'0')}`;
-    }
-  }
-
-  // ── "June 2025" / "Jun 2025" (month + year only) ─────────
-  const monthYear = s.match(/^([A-Za-z]+)\s+(\d{4})$/i);
-  if (monthYear) {
-    const mon = MONTHS[monthYear[1].toLowerCase()];
-    if (mon) return `${monthYear[2]}-${mon}-01`;
-  }
-
-  // ── "Q1 2026" style ───────────────────────────────────────
-  const quarter = s.match(/Q([1-4])\s+(\d{4})/i);
-  if (quarter) {
-    const qMon = ['01','04','07','10'][Number(quarter[1]) - 1];
-    return `${quarter[2]}-${qMon}-01`;
-  }
-
-  // ── Year only "2027" ─────────────────────────────────────
-  if (/^\d{4}$/.test(s)) return `${s}-01-01`;
-
-  return '';
+  m = s.match(/(\d{1,2})(?:st|nd|rd|th)?\s+([A-Za-z]+)\s+(\d{4})/i);
+  if (m) { const mn = MONTHS[m[2].toLowerCase()]; if (mn !== undefined) return new Date(+m[3], mn, +m[1]); }
+  m = s.match(/([A-Za-z]+)\s+(\d{1,2})(?:st|nd|rd|th)?,?\s+(\d{4})/i);
+  if (m) { const mn = MONTHS[m[1].toLowerCase()]; if (mn !== undefined) return new Date(+m[3], mn, +m[2]); }
+  m = s.match(/([A-Za-z]+)\s+(\d{4})/i);
+  if (m) { const mn = MONTHS[m[1].toLowerCase()]; if (mn !== undefined) return new Date(+m[2], mn, 1); }
+  return null;
 }
 
-// Keywords that indicate a timeline event kind
-const TIMELINE_KIND_PATTERNS: Array<{ kind: TimelineEventKind; patterns: RegExp[] }> = [
-  { kind: 'start',     patterns: [/\bstart\b/i, /\bkickoff\b/i, /\bbegin\b/i, /\bcommencement\b/i, /\bproject\s+start\b/i] },
-  { kind: 'go-live',   patterns: [/\bgo.?live\b/i, /\blive date\b/i, /\blaunch\b/i, /\bproduction\s+date\b/i] },
-  { kind: 'deadline',  patterns: [/\bdeadline\b/i, /\bdue\s+date\b/i, /\bsubmission\b/i, /\bdue\b/i] },
-  { kind: 'end',       patterns: [/\bend\s+date\b/i, /\bcompletion\b/i, /\bclosure\b/i, /\bfinal\s+delivery\b/i, /\bproject\s+end\b/i] },
-  { kind: 'milestone', patterns: [/\bmilestone\b/i, /\bphase\b/i, /\bsign.?off\b/i, /\buat\b/i, /\bdelivery\b/i] },
-];
-
-function classifyTimelineKind(ctx: string): TimelineEventKind {
-  for (const { kind, patterns } of TIMELINE_KIND_PATTERNS) {
-    if (patterns.some(re => re.test(ctx))) return kind;
-  }
-  return 'other';
+/** Difference between two dates expressed as { months, weeks }. */
+function dateDiff(from: Date, to: Date): { months: number; weeks: number } {
+  const msPerWeek  = 7 * 24 * 60 * 60 * 1000;
+  const totalWeeks = Math.round((to.getTime() - from.getTime()) / msPerWeek);
+  const months     = Math.round(totalWeeks / 4.33);
+  return { months: Math.max(0, months), weeks: Math.max(0, totalWeeks) };
 }
 
-const SUPPORT_KIND_PATTERNS: Array<{ kind: SupportEventKind; patterns: RegExp[] }> = [
-  { kind: 'hypercare', patterns: [/\bhypercare\b/i, /\bpost.?go.?live\s+support\b/i] },
-  { kind: 'warranty',  patterns: [/\bwarranty\b/i, /\bdefect\s+liability\b/i] },
-  { kind: 'sla',       patterns: [/\bsla\b/i, /\bservice\s+level\b/i] },
-  { kind: 'maintenance', patterns: [/\bmaintenance\b/i, /\bAMC\b/, /\bannual\s+maintenance\b/i] },
-  { kind: 'support',   patterns: [/\bsupport\b/i, /\bpost.?implementation\b/i, /\bpost.?deployment\b/i] },
-];
+/** Convert any raw duration to canonical { months, weeks }. */
+function toMonthsWeeks(value: number, unit: string): { months: number; weeks: number } {
+  const u = unit.toLowerCase().replace(/s$/, '');
+  if (u === 'year')  return { months: value * 12,            weeks: Math.round(value * 52) };
+  if (u === 'month') return { months: value,                 weeks: Math.round(value * 4.33) };
+  if (u === 'week')  return { months: Math.round(value / 4.33), weeks: value };
+  if (u === 'day')   return { months: Math.round(value / 30),   weeks: Math.round(value / 7) };
+  return { months: 0, weeks: 0 };
+}
 
+/** Build a concise label from context (≤80 chars). */
+function ctxLabel(ctx: string, fallback: string): string {
+  const c = ctx.replace(/\s+/g, ' ').trim();
+  if (c.length <= 80) return c.charAt(0).toUpperCase() + c.slice(1);
+  const numIdx = c.search(/\d/);
+  const s = Math.max(0, numIdx - 45), e = Math.min(c.length, numIdx + 35);
+  const snip = c.slice(s, e).trim();
+  return (snip.length > 5 ? snip : fallback).replace(/^./, x => x.toUpperCase());
+}
+
+// ── Trigger patterns ──────────────────────────────────────────
+
+/**
+ * Lines that describe PROJECT DELIVERY duration (timeline / scope context).
+ * Must contain at least one of these phrases near a duration or date-range.
+ */
+const TIMELINE_TRIGGER = /\b(project\s+(duration|timeline|period|schedule|plan|delivery|completion|execution|term)|total\s+(duration|timeline|period|project)|overall\s+(duration|timeline)|duration\s+of\s+(?:the\s+)?(?:project|engagement|contract|work|scope)|engagement\s+(?:duration|period)|contract\s+(?:duration|period|term)|delivery\s+(?:timeline|period|schedule)|implementation\s+(?:duration|period|timeline)|scope\s+of\s+work\s+duration|project\s+to\s+be\s+(?:completed|delivered|executed|implemented)|estimated\s+(?:duration|timeline|period)|expected\s+(?:duration|timeline|completion)|timeline\s*:|project\s+start|kick.?off|commencement|go.?live|launch\s+date|production\s+(?:date|release)|completion\s+(?:date|deadline)|final\s+delivery|project\s+end\s+date|end\s+of\s+project)\b/i;
+
+/**
+ * Lines that describe POST-PRODUCTION SUPPORT duration.
+ * Matched FIRST so they are never double-counted as timeline events.
+ */
+const SUPPORT_TRIGGER = /\b(post[- ]?(?:production|deployment|go[- ]?live|implementation|launch|project)\s+support|hypercare|warranty\s+(?:period|support|duration)|defect\s+liability\s+period|AMC|annual\s+maintenance\s+(?:contract|support)|maintenance\s+(?:support|contract|period)|ongoing\s+support|support\s+(?:period|duration|phase|window)|post[- ]?project\s+support|stabili[sz]ation\s+(?:period|support))\b/i;
+
+/** Classify a support-context line into its specific kind. */
+const SUPPORT_KIND_MAP: Array<{ kind: SupportEventKind; re: RegExp }> = [
+  { kind: 'hypercare',   re: /\bhypercare\b/i },
+  { kind: 'warranty',    re: /\b(warranty|defect\s+liability)\b/i },
+  { kind: 'maintenance', re: /\b(AMC|annual\s+maintenance)\b/i },
+  { kind: 'support',     re: /\b(post[- ]?(?:production|deployment|go[- ]?live|implementation|launch|project)\s+support|support\s+(?:period|phase|window)|ongoing\s+support|stabili[sz]ation)\b/i },
+];
 function classifySupportKind(ctx: string): SupportEventKind {
-  for (const { kind, patterns } of SUPPORT_KIND_PATTERNS) {
-    if (patterns.some(re => re.test(ctx))) return kind;
-  }
+  for (const { kind, re } of SUPPORT_KIND_MAP) if (re.test(ctx)) return kind;
   return 'other';
-}
-
-/** Regex patterns for dates embedded in natural language sentences */
-const DATE_INLINE_PATTERNS: RegExp[] = [
-  /\b(\d{1,2})[\/\-\.](\d{1,2})[\/\-\.](\d{4})\b/g,          // DD/MM/YYYY or MM/DD/YYYY
-  /\b(\d{4})[\/\-\.](\d{1,2})[\/\-\.](\d{1,2})\b/g,          // YYYY-MM-DD
-  /\b(\d{1,2})(?:st|nd|rd|th)?\s+(January|February|March|April|May|June|July|August|September|October|November|December)\s+(\d{4})\b/gi,
-  /\b(January|February|March|April|May|June|July|August|September|October|November|December)\s+(\d{1,2})(?:st|nd|rd|th)?,?\s+(\d{4})\b/gi,
-  /\b(January|February|March|April|May|June|July|August|September|October|November|December)\s+(\d{4})\b/gi,
-  /\b(Jan|Feb|Mar|Apr|Jun|Jul|Aug|Sep|Oct|Nov|Dec)\.?\s+(\d{4})\b/gi,
-  /\bQ([1-4])\s+(\d{4})\b/gi,
-  /\b(20\d{2})\b/g,  // standalone year 2000–2099
-];
-
-/** Minimum and maximum "interesting" year range — filters out things like version numbers */
-const MIN_YEAR = 2020;
-const MAX_YEAR = 2040;
-
-function yearInRange(isoDate: string): boolean {
-  const y = Number(isoDate.split('-')[0]);
-  return y >= MIN_YEAR && y <= MAX_YEAR;
-}
-
-/** Build a short human label for a timeline event from its context sentence */
-function buildLabel(ctx: string, kind: TimelineEventKind | SupportEventKind): string {
-  // Try to grab a short action phrase before/after the date
-  const cleaned = ctx.replace(/\s+/g, ' ').trim();
-  if (cleaned.length <= 80) return cleaned.charAt(0).toUpperCase() + cleaned.slice(1);
-  // Trim to the closest sentence fragment
-  const idx = cleaned.search(/\d{4}/);
-  const start = Math.max(0, idx - 40);
-  const end   = Math.min(cleaned.length, idx + 40);
-  return (cleaned.slice(start, end).trim() || `${kind} event`).charAt(0).toUpperCase()
-    + (cleaned.slice(start, end).trim() || `${kind} event`).slice(1);
-}
-
-/** Duration keywords used near support sections */
-const DURATION_RE = /(\d+)\s*(day|week|month|year)s?/i;
-
-function extractDuration(ctx: string): string | undefined {
-  const m = ctx.match(DURATION_RE);
-  return m ? m[0] : undefined;
 }
 
 /**
- * Main extraction: scan all lines of the document text for dates and classify
- * them as either generic timeline events or support/hypercare events.
+ * Matches an explicit duration: "18 months", "26 weeks", "2 years", "90 days".
+ * Group 1 = number, Group 2 = unit.
+ */
+const EXPLICIT_DUR_RE = /\b(\d+(?:\.\d+)?)\s*(days?|weeks?|months?|years?)\b/gi;
+
+/**
+ * Matches a date-range pair: "01/06/2025 to 31/12/2026", "from Jan 2025 to Dec 2026".
+ * Very permissive — captures two date-like tokens separated by "to", "-", or "–".
+ */
+const DATE_TOKEN = `(?:\\d{1,2}[\\/-]\\d{1,2}[\\/-]\\d{4}|\\d{4}[\\/-]\\d{1,2}[\\/-]\\d{1,2}|(?:Jan(?:uary)?|Feb(?:ruary)?|Mar(?:ch)?|Apr(?:il)?|May|June?|July?|Aug(?:ust)?|Sep(?:tember)?|Oct(?:ober)?|Nov(?:ember)?|Dec(?:ember)?)\\s+(?:\\d{1,2}\\s+)?\\d{4})`;
+const DATE_RANGE_RE = new RegExp(
+  `(${DATE_TOKEN})\\s*(?:to|–|—|-)\\s*(${DATE_TOKEN})`,
+  'gi'
+);
+
+/**
+ * Scan every line (+ its preceding heading line for context) of the document.
+ * Extract:
+ *   • Project delivery durations → TimelineEvent[]
+ *   • Post-production support durations → SupportEvent[]
  */
 export function extractTimelineAndSupportEvents(text: string): {
   timelineEvents: TimelineEvent[];
   supportEvents: SupportEvent[];
 } {
   const timelineEvents: TimelineEvent[] = [];
-  const supportEvents: SupportEvent[] = [];
+  const supportEvents: SupportEvent[]   = [];
 
-  // Support / hypercare trigger keywords — any line containing these
-  // will classify matched dates as SupportEvents
-  const SUPPORT_TRIGGER = /\b(support|hypercare|warranty|maintenance|AMC|SLA|post.?go.?live|post.?implementation|post.?deployment|defect\s+liability|service\s+level)\b/i;
-
-  // We deduplicate by isoDate+kind to avoid multiple hits from the same sentence
+  // Deduplicate by "months:weeks" string to avoid identical hits from same sentence
   const seenTimeline = new Set<string>();
   const seenSupport  = new Set<string>();
 
   const lines = text.split('\n');
 
-  for (const rawLine of lines) {
-    const line = rawLine.trim();
+  for (let li = 0; li < lines.length; li++) {
+    const line = lines[li].trim();
     if (!line) continue;
 
-    // Collect all date-like tokens in this line
-    const dateMatches: string[] = [];
-    for (const pat of DATE_INLINE_PATTERNS) {
-      const regex = new RegExp(pat.source, pat.flags.includes('g') ? pat.flags : pat.flags + 'g');
-      let m: RegExpExecArray | null;
-      while ((m = regex.exec(line)) !== null) {
-        dateMatches.push(m[0]);
+    // Context = preceding non-empty line (often a heading) + current line
+    const prevLine = (lines[li - 1] ?? '').trim();
+    const ctx = (prevLine ? prevLine + ' ' : '') + line;
+
+    const isSupport  = SUPPORT_TRIGGER.test(ctx);
+    const isTimeline = !isSupport && TIMELINE_TRIGGER.test(ctx);
+    if (!isSupport && !isTimeline) continue;
+
+    // ── 1. Explicit duration expressions: "18 months", "26 weeks" ──
+    EXPLICIT_DUR_RE.lastIndex = 0;
+    let dm: RegExpExecArray | null;
+    while ((dm = EXPLICIT_DUR_RE.exec(line)) !== null) {
+      const value = parseFloat(dm[1]);
+      const unit  = dm[2].toLowerCase().replace(/s$/, '');
+      if (!value || value <= 0) continue;
+      const { months, weeks } = toMonthsWeeks(value, unit);
+      if (weeks <= 0 || weeks > 520) continue; // sanity cap at ~10 yrs
+
+      const dedupeKey = `${months}:${weeks}`;
+      const label = ctxLabel(ctx, `${value} ${unit}${value !== 1 ? 's' : ''}`);
+
+      if (isSupport) {
+        if (seenSupport.has(dedupeKey)) continue;
+        seenSupport.add(dedupeKey);
+        supportEvents.push({ id: uuid(), label, value, unit, months, weeks, kind: classifySupportKind(ctx), context: ctx.slice(0, 220) });
+      } else {
+        if (seenTimeline.has(dedupeKey)) continue;
+        seenTimeline.add(dedupeKey);
+        timelineEvents.push({ id: uuid(), label, value, unit, months, weeks, context: ctx.slice(0, 220) });
       }
     }
 
-    for (const rawDate of dateMatches) {
-      const isoDate = normaliseDateStr(rawDate);
-      if (!isoDate || !yearInRange(isoDate)) continue;
+    // ── 2. Date-range pairs: "01/06/2025 to 31/12/2026" ──────────
+    DATE_RANGE_RE.lastIndex = 0;
+    let dr: RegExpExecArray | null;
+    while ((dr = DATE_RANGE_RE.exec(line)) !== null) {
+      const d1 = parseDate(dr[1]);
+      const d2 = parseDate(dr[2]);
+      if (!d1 || !d2 || d2 <= d1) continue;
+      const { months, weeks } = dateDiff(d1, d2);
+      if (weeks <= 0 || weeks > 520) continue;
 
-      const isSupport = SUPPORT_TRIGGER.test(line);
+      const dedupeKey = `${months}:${weeks}`;
+      const label = ctxLabel(ctx, `${months} month${months !== 1 ? 's' : ''} / ${weeks} weeks`);
 
       if (isSupport) {
-        const kind = classifySupportKind(line);
-        const key = `${isoDate}:${kind}`;
-        if (seenSupport.has(key)) continue;
-        seenSupport.add(key);
-        supportEvents.push({
-          id:        uuid(),
-          label:     buildLabel(line, kind),
-          rawDate,
-          isoDate,
-          kind,
-          context:   line.slice(0, 200),
-          duration:  extractDuration(line),
-        });
+        if (seenSupport.has(dedupeKey)) continue;
+        seenSupport.add(dedupeKey);
+        supportEvents.push({ id: uuid(), label, value: months, unit: 'month', months, weeks, kind: classifySupportKind(ctx), context: ctx.slice(0, 220) });
       } else {
-        const kind = classifyTimelineKind(line);
-        const key = `${isoDate}:${kind}`;
-        if (seenTimeline.has(key)) continue;
-        seenTimeline.add(key);
-        timelineEvents.push({
-          id:      uuid(),
-          label:   buildLabel(line, kind),
-          rawDate,
-          isoDate,
-          kind,
-          context: line.slice(0, 200),
-        });
+        if (seenTimeline.has(dedupeKey)) continue;
+        seenTimeline.add(dedupeKey);
+        timelineEvents.push({ id: uuid(), label, value: months, unit: 'month', months, weeks, context: ctx.slice(0, 220) });
       }
     }
   }
 
-  // Sort both lists chronologically
-  timelineEvents.sort((a, b) => a.isoDate.localeCompare(b.isoDate));
-  supportEvents.sort((a, b) => a.isoDate.localeCompare(b.isoDate));
+  // Sort longest → shortest
+  timelineEvents.sort((a, b) => b.weeks - a.weeks);
+  supportEvents.sort((a, b) => b.weeks - a.weeks);
 
   return { timelineEvents, supportEvents };
 }

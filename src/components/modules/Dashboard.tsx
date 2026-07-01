@@ -237,135 +237,102 @@ function WelcomeState() {
   );
 }
 
-// ── Helper: friendly date label ───────────────────────────────
-function fmtIso(isoDate: string): string {
-  if (!isoDate) return '';
-  const [y, m, d] = isoDate.split('-');
-  const MONTH_NAMES = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
-  const mName = MONTH_NAMES[Number(m) - 1] ?? m;
-  if (d === '01' && isoDate.endsWith('-01-01')) return y;
-  if (d === '01') return `${mName} ${y}`;
-  return `${d}/${m}/${y}`;
+// ── Duration display helpers ──────────────────────────────────
+/** Format "18 months (78 weeks)" or "26 weeks (6 months)" etc. */
+function fmtDuration(ev: { value: number; unit: string; months: number; weeks: number }): string {
+  const primary   = `${ev.value} ${ev.unit}${ev.value !== 1 ? 's' : ''}`;
+  const secondary = ev.unit === 'week'
+    ? `${ev.months} month${ev.months !== 1 ? 's' : ''}`
+    : `${ev.weeks} week${ev.weeks !== 1 ? 's' : ''}`;
+  return `${primary}  ·  ${secondary}`;
 }
 
 // ── Timeline-Trend Card ────────────────────────────────────────
-const KIND_COLORS: Record<string, string> = {
-  'start':     '#10B981',
-  'go-live':   '#6366F1',
-  'deadline':  '#F43F5E',
-  'end':       '#8B5CF6',
-  'milestone': '#3B82F6',
-  'phase':     '#06B6D4',
-  'other':     '#94A3B8',
-};
-
-const KIND_LABEL: Record<string, string> = {
-  'start':     'Start',
-  'go-live':   'Go-Live',
-  'deadline':  'Deadline',
-  'end':       'End',
-  'milestone': 'Milestone',
-  'phase':     'Phase',
-  'other':     'Event',
-};
+const TL_COLORS = ['#6366F1', '#3B82F6', '#06B6D4', '#10B981', '#8B5CF6', '#F59E0B'];
 
 function TimelineTrendCard({ events }: { events: TimelineEvent[] }) {
   if (events.length === 0) return null;
-  // Build a compact chart dataset: each event becomes a bar at its position in time
-  // We sort events (already sorted) and assign a sequential x-index so overlapping
-  // iso-dates still render as separate ticks
-  const chartData = events.map((ev, i) => ({
-    name: fmtIso(ev.isoDate),
-    label: ev.label.length > 38 ? ev.label.slice(0, 38) + '…' : ev.label,
-    kind: ev.kind,
-    idx: i,
-    value: 1,
-    color: KIND_COLORS[ev.kind] ?? KIND_COLORS.other,
-  }));
+  const maxWeeks = events[0]?.weeks ?? 1; // already sorted longest→shortest
 
   return (
     <Card>
       <SectionHead title="Timeline Trend" />
 
-      {/* Legend row */}
-      <div style={{ display: 'flex', flexWrap: 'wrap', gap: '6px 12px', marginBottom: 14 }}>
-        {Array.from(new Set(events.map(e => e.kind))).map(kind => (
-          <span key={kind} style={{ display: 'inline-flex', alignItems: 'center', gap: 4, fontSize: 10, color: D.muted }}>
-            <span style={{ width: 8, height: 8, borderRadius: '50%', background: KIND_COLORS[kind] ?? KIND_COLORS.other, display: 'inline-block' }} />
-            {KIND_LABEL[kind] ?? kind}
-          </span>
-        ))}
+      {/* Sub-header */}
+      <div style={{ fontSize: 11, color: D.muted, marginBottom: 14 }}>
+        Project delivery duration extracted from document
       </div>
 
-      {/* Horizontal scrollable timeline strip */}
-      <div style={{ overflowX: 'auto', paddingBottom: 4 }}>
-        <div style={{ display: 'flex', alignItems: 'flex-start', gap: 0, minWidth: Math.max(400, events.length * 110) }}>
-          {events.map((ev, i) => {
-            const color = KIND_COLORS[ev.kind] ?? KIND_COLORS.other;
-            const isLast = i === events.length - 1;
-            return (
-              <div key={ev.id} style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', flex: '1 0 0', minWidth: 90 }}>
-                {/* Connector line + dot */}
-                <div style={{ display: 'flex', alignItems: 'center', width: '100%', height: 20 }}>
-                  <div style={{ flex: 1, height: 2, background: i === 0 ? 'transparent' : D.border }} />
-                  <div style={{
-                    width: 12, height: 12, borderRadius: '50%',
-                    border: `2.5px solid ${color}`,
-                    background: '#fff', flexShrink: 0,
-                    boxShadow: `0 0 0 3px ${color}22`,
-                  }} />
-                  <div style={{ flex: 1, height: 2, background: isLast ? 'transparent' : D.border }} />
+      {/* Duration bars */}
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+        {events.map((ev, i) => {
+          const color = TL_COLORS[i % TL_COLORS.length];
+          const pct   = Math.max(6, Math.round((ev.weeks / maxWeeks) * 100));
+          return (
+            <div key={ev.id}>
+              {/* Row: label + badge */}
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', marginBottom: 5 }}>
+                <div style={{ fontSize: 12, fontWeight: 600, color: D.text, maxWidth: '70%' }}>
+                  {ev.label.length > 70 ? ev.label.slice(0, 70) + '…' : ev.label}
                 </div>
-                {/* Date */}
-                <div style={{ fontSize: 10, fontWeight: 600, color, marginTop: 4, textAlign: 'center' }}>
-                  {fmtIso(ev.isoDate)}
-                </div>
-                {/* Kind badge */}
                 <div style={{
-                  fontSize: 9, fontWeight: 600, color: '#fff',
-                  background: color, borderRadius: 4, padding: '1px 5px',
-                  marginTop: 3, textTransform: 'uppercase', letterSpacing: '0.05em',
+                  fontSize: 11, fontWeight: 700, color,
+                  background: `${color}15`, border: `1px solid ${color}40`,
+                  borderRadius: 6, padding: '2px 8px', whiteSpace: 'nowrap',
                 }}>
-                  {KIND_LABEL[ev.kind] ?? ev.kind}
-                </div>
-                {/* Context snippet */}
-                <div style={{
-                  fontSize: 9, color: D.muted, marginTop: 4, textAlign: 'center',
-                  lineHeight: 1.3, maxWidth: 88, wordBreak: 'break-word',
-                }}>
-                  {ev.label.length > 50 ? ev.label.slice(0, 50) + '…' : ev.label}
+                  {ev.months} mo · {ev.weeks} wk
                 </div>
               </div>
-            );
-          })}
-        </div>
+              {/* Progress bar */}
+              <div style={{ height: 8, borderRadius: 99, background: '#F1F5F9', overflow: 'hidden' }}>
+                <div style={{
+                  height: '100%', width: `${pct}%`, borderRadius: 99,
+                  background: color, transition: 'width 0.4s ease',
+                }} />
+              </div>
+              {/* Secondary label */}
+              <div style={{ fontSize: 10, color: D.muted, marginTop: 4 }}>
+                {fmtDuration(ev)}
+              </div>
+            </div>
+          );
+        })}
       </div>
 
-      {/* Recharts bar chart for visual density overview */}
-      {events.length > 2 && (
-        <div style={{ marginTop: 16 }}>
-          <ResponsiveContainer width="100%" height={80}>
-            <BarChart data={chartData} barSize={14} margin={{ left: -10, right: 8, top: 4 }}>
-              <CartesianGrid strokeDasharray="3 3" stroke="#F1F5F9" vertical={false} />
-              <XAxis dataKey="name" tick={{ fill: '#64748B', fontSize: 9 }} axisLine={false} tickLine={false}
-                interval={Math.max(0, Math.floor(chartData.length / 6) - 1)} />
-              <YAxis hide />
+      {/* Recharts horizontal bar overview (only when >1 entry) */}
+      {events.length > 1 && (
+        <div style={{ marginTop: 18 }}>
+          <ResponsiveContainer width="100%" height={events.length * 28 + 16}>
+            <BarChart
+              layout="vertical"
+              data={events.map((ev, i) => ({
+                name: `${ev.months}mo`,
+                weeks: ev.weeks,
+                color: TL_COLORS[i % TL_COLORS.length],
+                label: ev.label.length > 30 ? ev.label.slice(0, 30) + '…' : ev.label,
+              }))}
+              margin={{ left: 0, right: 40, top: 0, bottom: 0 }}
+              barSize={14}
+            >
+              <CartesianGrid strokeDasharray="3 3" stroke="#F1F5F9" horizontal={false} />
+              <XAxis type="number" hide />
+              <YAxis type="category" dataKey="name" tick={{ fill: '#64748B', fontSize: 10 }} axisLine={false} tickLine={false} width={40} />
               <Tooltip
                 content={({ active, payload }) => {
                   if (!active || !payload?.length) return null;
-                  const d = payload[0].payload as typeof chartData[number];
+                  const d = payload[0].payload as { name: string; weeks: number; label: string; color: string };
                   return (
-                    <div style={{ ...tooltipStyle, minWidth: 180 }}>
-                      <div style={{ fontWeight: 700, color: d.color, fontSize: 12, marginBottom: 3 }}>{d.name}</div>
+                    <div style={{ ...tooltipStyle, minWidth: 200 }}>
+                      <div style={{ fontWeight: 700, color: d.color, fontSize: 12, marginBottom: 3 }}>{d.name} · {d.weeks} weeks</div>
                       <div style={{ fontSize: 11, color: '#374151' }}>{d.label}</div>
                     </div>
                   );
                 }}
                 wrapperStyle={tooltipWrapperStyle}
               />
-              <Bar dataKey="value" radius={[4, 4, 0, 0]}>
-                {chartData.map((entry, i) => (
-                  <Cell key={i} fill={entry.color} />
+              <Bar dataKey="weeks" radius={[0, 4, 4, 0]}>
+                {events.map((_, i) => (
+                  <Cell key={i} fill={TL_COLORS[i % TL_COLORS.length]} />
                 ))}
               </Bar>
             </BarChart>
@@ -382,68 +349,66 @@ const SUPPORT_KIND_COLORS: Record<string, string> = {
   'support':     '#3B82F6',
   'warranty':    '#10B981',
   'maintenance': '#F59E0B',
-  'sla':         '#06B6D4',
   'other':       '#94A3B8',
 };
-
 const SUPPORT_KIND_LABELS: Record<string, string> = {
   'hypercare':   'Hypercare',
   'support':     'Support',
   'warranty':    'Warranty',
   'maintenance': 'Maintenance',
-  'sla':         'SLA',
   'other':       'Other',
 };
 
 function SupportTrendCard({ events }: { events: SupportEvent[] }) {
   if (events.length === 0) return null;
+  const maxWeeks = events[0]?.weeks ?? 1;
 
   return (
     <Card>
       <SectionHead title="Support &amp; Hypercare Trend" />
 
-      {/* Legend */}
-      <div style={{ display: 'flex', flexWrap: 'wrap', gap: '6px 12px', marginBottom: 14 }}>
-        {Array.from(new Set(events.map(e => e.kind))).map(kind => (
-          <span key={kind} style={{ display: 'inline-flex', alignItems: 'center', gap: 4, fontSize: 10, color: D.muted }}>
-            <span style={{ width: 8, height: 8, borderRadius: 2, background: SUPPORT_KIND_COLORS[kind] ?? SUPPORT_KIND_COLORS.other, display: 'inline-block' }} />
-            {SUPPORT_KIND_LABELS[kind] ?? kind}
-          </span>
-        ))}
+      <div style={{ fontSize: 11, color: D.muted, marginBottom: 14 }}>
+        Post-production / post-deployment support duration from document
       </div>
 
-      {/* Table-style list */}
-      <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
         {events.map((ev) => {
           const color = SUPPORT_KIND_COLORS[ev.kind] ?? SUPPORT_KIND_COLORS.other;
+          const pct   = Math.max(6, Math.round((ev.weeks / maxWeeks) * 100));
           return (
-            <div key={ev.id} style={{
-              display: 'grid', gridTemplateColumns: '90px 1fr auto',
-              alignItems: 'center', gap: 10,
-              background: `${color}0D`, border: `1px solid ${color}30`,
-              borderRadius: 8, padding: '8px 12px',
-            }}>
-              {/* Date */}
-              <div>
-                <div style={{ fontSize: 12, fontWeight: 700, color }}>{fmtIso(ev.isoDate)}</div>
-                {ev.duration && (
-                  <div style={{ fontSize: 9, color: D.muted, marginTop: 2 }}>{ev.duration}</div>
-                )}
-              </div>
-              {/* Label + context */}
-              <div>
-                <div style={{ fontSize: 12, fontWeight: 600, color: D.text, lineHeight: 1.3 }}>
-                  {ev.label.length > 90 ? ev.label.slice(0, 90) + '…' : ev.label}
+            <div key={ev.id}>
+              {/* Row: label + kind badge */}
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 5 }}>
+                <div style={{ fontSize: 12, fontWeight: 600, color: D.text, maxWidth: '60%' }}>
+                  {ev.label.length > 60 ? ev.label.slice(0, 60) + '…' : ev.label}
+                </div>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                  <span style={{
+                    fontSize: 11, fontWeight: 700, color,
+                    background: `${color}15`, border: `1px solid ${color}40`,
+                    borderRadius: 6, padding: '2px 8px', whiteSpace: 'nowrap',
+                  }}>
+                    {ev.months} mo · {ev.weeks} wk
+                  </span>
+                  <span style={{
+                    fontSize: 9, fontWeight: 700, color: '#fff',
+                    background: color, borderRadius: 4,
+                    padding: '2px 6px', whiteSpace: 'nowrap',
+                    textTransform: 'uppercase', letterSpacing: '0.05em',
+                  }}>
+                    {SUPPORT_KIND_LABELS[ev.kind] ?? ev.kind}
+                  </span>
                 </div>
               </div>
-              {/* Kind badge */}
-              <div style={{
-                fontSize: 9, fontWeight: 700, color: '#fff',
-                background: color, borderRadius: 4,
-                padding: '2px 6px', whiteSpace: 'nowrap',
-                textTransform: 'uppercase', letterSpacing: '0.05em',
-              }}>
-                {SUPPORT_KIND_LABELS[ev.kind] ?? ev.kind}
+              {/* Progress bar */}
+              <div style={{ height: 8, borderRadius: 99, background: '#F1F5F9', overflow: 'hidden' }}>
+                <div style={{
+                  height: '100%', width: `${pct}%`, borderRadius: 99,
+                  background: color, transition: 'width 0.4s ease',
+                }} />
+              </div>
+              <div style={{ fontSize: 10, color: D.muted, marginTop: 4 }}>
+                {fmtDuration(ev)}
               </div>
             </div>
           );
@@ -755,10 +720,11 @@ export default function Dashboard() {
             <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
               <Clock size={18} style={{ color: D.muted, flexShrink: 0 }} />
               <div>
-                <div style={{ fontSize: 13, fontWeight: 600, color: D.text }}>No explicit dates found in document</div>
+                <div style={{ fontSize: 13, fontWeight: 600, color: D.text }}>No project duration or support period found</div>
                 <div style={{ fontSize: 11, color: D.muted, marginTop: 2 }}>
-                  The Timeline-Trend and Support-Trend cards will populate automatically once the document contains
-                  dates in DD/MM/YYYY, Month YYYY, or Q1/Q2 YYYY format alongside timeline or support keywords.
+                  Timeline-Trend and Support-Trend cards populate automatically when the document mentions
+                  durations like <strong>&ldquo;18 months&rdquo;</strong>, <strong>&ldquo;26 weeks&rdquo;</strong> or date ranges like
+                  <strong>&ldquo;01/06/2025 to 31/12/2026&rdquo;</strong> in a project timeline or support/hypercare context.
                 </div>
               </div>
               <Headphones size={18} style={{ color: D.muted, flexShrink: 0, marginLeft: 'auto' }} />

@@ -554,39 +554,39 @@ export interface AIImpact {
   lastUpdated: string;
 }
 
-// ── Timeline / Support Events ─────────────────────────────────
-export type TimelineEventKind =
-  | 'start'
-  | 'milestone'
-  | 'phase'
-  | 'deadline'
-  | 'go-live'
-  | 'end'
-  | 'other';
+// ── Timeline / Support Duration Events ───────────────────────
+// Extracted from duration expressions ("18 months", "26 weeks") OR
+// date-range pairs ("01/06/2025 to 31/12/2026") converted to months+weeks.
 
+/** A project-delivery duration extracted from scope / timeline sections. */
 export interface TimelineEvent {
   id: string;
+  /** Human label derived from surrounding context */
   label: string;
-  /** Raw date string as found in the document (e.g. "01/06/2025") */
-  rawDate: string;
-  /** Normalised ISO date string yyyy-MM-dd for sorting */
-  isoDate: string;
-  kind: TimelineEventKind;
-  /** Original sentence / snippet the date was extracted from */
+  /** Primary numeric value as stated in the document */
+  value: number;
+  /** Unit as stated: "month" | "week" | "day" | "year" */
+  unit: string;
+  /** Converted months (always populated) */
+  months: number;
+  /** Converted weeks (always populated, used for bar width) */
+  weeks: number;
+  /** Original sentence the duration was extracted from */
   context: string;
 }
 
-export type SupportEventKind = 'hypercare' | 'support' | 'warranty' | 'maintenance' | 'sla' | 'other';
+export type SupportEventKind = 'hypercare' | 'support' | 'warranty' | 'maintenance' | 'other';
 
+/** A post-production / post-deployment support duration extracted from the document. */
 export interface SupportEvent {
   id: string;
   label: string;
-  rawDate: string;
-  isoDate: string;
+  value: number;
+  unit: string;
+  months: number;
+  weeks: number;
   kind: SupportEventKind;
   context: string;
-  /** Duration string if found (e.g. "3 months", "90 days") */
-  duration?: string;
 }
 
 // ============================================================
