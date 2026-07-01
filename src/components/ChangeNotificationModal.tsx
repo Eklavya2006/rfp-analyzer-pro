@@ -13,10 +13,10 @@ export default function ChangeNotificationModal() {
 
   const [alertSent,    setAlertSent]    = useState(false);
   const [alertSending, setAlertSending] = useState(false);
-  const [emailTo,      setEmailTo]      = useState('');
+  const [emailTo,      setEmailTo]      = useState('pradeep.lamba1@ibm.com');
   const [emailSent,    setEmailSent]    = useState(false);
   const [emailSending, setEmailSending] = useState(false);
-  const [showEmailInput, setShowEmailInput] = useState(false);
+  const [emailError,   setEmailError]   = useState('');
 
   if (!pendingNotification) return null;
 
@@ -45,6 +45,7 @@ export default function ChangeNotificationModal() {
   async function sendEmail() {
     if (!pendingNotification || !emailTo.trim()) return;
     setEmailSending(true);
+    setEmailError('');
     try {
       const subject = `[RFP Analyzer] ${pendingNotification.sourceModule} Updated — ${docName}`;
       const body    = `${pendingNotification.message}\n\nAffected modules:\n${pendingNotification.affectedModules.map(m => `  • ${m}`).join('\n')}\n\nDocument: ${docName}`;
@@ -59,6 +60,8 @@ export default function ChangeNotificationModal() {
         window.open(data.mailtoUrl, '_blank');
       }
       setEmailSent(true);
+    } catch {
+      setEmailError('Failed to send. Check SMTP settings.');
     } finally {
       setEmailSending(false);
     }
@@ -112,43 +115,36 @@ export default function ChangeNotificationModal() {
               {!alertSent && <span className="ml-auto text-[9px] text-slate-300">needs webhook env var</span>}
             </button>
 
-            {/* Email */}
-            {!emailSent && !showEmailInput && (
-              <button
-                onClick={() => setShowEmailInput(true)}
-                className="flex items-center gap-2 w-full text-xs font-semibold px-3 py-1.5 rounded-lg border transition-colors"
-                style={{ borderColor: '#E2E8F0', color: '#64748B', background: '#F8FAFC', cursor: 'pointer' }}
-              >
-                <Mail size={11} />
-                Send Email notification
-              </button>
-            )}
-            {showEmailInput && !emailSent && (
-              <div className="flex gap-1.5">
-                <input
-                  type="email"
-                  value={emailTo}
-                  onChange={e => setEmailTo(e.target.value)}
-                  placeholder="recipient@company.com"
-                  className="flex-1 text-xs px-2.5 py-1.5 rounded-lg border outline-none"
-                  style={{ borderColor: '#E2E8F0', fontSize: 12 }}
-                  onKeyDown={e => e.key === 'Enter' && sendEmail()}
-                  autoFocus
-                />
-                <button
-                  onClick={sendEmail}
-                  disabled={emailSending || !emailTo.trim()}
-                  className="flex items-center gap-1 text-xs font-semibold px-3 py-1.5 rounded-lg text-white"
-                  style={{ background: '#0F62FE', opacity: !emailTo.trim() ? 0.5 : 1 }}
-                >
-                  <Mail size={10} />
-                  {emailSending ? '…' : 'Send'}
-                </button>
+            {/* Email — always visible, pre-filled */}
+            {!emailSent ? (
+              <div className="space-y-1.5">
+                <div className="flex gap-1.5">
+                  <input
+                    type="email"
+                    value={emailTo}
+                    onChange={e => setEmailTo(e.target.value)}
+                    placeholder="recipient@company.com"
+                    className="flex-1 text-xs px-2.5 py-1.5 rounded-lg border outline-none focus:border-blue-400"
+                    style={{ borderColor: '#E2E8F0', fontSize: 12 }}
+                    onKeyDown={e => e.key === 'Enter' && sendEmail()}
+                  />
+                  <button
+                    onClick={sendEmail}
+                    disabled={emailSending || !emailTo.trim()}
+                    className="flex items-center gap-1 text-xs font-semibold px-3 py-1.5 rounded-lg text-white"
+                    style={{ background: '#0F62FE', opacity: !emailTo.trim() ? 0.5 : 1 }}
+                  >
+                    <Mail size={10} />
+                    {emailSending ? '…' : 'Send'}
+                  </button>
+                </div>
+                {emailError && (
+                  <p className="text-[11px] text-red-500 px-1">{emailError}</p>
+                )}
               </div>
-            )}
-            {emailSent && (
+            ) : (
               <div className="flex items-center gap-2 text-xs font-semibold text-green-600 px-1">
-                <Mail size={11} /> Email sent ✓
+                <Mail size={11} /> Email sent to {emailTo} ✓
               </div>
             )}
           </div>

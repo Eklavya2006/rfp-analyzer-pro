@@ -1,19 +1,18 @@
 import { NextRequest, NextResponse } from 'next/server';
+import nodemailer from 'nodemailer';
 
 // ── Send Email API ─────────────────────────────────────────────
 // Two modes:
-//   1. SMTP (server-side): requires SMTP_HOST, SMTP_PORT, SMTP_USER, SMTP_PASS
-//      Uses nodemailer — install it on the enriched branch if needed.
-//   2. mailto: fallback (client-side): returns a mailto: URL the client opens
-//      directly — zero config, works everywhere.
+//   1. SMTP (server-side): set SMTP_HOST, SMTP_PORT, SMTP_USER, SMTP_PASS in .env.local
+//   2. mailto: fallback: returned when SMTP is not configured — client opens local mail app
 //
-// The client always gets { sent, mailtoUrl } so it can fall back gracefully.
+// Response always contains { sent, method, mailtoUrl } so the UI handles both cases.
 
 export interface EmailPayload {
-  to: string;          // comma-separated recipients
+  to: string;        // comma-separated recipients
   subject: string;
-  body: string;        // plain-text body
-  htmlBody?: string;   // optional HTML body
+  body: string;      // plain-text body
+  htmlBody?: string; // optional rich HTML body
 }
 
 function buildMailtoUrl(payload: EmailPayload): string {
@@ -21,22 +20,19 @@ function buildMailtoUrl(payload: EmailPayload): string {
     subject: payload.subject,
     body:    payload.body,
   });
-  const to = encodeURIComponent(payload.to);
-  return `mailto:${to}?${params.toString()}`;
+  return `mailto:${encodeURIComponent(payload.to)}?${params.toString()}`;
 }
 
 export async function POST(req: NextRequest) {
   const payload: EmailPayload = await req.json();
 
-  // Validate minimal fields
   if (!payload.to || !payload.subject) {
     return NextResponse.json({ error: 'to and subject are required' }, { status: 400 });
   }
 
-  // Build mailto fallback URL always — client can use it even if SMTP succeeds
   const mailtoUrl = buildMailtoUrl(payload);
 
-  // ── Attempt SMTP send ────────────────────────────────────────
+  // ── SMTP path ────────────────────────────────────────────────
   const smtpHost = process.env.SMTP_HOST;
   const smtpPort = Number(process.env.SMTP_PORT ?? 587);
   const smtpUser = process.env.SMTP_USER;
@@ -45,10 +41,6 @@ export async function POST(req: NextRequest) {
 
   if (smtpHost && smtpUser && smtpPass) {
     try {
-      // Dynamic import via eval — prevents bundler from trying to resolve
-      // nodemailer at build time (it's an optional server dependency).
-      // eslint-disable-next-line no-eval
-      const nodemailer = eval("require")('nodemailer');
       const transporter = nodemailer.createTransport({
         host:   smtpHost,
         port:   smtpPort,
@@ -65,10 +57,10 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ sent: true, method: 'smtp', mailtoUrl });
     } catch (err) {
       console.error('[send-email] SMTP error:', err);
-      // Fall through to mailto fallback response
+      // Fall through to mailto fallback
     }
   }
 
-  // No SMTP configured — return mailto URL for the client to open
+  // No SMTP configured — client opens local mail app via mailto:
   return NextResponse.json({ sent: false, method: 'mailto', mailtoUrl });
 }

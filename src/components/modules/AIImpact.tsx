@@ -3,10 +3,12 @@
 // AgenticImpact — KPI cards + charts + 3-way view toggle
 // ============================================================
 import React, { useCallback, useState } from 'react';
+import ReactDOM from 'react-dom';
 import {
   BarChart, Bar, AreaChart, Area, PieChart, Pie, Cell,
   XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Legend,
 } from 'recharts';
+import { Mail } from 'lucide-react';
 import { useRFPStore } from '@/lib/store';
 import type { AIImpact, AIRoleRow } from '@/types';
 
@@ -90,16 +92,55 @@ const VIEW_LABELS: Record<AgenticView, string> = {
   client:  '👤 Client View',
 };
 
-// ── Info Tooltip for chart headings ──────────────────────────
+// ── Info Tooltip — portal-based so it escapes table/overflow clipping ──
+// Uses ReactDOM.createPortal to render at document.body, guaranteeing the
+// popup is never clipped by table cells, overflow:hidden, or low z-index.
 function ChartTooltip({ text }: { text: string }) {
   const [show, setShow] = useState(false);
+  const [pos, setPos]   = useState({ x: 0, y: 0 });
+  const btnRef = React.useRef<HTMLButtonElement>(null);
+
+  const handleEnter = () => {
+    if (btnRef.current) {
+      const r = btnRef.current.getBoundingClientRect();
+      // Centre above the button
+      setPos({ x: r.left + r.width / 2, y: r.top });
+    }
+    setShow(true);
+  };
+
+  const popup = show ? (
+    <div style={{
+      position: 'fixed',
+      left: Math.min(pos.x, (typeof window !== 'undefined' ? window.innerWidth : 1200) - 150),
+      top: pos.y - 8,
+      transform: 'translate(-50%, -100%)',
+      background: '#1A202C', color: '#F7FAFC',
+      fontSize: 11, lineHeight: 1.55,
+      borderRadius: 10, padding: '10px 14px',
+      width: 260, boxShadow: '0 8px 24px rgba(0,0,0,0.35)',
+      pointerEvents: 'none',
+      whiteSpace: 'normal',
+      zIndex: 2147483647,
+    }}>
+      {text}
+      <div style={{
+        position: 'absolute', top: '100%', left: '50%', transform: 'translateX(-50%)',
+        width: 0, height: 0,
+        borderLeft: '6px solid transparent', borderRight: '6px solid transparent',
+        borderTop: '6px solid #1A202C',
+      }} />
+    </div>
+  ) : null;
+
   return (
-    <div className="relative inline-flex" style={{ verticalAlign: 'middle' }}>
+    <span className="relative inline-flex" style={{ verticalAlign: 'middle' }}>
       <button
+        ref={btnRef}
         type="button"
-        onMouseEnter={() => setShow(true)}
+        onMouseEnter={handleEnter}
         onMouseLeave={() => setShow(false)}
-        onFocus={() => setShow(true)}
+        onFocus={handleEnter}
         onBlur={() => setShow(false)}
         aria-label="More information"
         style={{
@@ -112,28 +153,10 @@ function ChartTooltip({ text }: { text: string }) {
         }}>
         ⓘ
       </button>
-      {show && (
-        <div style={{
-          position: 'absolute', bottom: '100%', left: '50%', transform: 'translateX(-50%)',
-          marginBottom: 8, zIndex: 50,
-          background: '#1A202C', color: '#F7FAFC',
-          fontSize: 11, lineHeight: 1.55,
-          borderRadius: 10, padding: '10px 14px',
-          width: 280, boxShadow: '0 8px 24px rgba(0,0,0,0.3)',
-          pointerEvents: 'none',
-          whiteSpace: 'normal',
-        }}>
-          {text}
-          {/* caret */}
-          <div style={{
-            position: 'absolute', top: '100%', left: '50%', transform: 'translateX(-50%)',
-            width: 0, height: 0,
-            borderLeft: '6px solid transparent', borderRight: '6px solid transparent',
-            borderTop: '6px solid #1A202C',
-          }} />
-        </div>
-      )}
-    </div>
+      {typeof window !== 'undefined' && popup
+        ? ReactDOM.createPortal(popup, document.body)
+        : null}
+    </span>
   );
 }
 
@@ -361,18 +384,67 @@ function ClientOutcomeView({ ai }: { ai: AIImpact }) {
 export default function AgenticImpactModule() {
   const activeDocumentId = useRFPStore((state) => state.activeDocumentId);
   const analysisResults = useRFPStore((state) => state.analysisResults);
+  const documents       = useRFPStore((state) => state.documents);
   const setAnalysisResult = useRFPStore((state) => state.setAnalysisResult);
   const showNotification = useRFPStore((state) => state.showNotification);
   const result = activeDocumentId ? analysisResults[activeDocumentId] : null;
   const [view, setView] = useState<AgenticView>('client');
   const [editingRoleId, setEditingRoleId] = useState<string | null>(null);
   const [editValues, setEditValues] = useState<Partial<AIRoleRow>>({});
+  const [emailSending, setEmailSending] = useState(false);
+  const [emailStatus, setEmailStatus] = useState<'idle' | 'sent' | 'error'>('idle');
 
   if (!result?.aiImpact) return (
     <div className="p-6 text-gray-400 text-sm text-center mt-20">Upload a document to see agentic impact analysis</div>
   );
 
   const ai = result.aiImpact;
+  const docName = documents.find(d => d.id === activeDocumentId)?.name ?? 'Active RFP';
+
+  async function emailReport() {
+    setEmailSending(true);
+    setEmailStatus('idle');
+    try {
+      const subject = `AI Impact Report — ${docName}`;
+      const body = [
+        `AI Impact Report — ${docName}`,
+        `Generated: ${new Date().toLocaleString()}`,
+        ``,
+        `━━━ SUMMARY ━━━`,
+        `Active Agents:          ${ai.roleRows.length}`,
+        `Total AI Hours:         ${ai.totalAIHours.toLocaleString()}h`,
+        `Hours Saved:            ${ai.totalHoursSaved.toLocaleString()}h`,
+        `Overall Productivity:   ${ai.overallProductivityGain}%`,
+        ``,
+        `━━━ ROLE BREAKDOWN ━━━`,
+        ...ai.roleRows.map(r =>
+          `• ${r.role} (${r.band}) — Trad: ${r.traditionalFTE} FTE → AI: ${r.aiAugmentedFTE} FTE | Productivity: ${r.productivityPct}% | Automation: ${r.automationCoveragePct}% | Tool: ${r.toolUsed}`
+        ),
+        ``,
+        `━━━ PHASE BREAKDOWN ━━━`,
+        ...ai.phaseRows.map(p =>
+          `• ${p.phase}: Traditional ${p.traditionalHours}h → AI ${p.aiAssistedHours}h (saved ${p.hoursSaved}h)`
+        ),
+      ].join('\n');
+
+      const res = await fetch('/api/send-email', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ to: 'pradeep.lamba1@ibm.com', subject, body }),
+      });
+      const data = await res.json();
+      if (data.method === 'mailto') {
+        window.open(data.mailtoUrl, '_blank');
+      }
+      setEmailStatus('sent');
+      setTimeout(() => setEmailStatus('idle'), 4000);
+    } catch {
+      setEmailStatus('error');
+      setTimeout(() => setEmailStatus('idle'), 4000);
+    } finally {
+      setEmailSending(false);
+    }
+  }
 
   const startEdit = useCallback((row: AIRoleRow) => {
     setEditingRoleId(row.id);
@@ -449,20 +521,39 @@ export default function AgenticImpactModule() {
   return (
     <div className="p-6 max-w-7xl mx-auto space-y-6">
 
-      {/* ── Header + 3-way toggle ── */}
+      {/* ── Header + 3-way toggle + Email button ── */}
       <div className="flex items-center justify-between flex-wrap gap-3">
         <div>
           <div style={{ fontSize: 20, fontWeight: 700, color: '#1A202C' }}>AI vs Traditional Delivery</div>
           <p className="text-xs mt-0.5" style={{ color: '#4A5568' }}>Quantified impact analysis of AI augmented delivery</p>
         </div>
-        <div className="flex items-center gap-1 rounded-xl p-1 border" style={{ background: '#F8FAFC', borderColor: '#E2E8F0' }}>
-          {(['ibm', 'agentic', 'client'] as const).map((v) => (
-            <button key={v} onClick={() => setView(v)}
-              className="px-4 py-1.5 rounded-lg text-xs font-semibold transition-all"
-              style={view === v ? { background: ACCENT, color: '#fff' } : { color: '#4A5568' }}>
-              {VIEW_LABELS[v]}
-            </button>
-          ))}
+        <div className="flex items-center gap-2 flex-wrap">
+          {/* Email report button */}
+          <button
+            onClick={emailReport}
+            disabled={emailSending}
+            className="flex items-center gap-1.5 text-xs font-semibold px-3 py-1.5 rounded-lg border transition-all"
+            style={{
+              borderColor: emailStatus === 'sent' ? '#42be65' : emailStatus === 'error' ? '#da1e28' : '#0f62fe',
+              color:       emailStatus === 'sent' ? '#42be65' : emailStatus === 'error' ? '#da1e28' : '#0f62fe',
+              background:  emailStatus === 'sent' ? '#d1fae5' : emailStatus === 'error' ? '#fee2e2' : '#eff6ff',
+              cursor: emailSending ? 'wait' : 'pointer',
+            }}
+          >
+            <Mail size={13} />
+            {emailSending ? 'Sending…' : emailStatus === 'sent' ? 'Sent ✓' : emailStatus === 'error' ? 'Failed — retry' : 'Email Report'}
+          </button>
+
+          {/* 3-way view toggle */}
+          <div className="flex items-center gap-1 rounded-xl p-1 border" style={{ background: '#F8FAFC', borderColor: '#E2E8F0' }}>
+            {(['ibm', 'agentic', 'client'] as const).map((v) => (
+              <button key={v} onClick={() => setView(v)}
+                className="px-4 py-1.5 rounded-lg text-xs font-semibold transition-all"
+                style={view === v ? { background: ACCENT, color: '#fff' } : { color: '#4A5568' }}>
+                {VIEW_LABELS[v]}
+              </button>
+            ))}
+          </div>
         </div>
       </div>
 
@@ -565,14 +656,27 @@ export default function AgenticImpactModule() {
         </div>
 
         <div className="bg-white rounded-2xl border p-5" style={{ borderColor: '#E2E8F0' }}>
-          <h3 style={{ fontSize: 16, fontWeight: 600, color: '#0A1628', marginBottom: 16 }}>Agent Performance Matrix</h3>
+          <div className="flex items-center gap-2 mb-4">
+            <h3 style={{ fontSize: 16, fontWeight: 600, color: '#0A1628', margin: 0 }}>Agent Performance Matrix</h3>
+            <ChartTooltip text="Comparative performance scores per AI agent across 4 dimensions: Speed (task completion rate), Accuracy (output quality), Load (% capacity utilisation), and Errors (defect count). Higher Speed/Accuracy = better; lower Errors = better; Load >80% may indicate bottleneck risk. Use this to identify which agents need optimisation or rebalancing." />
+          </div>
           <div className="overflow-x-auto">
             <table style={{ width: '100%', fontSize: 12, minWidth: 400 }}>
               <thead>
                 <tr style={{ color: '#94A3B8', fontSize: 11 }}>
                   <th className="py-2 px-2 text-left font-medium">Agent</th>
-                  {['Speed','Accuracy','Load','Errors'].map(h => (
-                    <th key={h} className="py-2 px-2 text-center font-medium">{h}</th>
+                  {[
+                    { h: 'Speed',    tip: 'Task throughput rate — % of assigned tasks completed per cycle. Higher is better.' },
+                    { h: 'Accuracy', tip: 'Output quality score — % of outputs passing validation without rework. Higher is better.' },
+                    { h: 'Load',     tip: 'Capacity utilisation — % of max compute/token budget consumed. >80% = bottleneck risk (red).' },
+                    { h: 'Errors',   tip: 'Defect count — number of outputs requiring human correction. Lower is better (red if >10).' },
+                  ].map(({ h, tip }) => (
+                    <th key={h} className="py-2 px-2 text-center font-medium">
+                      <span className="inline-flex items-center gap-1 justify-center">
+                        {h}
+                        <ChartTooltip text={tip} />
+                      </span>
+                    </th>
                   ))}
                 </tr>
               </thead>
