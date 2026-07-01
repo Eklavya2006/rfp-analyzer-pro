@@ -49,7 +49,37 @@ function buildHtmlBody(
   subtitle: string,
   reportUrl?: string,
 ): string {
-  const sectionRows = sections.map(sec => {
+  // Split: cover message (first 'text' section) renders above the link & tables
+  const coverSection = sections.find(s => s.type === 'text');
+  const dataSections = sections.filter(s => !(s === coverSection));
+
+  const coverBlock = coverSection?.text ? `
+    <tr>
+      <td style="background:#ffffff;padding:24px 28px 20px;">
+        <p style="margin:0 0 12px;font-size:15px;font-weight:600;color:#1f2328;">
+          ${coverSection.title}
+        </p>
+        <p style="margin:0;font-size:14px;color:#374151;line-height:1.8;white-space:pre-line;">
+          ${coverSection.text.replace(/\n/g, '<br>')}
+        </p>
+      </td>
+    </tr>` : '';
+
+  const linkRow = reportUrl ? `
+    <tr>
+      <td style="background:#ffffff;padding:4px 28px 24px;">
+        <p style="margin:0;font-size:14px;color:#374151;">
+          View the full interactive report:&nbsp;
+          <a href="${reportUrl}" target="_blank"
+            style="color:#0f62fe;font-weight:700;text-decoration:underline;">
+            RFP_Analyser_AI
+          </a>
+        </p>
+        <p style="margin:6px 0 0;font-size:11px;color:#94a3b8;">Link expires after 7 days</p>
+      </td>
+    </tr>` : '';
+
+  const sectionRows = dataSections.map(sec => {
     const header = `
       <tr>
         <td colspan="2" style="padding:14px 20px 6px;font-size:11px;font-weight:700;
@@ -84,26 +114,6 @@ function buildHtmlBody(
     return header;
   }).join('');
 
-  const linkButton = reportUrl ? `
-    <tr>
-      <td style="padding:24px 20px;">
-        <table cellpadding="0" cellspacing="0" style="margin:0 auto;">
-          <tr>
-            <td style="border-radius:10px;background:#0f62fe;">
-              <a href="${reportUrl}" target="_blank"
-                style="display:inline-block;padding:12px 28px;font-size:14px;font-weight:700;
-                  color:#ffffff;text-decoration:none;letter-spacing:0.01em;">
-                RFP_Analyser_AI &rarr;
-              </a>
-            </td>
-          </tr>
-        </table>
-        <p style="text-align:center;font-size:11px;color:#94a3b8;margin:10px 0 0;">
-          Link expires after 7 days
-        </p>
-      </td>
-    </tr>` : '';
-
   return `<!DOCTYPE html>
 <html>
 <head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"></head>
@@ -127,10 +137,13 @@ function buildHtmlBody(
           </td>
         </tr>
 
-        <!-- CTA Button -->
-        ${linkButton}
+        <!-- Cover message (first text section) -->
+        ${coverBlock}
 
-        <!-- Data sections -->
+        <!-- RFP_Analyser_AI blue web link -->
+        ${linkRow}
+
+        <!-- Data sections (tables + remaining text sections) -->
         <tr>
           <td colspan="2" style="background:#ffffff;">
             <table width="100%" cellpadding="0" cellspacing="0">
@@ -164,21 +177,26 @@ function buildPlainBody(
   subtitle: string,
   reportUrl?: string,
 ): string {
-  const lines: string[] = [
-    reportTitle,
-    subtitle,
-    `Generated: ${new Date().toLocaleString()}`,
-    '',
-  ];
+  const coverSection = sections.find(s => s.type === 'text');
+  const dataSections = sections.filter(s => !(s === coverSection));
 
-  if (reportUrl) {
-    lines.push('View full interactive report:');
-    lines.push(`RFP_Analyser_AI: ${reportUrl}`);
+  const lines: string[] = [reportTitle, subtitle, ''];
+
+  // Cover message first
+  if (coverSection?.text) {
+    lines.push(coverSection.text);
     lines.push('');
   }
 
-  sections.forEach(sec => {
-    lines.push(`${sec.title.toUpperCase()}`);
+  // Link second
+  if (reportUrl) {
+    lines.push(`View full interactive report — RFP_Analyser_AI: ${reportUrl}`);
+    lines.push('');
+  }
+
+  // Data tables last
+  dataSections.forEach(sec => {
+    lines.push(sec.title.toUpperCase());
     lines.push('-'.repeat(40));
     if (sec.type === 'table' && sec.rows) {
       const maxLen = Math.max(...sec.rows.map(r => String(r.label).length));
