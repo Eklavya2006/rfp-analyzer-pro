@@ -665,6 +665,12 @@ export default function CreateProposalModule() {
         const plan  = result?.projectPlan;
         const staff = result?.staffingPlan;
         const emailSections: EmailSection[] = [
+          // ── Cover Message always first ──────────────────────────
+          {
+            title: 'Cover Message',
+            type: 'text' as const,
+            text: `Dear ${clientName} Team,\n\nPlease find enclosed the IBM proposal for ${projectTitle}. This proposal has been prepared based on the project requirements and outlines our recommended delivery approach, timeline, and investment.\n\nWe look forward to discussing this further.\n\nBest regards,\nIBM Delivery Team`,
+          },
           {
             title: 'Proposal Summary',
             type: 'table',
@@ -699,11 +705,6 @@ export default function CreateProposalModule() {
               value: `Week ${p.startWeek}–${p.endWeek} (${p.durationWeeks}w)`,
             })),
           }] : []),
-          {
-            title: 'Cover Message',
-            type: 'text' as const,
-            text: `Dear ${clientName} Team,\n\nPlease find enclosed the IBM proposal for ${projectTitle}. This proposal has been prepared based on the project requirements and outlines our recommended delivery approach, timeline, and investment.\n\nWe look forward to discussing this further.\n\nBest regards,\nIBM Delivery Team`,
-          },
         ];
         return (
           <EmailComposerModal
