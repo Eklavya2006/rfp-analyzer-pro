@@ -42,18 +42,32 @@ export interface EmailComposerProps {
 const ACCENT = '#0f62fe';
 const GREEN  = '#42be65';
 
-// ─── Build plain-text email body from sections ───────────────
-function buildPlainBody(sections: EmailSection[], reportTitle: string, subtitle: string): string {
+// ─── Build plain-text email body with hosted link ────────────
+function buildPlainBody(
+  sections: EmailSection[],
+  reportTitle: string,
+  subtitle: string,
+  reportUrl?: string,
+): string {
   const lines: string[] = [
     reportTitle,
     subtitle,
     `Generated: ${new Date().toLocaleString()}`,
     '',
   ];
+
+  // ── Prominent hosted link at top ──────────────────────────
+  if (reportUrl) {
+    lines.push('┌─────────────────────────────────────────┐');
+    lines.push('│  VIEW FULL VISUAL REPORT (with avatar)  │');
+    lines.push(`│  ${reportUrl.padEnd(41)}│`);
+    lines.push('└─────────────────────────────────────────┘');
+    lines.push('');
+  }
+
   sections.forEach(sec => {
     lines.push(`━━━ ${sec.title.toUpperCase()} ━━━`);
     if (sec.type === 'table' && sec.rows) {
-      // find max label length for alignment
       const maxLen = Math.max(...sec.rows.map(r => String(r.label).length));
       sec.rows.forEach(r => {
         lines.push(`${String(r.label).padEnd(maxLen + 2)}: ${r.value}${r.badge ? ` [${r.badge}]` : ''}`);
@@ -63,6 +77,11 @@ function buildPlainBody(sections: EmailSection[], reportTitle: string, subtitle:
     }
     lines.push('');
   });
+
+  if (reportUrl) {
+    lines.push('─────────────────────────────────');
+    lines.push(`View full report: ${reportUrl}`);
+  }
   lines.push('─────────────────────────────────');
   lines.push('Sent from RFP Analyzer Pro · IBM');
   return lines.join('\n');
@@ -138,16 +157,38 @@ export default function EmailComposerModal({
   open, onClose, defaultTo = '', subject, reportTitle, subtitle,
   avatarInitials = 'RP', avatarColor = ACCENT, sections,
 }: EmailComposerProps) {
-  const [to,       setTo]       = useState(defaultTo);
-  const [sent,     setSent]     = useState(false);
-  const [sending,  setSending]  = useState(false);
-  const [visible,  setVisible]  = useState(false);
+  const [to,         setTo]         = useState(defaultTo);
+  const [sent,       setSent]       = useState(false);
+  const [sending,    setSending]    = useState(false);
+  const [visible,    setVisible]    = useState(false);
+  const [reportUrl,  setReportUrl]  = useState('');
+  const [urlLoading, setUrlLoading] = useState(false);
 
-  // entrance / exit animation
+  // entrance / exit animation + pre-generate hosted link
   useEffect(() => {
-    if (open) { setTimeout(() => setVisible(true), 10); setSent(false); setSending(false); setTo(defaultTo); }
-    else       { setVisible(false); }
-  }, [open, defaultTo]);
+    if (open) {
+      setTimeout(() => setVisible(true), 10);
+      setSent(false); setSending(false); setTo(defaultTo); setReportUrl('');
+      // Generate hosted report URL in background
+      setUrlLoading(true);
+      const base = window.location.origin;
+      const basePath = process.env.NEXT_PUBLIC_BASE_PATH ?? '';
+      fetch(`${basePath}/api/email-report`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          reportTitle, subtitle, avatarInitials, avatarColor, sections,
+          generatedAt: new Date().toLocaleString(),
+        }),
+      })
+        .then(r => r.json())
+        .then((d: { url: string }) => { setReportUrl(d.url); setUrlLoading(false); })
+        .catch(() => setUrlLoading(false));
+    } else {
+      setVisible(false);
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [open]);
 
   if (!open) return null;
 
@@ -155,12 +196,12 @@ export default function EmailComposerModal({
     if (!to.trim() || sending || sent) return;
     setSending(true);
     setTimeout(() => {
-      const body = encodeURIComponent(buildPlainBody(sections, reportTitle, subtitle));
+      const body = encodeURIComponent(buildPlainBody(sections, reportTitle, subtitle, reportUrl || undefined));
       const subj = encodeURIComponent(subject);
       window.open(`mailto:${encodeURIComponent(to.trim())}?subject=${subj}&body=${body}`, '_blank');
       setSending(false);
       setSent(true);
-    }, 700); // brief animation delay
+    }, 700);
   }
 
   function handleClose() {
@@ -242,6 +283,47 @@ export default function EmailComposerModal({
         <div style={{ padding: '10px 24px', borderBottom: '1px solid #e5e7eb',
           fontSize: 12, color: '#57606a', background: '#fafbfc' }}>
           <span style={{ fontWeight: 600 }}>Subject: </span>{subject}
+        </div>
+
+        {/* ── Hosted report link banner ── */}
+        <div style={{
+          margin: '12px 20px 0', borderRadius: 10, overflow: 'hidden',
+          border: `1px solid ${reportUrl ? '#bbf7d0' : '#e5e7eb'}`,
+          background: reportUrl ? '#f0fdf4' : '#f7f8fa',
+          transition: 'all 0.3s',
+        }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '10px 14px' }}>
+            <div style={{
+              width: 32, height: 32, borderRadius: '50%', flexShrink: 0,
+              background: reportUrl ? '#22c55e' : '#e2e8f0',
+              display: 'flex', alignItems: 'center', justifyContent: 'center',
+              transition: 'background 0.3s',
+            }}>
+              {urlLoading ? (
+                <div style={{ width: 14, height: 14, borderRadius: '50%',
+                  border: '2px solid #94a3b8', borderTopColor: ACCENT,
+                  animation: 'spin 0.7s linear infinite' }} />
+              ) : (
+                <span style={{ fontSize: 14 }}>{reportUrl ? '🔗' : '⏳'}</span>
+              )}
+            </div>
+            <div style={{ flex: 1, minWidth: 0 }}>
+              <div style={{ fontSize: 12, fontWeight: 700,
+                color: reportUrl ? '#15803d' : '#64748b', marginBottom: 2 }}>
+                {urlLoading ? 'Generating visual report link…'
+                  : reportUrl ? 'Visual report ready — link included in email'
+                  : 'Preparing link…'}
+              </div>
+              {reportUrl && (
+                <a href={reportUrl} target="_blank" rel="noreferrer"
+                  style={{ fontSize: 11, color: '#0f62fe', textDecoration: 'none',
+                    overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
+                    display: 'block', maxWidth: '100%' }}>
+                  {reportUrl}
+                </a>
+              )}
+            </div>
+          </div>
         </div>
 
         {/* ── Sections ── */}
