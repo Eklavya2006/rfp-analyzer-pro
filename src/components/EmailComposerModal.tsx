@@ -463,10 +463,9 @@ export default function EmailComposerModal({
               </div>
               {reportUrl && (
                 <a href={reportUrl} target="_blank" rel="noreferrer"
-                  style={{ fontSize: 11, color: '#0f62fe', textDecoration: 'none',
-                    overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
-                    display: 'block', maxWidth: '100%' }}>
-                  {reportUrl}
+                  style={{ fontSize: 13, fontWeight: 700, color: ACCENT,
+                    textDecoration: 'underline', display: 'inline-block' }}>
+                  RFP_Analyser_AI
                 </a>
               )}
             </div>
