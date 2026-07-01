@@ -26,8 +26,11 @@ export async function POST(req: NextRequest) {
   purge();
   const token = randomBytes(16).toString('hex');
   store.set(token, { payload, createdAt: Date.now() });
-  const base = process.env.NEXT_PUBLIC_BASE_URL ?? 'http://localhost:3000';
-  const basePath = process.env.NODE_ENV === 'development' ? '' : (process.env.NEXT_PUBLIC_BASE_PATH ?? '');
+  // Derive base from the incoming request so the link is always the real deployed origin,
+  // never localhost. NEXT_PUBLIC_BASE_URL overrides (e.g. custom domain).
+  const reqOrigin = new URL(req.url).origin;
+  const base = process.env.NEXT_PUBLIC_BASE_URL ?? reqOrigin;
+  const basePath = process.env.NEXT_PUBLIC_BASE_PATH ?? '';
   const url = `${base}${basePath}/report/${token}`;
   return NextResponse.json({ token, url });
 }

@@ -42,7 +42,122 @@ export interface EmailComposerProps {
 const ACCENT = '#0f62fe';
 const GREEN  = '#42be65';
 
-// ─── Build plain-text email body with hosted link ────────────
+// ─── Build modern HTML email body ────────────────────────────
+function buildHtmlBody(
+  sections: EmailSection[],
+  reportTitle: string,
+  subtitle: string,
+  reportUrl?: string,
+): string {
+  const sectionRows = sections.map(sec => {
+    const header = `
+      <tr>
+        <td colspan="2" style="padding:14px 20px 6px;font-size:11px;font-weight:700;
+          text-transform:uppercase;letter-spacing:0.07em;color:#57606a;
+          border-top:1px solid #e5e7eb;background:#f7f8fa;">
+          ${sec.title}
+        </td>
+      </tr>`;
+    if (sec.type === 'table' && sec.rows) {
+      const cells = sec.rows.map((r, i) => `
+        <tr style="background:${i % 2 === 0 ? '#ffffff' : '#fafbfc'}">
+          <td style="padding:7px 20px;font-size:13px;color:#57606a;font-weight:500;width:44%;border-bottom:1px solid #f1f5f9;">
+            ${r.label}
+          </td>
+          <td style="padding:7px 20px;font-size:13px;color:${r.highlight ? '#0f62fe' : '#1f2328'};
+            font-weight:${r.highlight ? 700 : 400};border-bottom:1px solid #f1f5f9;">
+            ${r.value}${r.badge ? `&nbsp;<span style="font-size:10px;font-weight:700;border-radius:20px;
+              padding:2px 7px;background:${r.badgeColor ? r.badgeColor + '20' : '#e0f2fe'};
+              color:${r.badgeColor ?? '#0369a1'};border:1px solid ${r.badgeColor ?? '#bae6fd'};">${r.badge}</span>` : ''}
+          </td>
+        </tr>`).join('');
+      return header + cells;
+    }
+    if (sec.type === 'text' && sec.text) {
+      return header + `
+        <tr>
+          <td colspan="2" style="padding:10px 20px 14px;font-size:13px;color:#374151;line-height:1.7;">
+            ${sec.text.replace(/\n/g, '<br>')}
+          </td>
+        </tr>`;
+    }
+    return header;
+  }).join('');
+
+  const linkButton = reportUrl ? `
+    <tr>
+      <td style="padding:24px 20px;">
+        <table cellpadding="0" cellspacing="0" style="margin:0 auto;">
+          <tr>
+            <td style="border-radius:10px;background:#0f62fe;">
+              <a href="${reportUrl}" target="_blank"
+                style="display:inline-block;padding:12px 28px;font-size:14px;font-weight:700;
+                  color:#ffffff;text-decoration:none;letter-spacing:0.01em;">
+                RFP_Analyser_AI &rarr;
+              </a>
+            </td>
+          </tr>
+        </table>
+        <p style="text-align:center;font-size:11px;color:#94a3b8;margin:10px 0 0;">
+          Link expires after 7 days
+        </p>
+      </td>
+    </tr>` : '';
+
+  return `<!DOCTYPE html>
+<html>
+<head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"></head>
+<body style="margin:0;padding:0;background:#f0f4f8;font-family:-apple-system,'Segoe UI',sans-serif;">
+  <table width="100%" cellpadding="0" cellspacing="0">
+    <tr><td align="center" style="padding:32px 16px;">
+      <table width="600" cellpadding="0" cellspacing="0"
+        style="max-width:600px;width:100%;border-radius:16px;overflow:hidden;
+          box-shadow:0 4px 24px rgba(0,0,0,0.10);">
+
+        <!-- Header -->
+        <tr>
+          <td colspan="2" style="background:linear-gradient(135deg,#1e3a5f 0%,#0f62fe 100%);
+            padding:28px 28px 24px;">
+            <p style="margin:0 0 4px;font-size:20px;font-weight:800;color:#ffffff;
+              letter-spacing:-0.3px;">${reportTitle}</p>
+            <p style="margin:0;font-size:13px;color:rgba(255,255,255,0.72);">${subtitle}</p>
+            <p style="margin:10px 0 0;font-size:11px;color:rgba(255,255,255,0.5);">
+              Generated ${new Date().toLocaleString()} &middot; RFP Analyzer Pro
+            </p>
+          </td>
+        </tr>
+
+        <!-- CTA Button -->
+        ${linkButton}
+
+        <!-- Data sections -->
+        <tr>
+          <td colspan="2" style="background:#ffffff;">
+            <table width="100%" cellpadding="0" cellspacing="0">
+              ${sectionRows}
+            </table>
+          </td>
+        </tr>
+
+        <!-- Footer -->
+        <tr>
+          <td colspan="2" style="background:#f7f8fa;padding:18px 20px;
+            border-top:1px solid #e5e7eb;text-align:center;">
+            <p style="margin:0;font-size:11px;color:#94a3b8;">
+              Sent by <strong style="color:#0f62fe;">RFP Analyzer Pro</strong>
+              &middot; IBM &middot; Confidential
+            </p>
+          </td>
+        </tr>
+
+      </table>
+    </td></tr>
+  </table>
+</body>
+</html>`;
+}
+
+// ─── Build plain-text fallback (for mail clients that strip HTML) ─
 function buildPlainBody(
   sections: EmailSection[],
   reportTitle: string,
@@ -56,17 +171,15 @@ function buildPlainBody(
     '',
   ];
 
-  // ── Prominent hosted link at top ──────────────────────────
   if (reportUrl) {
-    lines.push('┌─────────────────────────────────────────┐');
-    lines.push('│  VIEW FULL VISUAL REPORT (with avatar)  │');
-    lines.push(`│  ${reportUrl.padEnd(41)}│`);
-    lines.push('└─────────────────────────────────────────┘');
+    lines.push('View full interactive report:');
+    lines.push(`RFP_Analyser_AI: ${reportUrl}`);
     lines.push('');
   }
 
   sections.forEach(sec => {
-    lines.push(`━━━ ${sec.title.toUpperCase()} ━━━`);
+    lines.push(`${sec.title.toUpperCase()}`);
+    lines.push('-'.repeat(40));
     if (sec.type === 'table' && sec.rows) {
       const maxLen = Math.max(...sec.rows.map(r => String(r.label).length));
       sec.rows.forEach(r => {
@@ -78,11 +191,6 @@ function buildPlainBody(
     lines.push('');
   });
 
-  if (reportUrl) {
-    lines.push('─────────────────────────────────');
-    lines.push(`View full report: ${reportUrl}`);
-  }
-  lines.push('─────────────────────────────────');
   lines.push('Sent from RFP Analyzer Pro · IBM');
   return lines.join('\n');
 }
@@ -195,13 +303,34 @@ export default function EmailComposerModal({
   function handleSend() {
     if (!to.trim() || sending || sent) return;
     setSending(true);
-    setTimeout(() => {
-      const body = encodeURIComponent(buildPlainBody(sections, reportTitle, subtitle, reportUrl || undefined));
-      const subj = encodeURIComponent(subject);
-      window.open(`mailto:${encodeURIComponent(to.trim())}?subject=${subj}&body=${body}`, '_blank');
-      setSending(false);
-      setSent(true);
-    }, 700);
+    const url = reportUrl || undefined;
+    const htmlBody = buildHtmlBody(sections, reportTitle, subtitle, url);
+    const plainBody = buildPlainBody(sections, reportTitle, subtitle, url);
+
+    // Try SMTP via API first; fall back to mailto: with HTML body
+    fetch('/api/send-email', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ to: to.trim(), subject, body: plainBody, htmlBody }),
+    })
+      .then(r => r.json())
+      .then((d: { sent: boolean; method: string; mailtoUrl?: string }) => {
+        if (!d.sent) {
+          // SMTP not configured — open Outlook with pre-filled HTML body
+          const subj = encodeURIComponent(subject);
+          const body = encodeURIComponent(plainBody);
+          window.open(`mailto:${encodeURIComponent(to.trim())}?subject=${subj}&body=${body}`, '_blank');
+        }
+        setSending(false);
+        setSent(true);
+      })
+      .catch(() => {
+        const subj = encodeURIComponent(subject);
+        const body = encodeURIComponent(plainBody);
+        window.open(`mailto:${encodeURIComponent(to.trim())}?subject=${subj}&body=${body}`, '_blank');
+        setSending(false);
+        setSent(true);
+      });
   }
 
   function handleClose() {
