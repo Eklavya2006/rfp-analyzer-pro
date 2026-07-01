@@ -130,6 +130,10 @@ export default function ReportPage() {
   const [data,  setData]   = useState<ReportPayload | null>(null);
   const [error, setError]  = useState('');
   const [ready, setReady]  = useState(false);
+  // Derive cover (first text section) and the rest separately
+  const coverSection  = data?.sections.find(s => s.type === 'text');
+  const dataSections  = data?.sections.filter(s => s !== coverSection) ?? [];
+  const firstTable    = data?.sections.find(s => s.type === 'table');
 
   useEffect(() => {
     if (!params?.token) return;
@@ -218,10 +222,10 @@ export default function ReportPage() {
             </div>
           </div>
 
-          {/* KPI strip */}
-          {data.sections[0]?.type === 'table' && data.sections[0].rows && (
+          {/* KPI strip — sourced from first table section regardless of position */}
+          {firstTable?.rows && (
             <div style={{ display: 'flex', gap: 12, marginTop: 24, flexWrap: 'wrap' }}>
-              {data.sections[0].rows.filter(r => r.highlight).slice(0, 3).map((r, i) => (
+              {firstTable.rows.filter(r => r.highlight).slice(0, 3).map((r, i) => (
                 <div key={i} style={{
                   background: 'rgba(255,255,255,0.12)', borderRadius: 12,
                   padding: '10px 16px', flex: '1 1 120px', minWidth: 100,
@@ -240,8 +244,49 @@ export default function ReportPage() {
           Generated {data.generatedAt} · RFP Analyzer Pro
         </div>
 
-        {/* ── Sections ── */}
-        {data.sections.map((sec, i) => (
+        {/* ── Cover message — always on top ── */}
+        {coverSection?.text && (
+          <div style={{
+            background: '#ffffff', border: '1px solid #e5e7eb', borderRadius: 14,
+            padding: '24px 28px', marginBottom: 16,
+            animation: 'card-in 0.4s ease both', animationDelay: '0.05s',
+            boxShadow: '0 1px 4px rgba(0,0,0,0.05)',
+          }}>
+            <div style={{ fontSize: 11, fontWeight: 700, color: '#57606a',
+              textTransform: 'uppercase', letterSpacing: '0.07em', marginBottom: 12 }}>
+              {coverSection.title}
+            </div>
+            <p style={{ fontSize: 14, color: '#374151', lineHeight: 1.8,
+              margin: 0, whiteSpace: 'pre-line' }}>
+              {coverSection.text}
+            </p>
+          </div>
+        )}
+
+        {/* ── RFP_Analyser_AI web link ── */}
+        <div style={{
+          background: '#ffffff', border: '1px solid #e5e7eb', borderRadius: 14,
+          padding: '16px 28px', marginBottom: 16,
+          animation: 'card-in 0.4s ease both', animationDelay: '0.1s',
+          boxShadow: '0 1px 4px rgba(0,0,0,0.05)',
+          display: 'flex', alignItems: 'center', gap: 10,
+        }}>
+          <div style={{ width: 8, height: 8, borderRadius: '50%',
+            background: ACCENT, flexShrink: 0 }} />
+          <span style={{ fontSize: 14, color: '#374151' }}>
+            View full interactive report:&nbsp;
+            <a
+              href={typeof window !== 'undefined' ? window.location.href : '#'}
+              style={{ color: ACCENT, fontWeight: 700, textDecoration: 'underline',
+                fontFamily: 'inherit', fontSize: 14 }}
+            >
+              RFP_Analyser_AI
+            </a>
+          </span>
+        </div>
+
+        {/* ── Data sections (tables + any remaining text sections) ── */}
+        {dataSections.map((sec, i) => (
           <SectionCard key={i} sec={sec} index={i} />
         ))}
 
