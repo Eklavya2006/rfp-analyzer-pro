@@ -69,10 +69,10 @@ function buildHtmlBody(
     <tr>
       <td style="background:#ffffff;padding:4px 28px 24px;">
         <p style="margin:0;font-size:14px;color:#374151;">
-          View the full interactive report:&nbsp;
+          &bull;&nbsp;View full interactive report:&nbsp;
           <a href="${reportUrl}" target="_blank"
             style="color:#0f62fe;font-weight:700;text-decoration:underline;">
-            RFP_Analyser_AI
+            RFP Analyser AI
           </a>
         </p>
         <p style="margin:6px 0 0;font-size:11px;color:#94a3b8;">Link expires after 7 days</p>
@@ -188,9 +188,10 @@ function buildPlainBody(
     lines.push('');
   }
 
-  // Link second
+  // Link second — bare URL on its own line so every mail client auto-hyperlinks it
   if (reportUrl) {
-    lines.push(`View full interactive report — RFP_Analyser_AI: ${reportUrl}`);
+    lines.push(`• View full interactive report — RFP Analyser AI`);
+    lines.push(reportUrl);
     lines.push('');
   }
 
@@ -325,7 +326,22 @@ export default function EmailComposerModal({
     const htmlBody = buildHtmlBody(sections, reportTitle, subtitle, url);
     const plainBody = buildPlainBody(sections, reportTitle, subtitle, url);
 
-    // Try SMTP via API first; fall back to mailto: with HTML body
+    // Try SMTP via API first; fall back to mailto: with plain body
+    // For mailto: fallback, also open the HTML email preview in a new tab so the
+    // user can copy the rich formatted content (with the single-click link) into Outlook.
+    const openMailto = () => {
+      const subj = encodeURIComponent(subject);
+      const body = encodeURIComponent(plainBody);
+      window.open(`mailto:${encodeURIComponent(to.trim())}?subject=${subj}&body=${body}`, '_blank');
+      // Open rendered HTML email in a new tab — user can copy-paste into Outlook
+      // to deliver the single-click hyperlink to the receiver.
+      if (url) {
+        const blob = new Blob([htmlBody], { type: 'text/html' });
+        const blobUrl = URL.createObjectURL(blob);
+        window.open(blobUrl, '_blank');
+      }
+    };
+
     fetch('/api/send-email', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -333,19 +349,12 @@ export default function EmailComposerModal({
     })
       .then(r => r.json())
       .then((d: { sent: boolean; method: string; mailtoUrl?: string }) => {
-        if (!d.sent) {
-          // SMTP not configured — open Outlook with pre-filled HTML body
-          const subj = encodeURIComponent(subject);
-          const body = encodeURIComponent(plainBody);
-          window.open(`mailto:${encodeURIComponent(to.trim())}?subject=${subj}&body=${body}`, '_blank');
-        }
+        if (!d.sent) openMailto();
         setSending(false);
         setSent(true);
       })
       .catch(() => {
-        const subj = encodeURIComponent(subject);
-        const body = encodeURIComponent(plainBody);
-        window.open(`mailto:${encodeURIComponent(to.trim())}?subject=${subj}&body=${body}`, '_blank');
+        openMailto();
         setSending(false);
         setSent(true);
       });
@@ -465,7 +474,7 @@ export default function EmailComposerModal({
                 <a href={reportUrl} target="_blank" rel="noreferrer"
                   style={{ fontSize: 13, fontWeight: 700, color: ACCENT,
                     textDecoration: 'underline', display: 'inline-block' }}>
-                  RFP_Analyser_AI
+                  RFP Analyser AI
                 </a>
               )}
             </div>
