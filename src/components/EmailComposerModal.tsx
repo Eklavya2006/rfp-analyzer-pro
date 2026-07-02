@@ -326,20 +326,15 @@ export default function EmailComposerModal({
     const htmlBody = buildHtmlBody(sections, reportTitle, subtitle, url);
     const plainBody = buildPlainBody(sections, reportTitle, subtitle, url);
 
-    // Try SMTP via API first; fall back to mailto: with plain body
-    // For mailto: fallback, also open the HTML email preview in a new tab so the
-    // user can copy the rich formatted content (with the single-click link) into Outlook.
-    const openMailto = () => {
-      const subj = encodeURIComponent(subject);
-      const body = encodeURIComponent(plainBody);
-      window.open(`mailto:${encodeURIComponent(to.trim())}?subject=${subj}&body=${body}`, '_blank');
-      // Open rendered HTML email in a new tab — user can copy-paste into Outlook
-      // to deliver the single-click hyperlink to the receiver.
-      if (url) {
-        const blob = new Blob([htmlBody], { type: 'text/html' });
-        const blobUrl = URL.createObjectURL(blob);
-        window.open(blobUrl, '_blank');
-      }
+    // Try SMTP first (sends real HTML email with clickable hyperlink).
+    // Fallback: open the fully rendered HTML email in a new browser tab so the
+    // user can copy-paste the rich body (with the single-click link) into Outlook.
+    // We never fall back to mailto: because mailto: only carries plain text —
+    // the raw URL would always be visible to the receiver.
+    const openHtmlFallback = () => {
+      const blob = new Blob([htmlBody], { type: 'text/html' });
+      const blobUrl = URL.createObjectURL(blob);
+      window.open(blobUrl, '_blank');
     };
 
     fetch('/api/send-email', {
@@ -349,12 +344,12 @@ export default function EmailComposerModal({
     })
       .then(r => r.json())
       .then((d: { sent: boolean; method: string; mailtoUrl?: string }) => {
-        if (!d.sent) openMailto();
+        if (!d.sent) openHtmlFallback();
         setSending(false);
         setSent(true);
       })
       .catch(() => {
-        openMailto();
+        openHtmlFallback();
         setSending(false);
         setSent(true);
       });
@@ -490,7 +485,7 @@ export default function EmailComposerModal({
         <div style={{ padding: '14px 20px', borderTop: '1px solid #e5e7eb', background: '#f7f8fa',
           display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12 }}>
           <p style={{ fontSize: 11, color: '#94a3b8', margin: 0 }}>
-            Opens Outlook with content pre-filled · click Send in Outlook
+            Sends via SMTP · or opens formatted email preview to copy into Outlook
           </p>
           <button
             onClick={handleSend}
